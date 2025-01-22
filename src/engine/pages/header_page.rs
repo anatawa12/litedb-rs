@@ -36,7 +36,9 @@ pub(crate) struct HeaderPage {
 }
 
 impl HeaderPage {
-    pub(crate) fn new(buffer: PageBuffer) -> Self {
+    pub const P_INVALID_DATAFILE_STATE: usize = P_INVALID_DATAFILE_STATE;
+
+    pub(crate) fn new(buffer: Box<PageBuffer>) -> Self {
         let mut header = HeaderPage {
             base: BasePage::new(buffer, 0, PageType::Header),
             creation_time: CsDateTime::now(),
@@ -56,7 +58,7 @@ impl HeaderPage {
         header
     }
 
-    pub fn load(buffer: PageBuffer) -> Result<Self> {
+    pub fn load(buffer: Box<PageBuffer>) -> Result<Self> {
         let mut header = HeaderPage {
             base: BasePage::load(buffer)?,
             creation_time: CsDateTime::now(),

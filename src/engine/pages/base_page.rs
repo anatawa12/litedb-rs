@@ -24,7 +24,7 @@ const P_HIGHEST_INDEX: usize = 30; // 30-30 [byte]
 
 pub(crate) struct BasePage {
     // TODO: should we use a reference, or passed from caller when needed instead of storing it here?
-    pub buffer: PageBuffer,
+    pub buffer: Box<PageBuffer>,
     page_id: u32,
     page_type: PageType,
     prev_page_id: u32,
@@ -43,7 +43,7 @@ pub(crate) struct BasePage {
 }
 
 impl BasePage {
-    pub fn new(buffer: PageBuffer, page_id: u32, page_type: PageType) -> Self {
+    pub fn new(buffer: Box<PageBuffer>, page_id: u32, page_type: PageType) -> Self {
         let mut base = BasePage {
             buffer,
 
@@ -74,7 +74,7 @@ impl BasePage {
         base
     }
 
-    pub fn load(buffer: PageBuffer) -> Result<Self> {
+    pub fn load(buffer: Box<PageBuffer>) -> Result<Self> {
         // page information
         let page_id = buffer.read_u32(P_PAGE_ID);
         let page_type: PageType = buffer.read_byte(P_PAGE_TYPE).try_into()?;

@@ -30,6 +30,14 @@ impl Error {
     pub(crate) fn datetime_overflow() -> Self {
         Self::err("DateTime overflow")
     }
+
+    pub(crate) fn encrypted_no_password() -> Self {
+        Self::err("Encrypted database without password")
+    }
+
+    pub(crate) fn collation_not_match() -> Error {
+        Error::err("Collation not match")
+    }
 }
 
 impl Error {

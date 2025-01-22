@@ -1,4 +1,4 @@
-use futures::AsyncWriteExt;
+use futures::{AsyncReadExt, AsyncWriteExt};
 use super::memory_cache::MemoryCache;
 use crate::engine::disk::disk_reader::DiskReader;
 use crate::engine::*;
@@ -18,6 +18,7 @@ impl<SF: StreamFactory> DiskService<SF> {
     pub async fn new(
         data_stream: SF,
         log_stream: SF,
+        collation: Option<Collation>,
     ) -> Result<Self> {
         let mut disk_service = DiskService {
             cache: MemoryCache::new(),
@@ -28,7 +29,7 @@ impl<SF: StreamFactory> DiskService<SF> {
         };
 
         if disk_service.data_stream.len().await? == 0 {
-            disk_service.initialize().await?;
+            disk_service.initialize(collation).await?;
         }
 
         disk_service.data_length = disk_service.data_stream.len().await? - PAGE_SIZE as i64;
@@ -46,9 +47,9 @@ impl<SF: StreamFactory> DiskService<SF> {
         &self.cache
     }
 
-    async fn initialize(&mut self) -> Result<()> {
+    async fn initialize(&mut self, collation: Option<Collation>) -> Result<()> {
         let stream = self.data_stream.get_stream().await?;
-        let collation = Collation::default(); // TODO: specify collation from settings
+        let collation = collation.unwrap_or_default();
         //let initial_size = 0;
 
         let buffer = PageBuffer::new();
@@ -72,5 +73,31 @@ impl<SF: StreamFactory> DiskService<SF> {
 
     pub async fn get_reader(&mut self) -> Result<DiskReader<SF::Stream>> {
         Ok(DiskReader::new(&mut self.cache, self.data_stream.get_stream().await?, self.log_stream.get_stream().await?))
+    }
+
+    pub fn get_file_length(&self, origin: FileOrigin) -> i64 {
+        match origin {
+            FileOrigin::Data => self.data_length + PAGE_SIZE as i64,
+            FileOrigin::Log => self.log_length + PAGE_SIZE as i64,
+        }
+    }
+
+    pub fn read_full(&mut self, origin: FileOrigin) -> impl futures::Stream<Item = Result<Box<PageBuffer>>> {
+        futures::stream::try_unfold(0, async |mut position| {
+            let length = self.get_file_length(origin);
+            let stream = self.data_stream.get_stream().await?;
+
+            if position >= length {
+                return Ok(None);
+            }
+
+            let mut buffer = Box::new(PageBuffer::new());
+            buffer.set_position_origin(position as u64, origin);
+            stream.read_exact(buffer.buffer_mut()).await?;
+
+            position += PAGE_SIZE as i64;
+
+            Ok(Some((buffer, position)))
+        })
     }
 }

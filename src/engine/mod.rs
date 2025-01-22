@@ -5,6 +5,7 @@ mod pages;
 mod engine_pragmas;
 mod buffer_reader;
 mod buffer_writer;
+mod lite_engine;
 
 use futures::{AsyncSeek, AsyncWrite, AsyncRead};
 

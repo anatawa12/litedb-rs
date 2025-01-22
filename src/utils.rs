@@ -2,6 +2,7 @@ use std::time::SystemTime;
 use crate::Error;
 
 // TODO: Implement the CompareOptions struct
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CompareOptions(pub i32);
 
 impl CompareOptions {
@@ -14,9 +15,10 @@ impl CompareOptions {
     pub const STRING_SORT: CompareOptions = CompareOptions(536870912);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Collation {
     pub lcid: i32,
-    pub sort_options: CompareOptions
+    pub sort_options: CompareOptions,
 }
 
 impl Default for Collation {
