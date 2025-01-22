@@ -1,6 +1,9 @@
 mod disk;
 mod page_buffer;
 mod constants;
+mod pages;
+mod engine_pragmas;
+mod buffer_reader;
 
 use futures::{AsyncSeek, AsyncWrite};
 use futures::io::AsyncRead;

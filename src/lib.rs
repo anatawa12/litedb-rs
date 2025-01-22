@@ -19,6 +19,16 @@ pub struct Error {
 }
 
 impl Error {
+    pub(crate) fn invalid_database() -> Error {
+        Error::err("Invalid database file")
+    }
+
+    pub(crate) fn invalid_page() -> Error {
+        Error::err("Invalid database file")
+    }
+}
+
+impl Error {
     pub fn err(message: impl Display) -> Self {
         Error {
             message: message.to_string(),
@@ -28,6 +38,14 @@ impl Error {
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
+        Error {
+            message: err.to_string(),
+        }
+    }
+}
+
+impl From<bson::de::Error> for Error {
+    fn from(err: bson::de::Error) -> Self {
         Error {
             message: err.to_string(),
         }

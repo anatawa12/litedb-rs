@@ -1,7 +1,7 @@
 use crate::Error;
 
 // TODO: Implement the CompareOptions struct
-pub(crate) struct CompareOptions(i32);
+pub(crate) struct CompareOptions(pub i32);
 
 impl CompareOptions {
     pub const IGNORE_CASE: CompareOptions = CompareOptions(1);
@@ -90,6 +90,10 @@ impl BufferSlice {
 
     pub fn read_string(&self, offset: usize, length: usize) -> crate::Result<&str> {
         std::str::from_utf8(self.read_bytes(offset, length)).map_err(Error::err)
+    }
+
+    pub fn read_date_time(&self, offset: usize) -> bson::DateTime {
+        bson::DateTime::from_millis(self.read_i64(offset))
     }
 
     pub(crate) fn slice(&self, offset: usize, count: usize) -> &Self {
