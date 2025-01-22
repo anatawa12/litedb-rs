@@ -1,5 +1,5 @@
 use std::fmt;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use crate::engine::*;
 use crate::utils::BufferSlice;
 
@@ -92,5 +92,11 @@ impl Deref for PageBuffer {
 
     fn deref(&self) -> &Self::Target {
         BufferSlice::new(&self.buffer)
+    }
+}
+
+impl DerefMut for PageBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        BufferSlice::new_mut(&mut self.buffer)
     }
 }

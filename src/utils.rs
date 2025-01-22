@@ -42,10 +42,17 @@ pub struct BufferSlice {
 }
 
 impl BufferSlice {
+    
     pub fn new(buffer: &[u8]) -> &Self {
         unsafe { &*(buffer as *const _ as *const Self) }
     }
 
+    pub fn new_mut(buffer: &mut [u8]) -> &mut Self {
+        unsafe { &mut *(buffer as *mut _ as *mut Self) }
+    }
+}
+
+impl BufferSlice {
     pub fn read_bool(&self, offset: usize) -> bool {
         self.buffer[offset] != 0
     }
@@ -101,3 +108,53 @@ impl BufferSlice {
     }
 }
 
+// writers
+impl BufferSlice {
+    pub fn write_bool(&mut self, offset: usize, value: bool) {
+        self.buffer[offset] = value as u8;
+    }
+
+    pub fn write_byte(&mut self, offset: usize, value: u8) {
+        self.buffer[offset] = value;
+    }
+
+    pub fn write_i16(&mut self, offset: usize, value: i16) {
+        self.buffer[offset..][..2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    pub fn write_i32(&mut self, offset: usize, value: i32) {
+        self.buffer[offset..][..4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    pub fn write_i64(&mut self, offset: usize, value: i64) {
+        self.buffer[offset..][..8].copy_from_slice(&value.to_le_bytes());
+    }
+
+    pub fn write_u16(&mut self, offset: usize, value: u16) {
+        self.buffer[offset..][..2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    pub fn write_u32(&mut self, offset: usize, value: u32) {
+        self.buffer[offset..][..4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    pub fn write_u64(&mut self, offset: usize, value: u64) {
+        self.buffer[offset..][..8].copy_from_slice(&value.to_le_bytes());
+    }
+
+    pub fn write_f64(&mut self, offset: usize, value: f64) {
+        self.buffer[offset..][..8].copy_from_slice(&value.to_le_bytes());
+    }
+
+    pub fn write_bytes(&mut self, offset: usize, value: &[u8]) {
+        self.buffer[offset..][..value.len()].copy_from_slice(value);
+    }
+
+    pub fn write_string(&mut self, offset: usize, value: &str) {
+        self.write_bytes(offset, value.as_bytes());
+    }
+
+    pub fn write_date_time(&mut self, offset: usize, value: bson::DateTime) {
+        self.write_i64(offset, value.timestamp_millis());
+    }
+}
