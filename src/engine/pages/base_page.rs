@@ -1,4 +1,4 @@
-use crate::engine::{PageBuffer, PAGE_HEADER_SIZE};
+use crate::engine::{PageBuffer, PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::Error;
 use crate::Result;
 
@@ -43,6 +43,11 @@ pub(crate) struct BasePage {
 }
 
 impl BasePage {
+    pub const P_PAGE_ID: usize = P_PAGE_ID;
+    pub const P_PAGE_TYPE: usize = P_PAGE_TYPE;
+    pub const P_IS_CONFIRMED: usize = P_IS_CONFIRMED;
+    pub const P_TRANSACTION_ID: usize = P_TRANSACTION_ID;
+
     pub fn new(buffer: Box<PageBuffer>, page_id: u32, page_type: PageType) -> Self {
         let mut base = BasePage {
             buffer,
@@ -75,43 +80,33 @@ impl BasePage {
     }
 
     pub fn load(buffer: Box<PageBuffer>) -> Result<Self> {
+        let mut new = Self::new(buffer, 0, PageType::Empty);
+        new.reload_fully()?;
+
+        Ok(new)
+    }
+
+    pub(crate) fn reload_fully(&mut self) -> Result<()> {
+        let buffer = self.buffer.as_mut();
+
         // page information
-        let page_id = buffer.read_u32(P_PAGE_ID);
-        let page_type: PageType = buffer.read_byte(P_PAGE_TYPE).try_into()?;
-        let prev_page_id = buffer.read_u32(P_PREV_PAGE_ID);
-        let next_page_id = buffer.read_u32(P_NEXT_PAGE_ID);
-        let page_list_slot = buffer.read_byte(P_INITIAL_SLOT);
+        self.page_id = buffer.read_u32(P_PAGE_ID);
+        self.page_type = buffer.read_byte(P_PAGE_TYPE).try_into()?;
+        self.prev_page_id = buffer.read_u32(P_PREV_PAGE_ID);
+        self.next_page_id = buffer.read_u32(P_NEXT_PAGE_ID);
+        self.page_list_slot = buffer.read_byte(P_INITIAL_SLOT);
 
         // transaction
-        let transaction_id = buffer.read_u32(P_TRANSACTION_ID);
-        let is_confirmed = buffer.read_bool(P_IS_CONFIRMED);
-        let col_id = buffer.read_u32(P_COL_ID);
+        self.transaction_id = buffer.read_u32(P_TRANSACTION_ID);
+        self.is_confirmed = buffer.read_bool(P_IS_CONFIRMED);
+        self.col_id = buffer.read_u32(P_COL_ID);
 
         // blocks
-        let items_count = buffer.read_byte(P_ITEMS_COUNT);
-        let used_bytes = buffer.read_u16(P_USED_BYTES);
-        let fragmented_bytes = buffer.read_u16(P_FRAGMENTED_BYTES);
-        let next_free_position = buffer.read_u16(P_NEXT_FREE_POSITION);
-        let highest_index = buffer.read_byte(P_HIGHEST_INDEX);
-
-        Ok(BasePage {
-            buffer,
-            page_id,
-            page_type,
-            prev_page_id,
-            next_page_id,
-            page_list_slot,
-            transaction_id,
-            is_confirmed,
-            col_id,
-            items_count,
-            used_bytes,
-            fragmented_bytes,
-            next_free_position,
-            highest_index,
-
-            dirty: false,
-        })
+        self.items_count = buffer.read_byte(P_ITEMS_COUNT);
+        self.used_bytes = buffer.read_u16(P_USED_BYTES);
+        self.fragmented_bytes = buffer.read_u16(P_FRAGMENTED_BYTES);
+        self.next_free_position = buffer.read_u16(P_NEXT_FREE_POSITION);
+        self.highest_index = buffer.read_byte(P_HIGHEST_INDEX);
     }
 
     pub(crate) fn update_buffer(&mut self) -> Result<&PageBuffer> {
@@ -139,12 +134,38 @@ impl BasePage {
         Ok(buffer)
     }
 
+    pub fn page_id(&self) -> u32 {
+        self.page_id
+    }
+
+    pub fn transaction_id(&self) -> u32 {
+        self.transaction_id
+    }
+
+    pub fn set_transaction_id(&mut self, value: u32) {
+        self.transaction_id = value;
+    }
+
+    pub fn is_confirmed(&self) -> bool {
+        self.is_confirmed
+    }
+
+    pub fn set_confirmed(&mut self, value: bool) {
+        self.is_confirmed = value;
+    }
+
     pub(crate) fn buffer(&self) -> &PageBuffer {
         &self.buffer
     }
 
     pub(crate) fn buffer_mut(&mut self) -> &mut PageBuffer {
         &mut self.buffer
+    }
+}
+
+impl BasePage {
+    pub fn get_page_position(page_id: u32) -> u64 {
+        page_id as u64 * PAGE_SIZE as u64
     }
 }
 

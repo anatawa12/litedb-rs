@@ -73,6 +73,10 @@ impl PageBuffer {
         self.origin = Some(origin);
     }
 
+    pub fn set_position(&mut self, position: u64) {
+        self.position = position;
+    }
+
     pub fn buffer(&self) -> &[u8; PAGE_SIZE] {
         &self.buffer
     }
@@ -84,6 +88,14 @@ impl PageBuffer {
     pub(super) fn update_time(&self) {
         // NO LRU for now
         // Interlocked.Exchange(ref page.Timestamp, DateTime.UtcNow.Ticks)
+    }
+
+    pub fn position(&self) -> u64 {
+        self.position
+    }
+
+    pub fn is_blank(&self) -> bool {
+        self.buffer[..16].iter().all(|&b| b == 0)
     }
 }
 

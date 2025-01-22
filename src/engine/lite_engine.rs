@@ -5,6 +5,7 @@ use crate::engine::{FileOrigin, StreamFactory};
 use crate::{Error, Result};
 use crate::engine::lock_service::LockService;
 use crate::engine::pages::HeaderPage;
+use crate::engine::wal_index_service::WalIndexService;
 use crate::utils::Collation;
 
 pub struct LiteSettings<SF: StreamFactory> {
@@ -47,6 +48,13 @@ impl<SF:StreamFactory> LiteEngine<SF> {
         }
 
         let locker = LockService::new(header.pragmas().clone());
+
+        // no services are passed; they are passed when needed
+        let mut wal_index = WalIndexService::new();
+
+        if disk.get_file_length(FileOrigin::Log) > 0 {
+            wal_index.restore_index(&mut header, &mut disk).await?;
+        }
 
         todo!();
     }

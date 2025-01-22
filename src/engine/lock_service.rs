@@ -12,4 +12,12 @@ impl LockService {
             pragma,
         }
     }
+
+    pub fn enter_exclusive(&self) -> ExclusiveScope {
+        // no lock
+        ExclusiveScope{}
+    }
+}
+
+pub(crate) struct ExclusiveScope {
 }

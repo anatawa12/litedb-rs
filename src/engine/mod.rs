@@ -7,6 +7,8 @@ mod buffer_reader;
 mod buffer_writer;
 mod lite_engine;
 mod lock_service;
+mod wal_index_service;
+mod page_position;
 
 use futures::{AsyncSeek, AsyncWrite, AsyncRead};
 
@@ -26,4 +28,5 @@ pub(crate) trait StreamFactory {
     fn get_stream(&self) -> Box<dyn Future<Output = Result<&mut Self::Stream>> + Unpin>;
     fn exists(&self) -> Box<dyn Future<Output = bool> + Unpin>;
     fn len(&self) -> Box<dyn Future<Output = Result<i64>> + Unpin>;
+    fn set_len(&self, len: i64) -> Box<dyn Future<Output = Result<()>> + Unpin>;
 }

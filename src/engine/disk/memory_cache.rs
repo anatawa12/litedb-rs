@@ -79,6 +79,15 @@ impl MemoryCache {
             !position
         }
     }
+
+    pub fn pages_in_use(&self) -> usize {
+        self.readable.values().map(|x| Rc::strong_count(x) - 1).sum()
+    }
+
+    pub(crate) fn clear(&mut self) {
+        assert_eq!(self.pages_in_use(), 0, "all pages must be released");
+        self.readable.clear();
+    }
 }
 
 struct FreePageCache {

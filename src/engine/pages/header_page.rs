@@ -75,6 +75,13 @@ impl HeaderPage {
         Ok(header)
     }
 
+    // instead of recreating, reload header page
+    pub fn reload_fully(&mut self) -> Result<()> {
+        self.base.reload_fully()?;
+        self.load_header_page()?;
+        Ok(())
+    }
+
     fn load_header_page(&mut self) -> Result<()> {
         let buffer = &self.base.buffer();
 

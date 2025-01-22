@@ -1,4 +1,6 @@
-use futures::{AsyncReadExt, AsyncWriteExt};
+use std::cmp::max;
+use std::io::SeekFrom;
+use futures::prelude::*;
 use super::memory_cache::MemoryCache;
 use crate::engine::disk::disk_reader::DiskReader;
 use crate::engine::*;
@@ -98,5 +100,34 @@ impl<SF: StreamFactory> DiskService<SF> {
 
             Ok(Some((buffer, (this, position, origin))))
         })
+    }
+
+    pub(crate) async fn write_data_disk(&mut self, pages: &[PageBuffer]) -> Result<()> {
+        let stream = self.data_stream.get_stream().await?;
+
+        for page in pages {
+            self.data_length = max(self.data_length, page.position() as i64);
+
+            stream.seek(SeekFrom::Start(page.position())).await?;
+            stream.write_all(page.buffer()).await?;
+        }
+
+        stream.flush().await?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn set_length(&mut self, size: i64, origin: FileOrigin) -> Result<()> {
+        match origin {
+            FileOrigin::Data => {
+                self.data_length = size - PAGE_SIZE as i64;
+                self.data_stream.set_len(size).await?;
+            }
+            FileOrigin::Log => {
+                self.log_length = size - PAGE_SIZE as i64;
+                self.log_stream.set_len(size).await?;
+            }
+        }
+        Ok(())
     }
 }
