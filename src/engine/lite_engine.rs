@@ -3,6 +3,7 @@ use futures::StreamExt;
 use crate::engine::disk::DiskService;
 use crate::engine::{FileOrigin, StreamFactory};
 use crate::{Error, Result};
+use crate::engine::lock_service::LockService;
 use crate::engine::pages::HeaderPage;
 use crate::utils::Collation;
 
@@ -44,6 +45,8 @@ impl<SF:StreamFactory> LiteEngine<SF> {
                 return Err(Error::collation_not_match());
             }
         }
+
+        let locker = LockService::new(header.pragmas().clone());
 
         todo!();
     }
