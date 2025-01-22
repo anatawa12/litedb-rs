@@ -1,16 +1,18 @@
 use std::pin::pin;
 use futures::StreamExt;
 use crate::engine::disk::DiskService;
-use crate::engine::{FileOrigin, StreamFactory};
+use crate::engine::{FileOrigin, StreamFactory, CONTAINER_SORT_SIZE};
 use crate::{Error, Result};
 use crate::engine::lock_service::LockService;
 use crate::engine::pages::HeaderPage;
+use crate::engine::sort_disk::SortDisk;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::utils::Collation;
 
 pub struct LiteSettings<SF: StreamFactory> {
     pub data_stream: SF,
     pub log_stream: SF,
+    pub temp_stream: SF,
     pub auto_build: bool,
     pub collation: Option<Collation>,
 }
@@ -55,6 +57,8 @@ impl<SF:StreamFactory> LiteEngine<SF> {
         if disk.get_file_length(FileOrigin::Log) > 0 {
             wal_index.restore_index(&mut header, &mut disk).await?;
         }
+
+        let sort_disk = SortDisk::new(settings.temp_stream, CONTAINER_SORT_SIZE);
 
         todo!();
     }

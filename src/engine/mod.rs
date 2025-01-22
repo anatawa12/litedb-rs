@@ -9,6 +9,7 @@ mod lite_engine;
 mod lock_service;
 mod wal_index_service;
 mod page_position;
+mod sort_disk;
 
 use futures::{AsyncSeek, AsyncWrite, AsyncRead};
 
