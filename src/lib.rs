@@ -14,3 +14,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Error {
     message: String,
 }
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error {
+            message: err.to_string(),
+        }
+    }
+}

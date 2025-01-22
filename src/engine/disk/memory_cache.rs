@@ -26,7 +26,7 @@ impl MemoryCache {
         &mut self,
         position: u64,
         origin: FileOrigin,
-        factory: impl AsyncFnOnce(u64, &mut PageBuffer) -> Result<()>,
+        factory: impl AsyncFnOnce(u64, &mut PageBufferArray) -> Result<()>,
     ) -> Result<Rc<PageBuffer>> {
         let key = PositionOrigin::new(position, origin);
         let page = match self.readable.entry(key) {
@@ -36,7 +36,7 @@ impl MemoryCache {
 
                 let as_mut = Rc::get_mut(&mut new_page).unwrap();
                 as_mut.set_position_origin(position, origin);
-                factory(position, as_mut).await?;
+                factory(position, as_mut.buffer_mut()).await?;
 
                 v.insert(new_page.clone());
                 new_page
@@ -50,7 +50,7 @@ impl MemoryCache {
         &mut self,
         position: u64,
         origin: FileOrigin,
-        factory: impl AsyncFnOnce(u64, &mut PageBuffer) -> Result<()>,
+        factory: impl AsyncFnOnce(u64, &mut PageBufferArray) -> Result<()>,
     ) -> Result<Box<PageBuffer>> {
         let key = PositionOrigin::new(position, origin);
         let mut new_page = self.free_page_cache.new_page(position, origin);
@@ -58,10 +58,14 @@ impl MemoryCache {
         if let Some(readable) = self.readable.get(&key) {
             *new_page.buffer_mut() = *readable.buffer();
         } else {
-            factory(position, new_page.as_mut()).await?;
+            factory(position, new_page.as_mut().buffer_mut()).await?;
         }
 
         Ok(new_page)
+    }
+
+    pub fn new_page(&self) -> Box<PageBuffer> {
+        self.free_page_cache.new_page(i64::MAX as u64, FileOrigin::Data)
     }
 
     fn get_key(position: u64, origin: FileOrigin) -> u64 {
