@@ -1,4 +1,4 @@
-use crate::engine::PageBuffer;
+use crate::engine::{PageBuffer, PAGE_HEADER_SIZE};
 use crate::Error;
 use crate::Result;
 
@@ -31,16 +31,49 @@ pub(crate) struct BasePage {
     next_page_id: u32,
     page_list_slot: u8,
     transaction_id: u32,
-    is_confirmed: u8,
+    is_confirmed: bool,
     col_id: u32,
     items_count: u8,
     used_bytes: u16,
     fragmented_bytes: u16,
     next_free_position: u16,
     highest_index: u8,
+
+    pub(crate) dirty: bool,
 }
 
 impl BasePage {
+    pub fn new(buffer: PageBuffer, page_id: u32, page_type: PageType) -> Self {
+        let mut base = BasePage {
+            buffer,
+
+            // page info
+            page_id,
+            page_type,
+            prev_page_id: u32::MAX,
+            next_page_id: u32::MAX,
+            page_list_slot: u8::MAX,
+
+            // transaction info
+            transaction_id: u32::MAX,
+            is_confirmed: false,
+            col_id: u32::MAX,
+
+            items_count: 0,
+            used_bytes: 0,
+            fragmented_bytes: 0,
+            next_free_position: PAGE_HEADER_SIZE as u16,
+            highest_index: u8::MAX,
+
+            dirty: false,
+        };
+
+        base.buffer.write_u32(P_PAGE_ID, base.page_id);
+        base.buffer.write_byte(P_PAGE_TYPE, page_type as u8);
+
+        base
+    }
+
     pub fn load(buffer: PageBuffer) -> Result<Self> {
         // page information
         let page_id = buffer.read_u32(P_PAGE_ID);
@@ -51,7 +84,7 @@ impl BasePage {
 
         // transaction
         let transaction_id = buffer.read_u32(P_TRANSACTION_ID);
-        let is_confirmed = buffer.read_byte(P_IS_CONFIRMED);
+        let is_confirmed = buffer.read_bool(P_IS_CONFIRMED);
         let col_id = buffer.read_u32(P_COL_ID);
 
         // blocks
@@ -76,11 +109,39 @@ impl BasePage {
             fragmented_bytes,
             next_free_position,
             highest_index,
+
+            dirty: false,
         })
+    }
+
+    pub(crate) fn update_buffer(&mut self) -> Result<&PageBuffer> {
+        let buffer = &mut self.buffer;
+
+        assert_eq!(buffer.read_u32(P_PAGE_ID), self.page_id, "Page id cannot be changed");
+
+        // page info
+        buffer.write_u32(P_PREV_PAGE_ID, self.prev_page_id);
+        buffer.write_u32(P_NEXT_PAGE_ID, self.next_page_id);
+        buffer.write_byte(P_INITIAL_SLOT, self.page_list_slot);
+
+        // transaction info
+        buffer.write_u32(P_TRANSACTION_ID, self.transaction_id);
+        buffer.write_bool(P_IS_CONFIRMED, self.is_confirmed);
+        buffer.write_u32(P_COL_ID, self.col_id);
+
+        // blocks
+        buffer.write_byte(P_ITEMS_COUNT, self.items_count);
+        buffer.write_u16(P_USED_BYTES, self.used_bytes);
+        buffer.write_u16(P_FRAGMENTED_BYTES, self.fragmented_bytes);
+        buffer.write_u16(P_NEXT_FREE_POSITION, self.next_free_position);
+        buffer.write_byte(P_HIGHEST_INDEX, self.highest_index);
+
+        Ok(buffer)
     }
 }
 
-enum PageType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageType {
     Empty = 0,
     Header = 1,
     Collection = 2,

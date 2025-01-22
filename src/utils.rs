@@ -15,8 +15,8 @@ impl CompareOptions {
 }
 
 pub(crate) struct Collation {
-    lcid: i32,
-    sort_options: CompareOptions
+    pub lcid: i32,
+    pub sort_options: CompareOptions
 }
 
 impl Default for Collation {
@@ -157,6 +157,10 @@ impl BufferSlice {
 
     pub fn write_date_time(&mut self, offset: usize, value: CsDateTime) {
         self.write_u64(offset, value.ticks());
+    }
+
+    pub(crate) fn slice_mut(&mut self, offset: usize, count: usize) -> &mut Self {
+        Self::new_mut(&mut self.buffer[offset..][..count])
     }
 }
 

@@ -54,4 +54,14 @@ impl EnginePragmas {
 
         Ok(pragmas)
     }
+
+    pub(crate) fn update_buffer(&self, buffer: &mut PageBuffer) {
+        buffer.write_i32(P_USER_VERSION, self.user_version);
+        buffer.write_i32(P_COLLATION_LCID, self.collation.lcid);
+        buffer.write_i32(P_COLLATION_SORT, self.collation.sort_options.0);
+        buffer.write_i32(P_TIMEOUT, self.timeout.as_secs() as i32);
+        buffer.write_i64(P_LIMIT_SIZE, self.limit_size);
+        buffer.write_byte(P_UTC_DATE, self.utc_date as u8);
+        buffer.write_i32(P_CHECKPOINT, self.checkpoint);
+    }
 }

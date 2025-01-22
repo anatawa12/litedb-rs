@@ -1,10 +1,12 @@
 use std::env::var;
-use bson::DateTime;
 use crate::engine::PageBuffer;
 use crate::{Error, Result};
 use crate::engine::buffer_reader::BufferReader;
+use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::engine_pragmas::EnginePragmas;
 use crate::engine::pages::base_page::BasePage;
+use crate::engine::pages::PageType;
+use crate::utils::CsDateTime;
 
 const HEADER_INFO: &[u8] = b"** This is a LiteDB file **";
 const FILE_VERSION: u8 = 8;
@@ -22,16 +24,38 @@ const P_COLLECTIONS: usize = 192; // 192-8159 (8064 bytes)
 const COLLECTIONS_SIZE: usize = 8000; // 250 blocks with 32 bytes each
 
 pub(crate) struct HeaderPage {
-    base: BasePage,
+    pub(crate) base: BasePage,
 
     creation_time: CsDateTime,
     free_empty_page_list: u32,
     last_page_id: u32,
-    pragmas: EnginePragmas,
+    pub(crate) pragmas: EnginePragmas,
     collections: bson::Document,
+
+    collections_changed: bool,
 }
 
 impl HeaderPage {
+    pub(crate) fn new(buffer: PageBuffer) -> Self {
+        let mut header = HeaderPage {
+            base: BasePage::new(buffer, 0, PageType::Header),
+            creation_time: CsDateTime::now(),
+            free_empty_page_list: 0,
+            last_page_id: 0,
+            pragmas: EnginePragmas::default(),
+            collections: bson::Document::new(),
+
+            collections_changed: false,
+        };
+
+        let mut buffer = &mut header.base.buffer;
+        buffer.write_bytes(P_HEADER_INFO, HEADER_INFO);
+        buffer.write_byte(P_FILE_VERSION, FILE_VERSION);
+        buffer.write_date_time(P_CREATION_TIME, header.creation_time);
+
+        header
+    }
+
     pub fn load(buffer: PageBuffer) -> Result<Self> {
         let mut header = HeaderPage {
             base: BasePage::load(buffer)?,
@@ -40,6 +64,8 @@ impl HeaderPage {
             last_page_id: 0,
             pragmas: EnginePragmas::default(),
             collections: bson::Document::new(),
+
+            collections_changed: false,
         };
 
         header.load_header_page()?;
@@ -67,5 +93,24 @@ impl HeaderPage {
         self.collections = BufferReader::new(area).read_document()?;
 
         Ok(())
+    }
+
+    pub fn update_buffer(&mut self) -> Result<&PageBuffer> {
+        let mut buffer = &mut self.base.buffer;
+
+        buffer.write_u32(P_FREE_EMPTY_PAGE_ID, self.free_empty_page_list);
+        buffer.write_u32(P_LAST_PAGE_ID, self.last_page_id);
+        self.pragmas.update_buffer(buffer);
+
+        if self.collections_changed {
+            let area = buffer.slice_mut(P_COLLECTIONS, COLLECTIONS_SIZE);
+
+            let mut writer = BufferWriter::new(area);
+            writer.write_document(&self.collections)?;
+
+            self.collections_changed = false;
+        }
+
+        self.base.update_buffer()
     }
 }

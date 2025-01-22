@@ -55,3 +55,11 @@ impl From<bson::de::Error> for Error {
         }
     }
 }
+
+impl From<bson::ser::Error> for Error {
+    fn from(err: bson::ser::Error) -> Self {
+        Error {
+            message: err.to_string(),
+        }
+    }
+}
