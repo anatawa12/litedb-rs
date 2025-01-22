@@ -6,3 +6,11 @@
  *!
  *! [LiteDB]: https://www.litedb.org/
  */
+
+mod engine;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+pub struct Error {
+    message: String,
+}
