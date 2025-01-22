@@ -27,7 +27,7 @@ impl<SF:StreamFactory> LiteEngine<SF> {
 
         let mut disk = DiskService::new(settings.data_stream, settings.log_stream, settings.collation).await?;
 
-        let header_buffer = pin!(disk.read_full(FileOrigin::Data).next()).await.transpose()?.expect("no header page");
+        let header_buffer = pin!(disk.read_full(FileOrigin::Data)).next().await.transpose()?.expect("no header page");
 
         if header_buffer.buffer()[0] == 1 {
             return Err(Error::encrypted_no_password());

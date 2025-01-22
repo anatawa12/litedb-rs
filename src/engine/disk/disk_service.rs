@@ -82,9 +82,9 @@ impl<SF: StreamFactory> DiskService<SF> {
     }
 
     pub fn read_full(&mut self, origin: FileOrigin) -> impl futures::Stream<Item = Result<Box<PageBuffer>>> {
-        futures::stream::try_unfold(0, async move |mut position| {
-            let length = self.get_file_length(origin);
-            let stream = self.data_stream.get_stream().await?;
+        futures::stream::try_unfold((self, 0, origin), async |(this, mut position, origin)| {
+            let length = this.get_file_length(origin);
+            let stream = this.data_stream.get_stream().await?;
 
             if position >= length {
                 return Ok(None);
@@ -96,7 +96,7 @@ impl<SF: StreamFactory> DiskService<SF> {
 
             position += PAGE_SIZE as i64;
 
-            Ok(Some((buffer, position)))
+            Ok(Some((buffer, (this, position, origin))))
         })
     }
 }
