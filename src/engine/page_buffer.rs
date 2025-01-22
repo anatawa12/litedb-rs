@@ -54,20 +54,23 @@ impl fmt::Debug for PositionOrigin {
 }
 
 pub(crate) struct PageBuffer {
-    position_origin: PositionOrigin,
+    position: u64,
+    origin: Option<FileOrigin>,
     buffer: [u8; PAGE_SIZE],
 }
 
 impl PageBuffer {
     pub fn new() -> Self {
         PageBuffer {
-            position_origin: PositionOrigin(0),
+            position: 0,
+            origin: None,
             buffer: [0; PAGE_SIZE],
         }
     }
 
     pub fn set_position_origin(&mut self, position: u64, origin: FileOrigin) {
-        self.position_origin = PositionOrigin::new(position, origin);
+        self.position = position;
+        self.origin = Some(origin);
     }
 
     pub fn buffer(&self) -> &[u8; PAGE_SIZE] {
