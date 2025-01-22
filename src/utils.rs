@@ -1,3 +1,4 @@
+use std::time::SystemTime;
 use crate::Error;
 
 // TODO: Implement the CompareOptions struct
@@ -99,8 +100,8 @@ impl BufferSlice {
         std::str::from_utf8(self.read_bytes(offset, length)).map_err(Error::err)
     }
 
-    pub fn read_date_time(&self, offset: usize) -> bson::DateTime {
-        bson::DateTime::from_millis(self.read_i64(offset))
+    pub fn read_date_time(&self, offset: usize) -> crate::Result<CsDateTime> {
+        CsDateTime::from_ticks(self.read_u64(offset)).ok_or_else(|| Error::datetime_overflow())
     }
 
     pub(crate) fn slice(&self, offset: usize, count: usize) -> &Self {
@@ -154,7 +155,70 @@ impl BufferSlice {
         self.write_bytes(offset, value.as_bytes());
     }
 
-    pub fn write_date_time(&mut self, offset: usize, value: bson::DateTime) {
-        self.write_i64(offset, value.timestamp_millis());
+    pub fn write_date_time(&mut self, offset: usize, value: CsDateTime) {
+        self.write_u64(offset, value.ticks());
+    }
+}
+
+/// C# DateTime in Rust
+/// 
+/// This represents number of 100 nano seconds since 0001-01-01 00:00:00 UTC
+/// This can represent 0001-01-01 00:00:00 ~ 9999-12-31 23:59:59.99999999
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub(crate) struct CsDateTime(pub u64);
+
+impl CsDateTime {
+    const MAX_TICKS: u64 = 3155378975999999999;
+    const UNIX_EPOC_TICKS: u64 = 621355968000000000;
+
+    pub const MIN: CsDateTime = CsDateTime(0);
+    pub const MAX: CsDateTime = CsDateTime(Self::MAX_TICKS);
+
+    pub fn now() -> Self {
+        // now must not exceed MAX_TICKS / MIN_TICKS
+        Self::from_system(SystemTime::now()).unwrap()
+    }
+
+    pub fn from_system(system: SystemTime) -> Option<Self> {
+        let ticks = match system.duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(duration) => {
+                let nanos = duration.as_nanos();
+
+                let after_epoc_ticks = Self::MAX_TICKS - Self::UNIX_EPOC_TICKS;
+                let after_epoc_nanos = after_epoc_ticks as u128 * 100;
+                if nanos > after_epoc_nanos {
+                    return None;
+                }
+                let ticks = Self::UNIX_EPOC_TICKS + (nanos / 100) as u64;
+                ticks
+            },
+            Err(e) => {
+                let duration = e.duration();
+                let nanos = duration.as_nanos();
+
+                let unix_epoc_nanos = Self::UNIX_EPOC_TICKS as u128 * 100;
+
+                if nanos > unix_epoc_nanos {
+                    return None;
+                }
+                let ticks = Self::UNIX_EPOC_TICKS - (nanos / 100) as u64;
+                ticks
+            },
+        };
+        Some(CsDateTime(ticks))
+    }
+
+    pub fn from_ticks(ticks: u64) -> Option<CsDateTime> {
+        if ticks > Self::MAX_TICKS {
+            None
+        } else {
+            Some(CsDateTime(ticks))
+        }
+    }
+}
+
+impl CsDateTime {
+    pub fn ticks(&self) -> u64 {
+        self.0
     }
 }

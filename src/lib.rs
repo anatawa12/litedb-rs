@@ -26,6 +26,10 @@ impl Error {
     pub(crate) fn invalid_page() -> Error {
         Error::err("Invalid database file")
     }
+
+    pub(crate) fn datetime_overflow() -> Self {
+        Self::err("DateTime overflow")
+    }
 }
 
 impl Error {

@@ -24,7 +24,7 @@ const COLLECTIONS_SIZE: usize = 8000; // 250 blocks with 32 bytes each
 pub(crate) struct HeaderPage {
     base: BasePage,
 
-    creation_time: DateTime,
+    creation_time: CsDateTime,
     free_empty_page_list: u32,
     last_page_id: u32,
     pragmas: EnginePragmas,
@@ -35,7 +35,7 @@ impl HeaderPage {
     pub fn load(buffer: PageBuffer) -> Result<Self> {
         let mut header = HeaderPage {
             base: BasePage::load(buffer)?,
-            creation_time: DateTime::now(),
+            creation_time: CsDateTime::now(),
             free_empty_page_list: 0,
             last_page_id: 0,
             pragmas: EnginePragmas::default(),
@@ -57,7 +57,7 @@ impl HeaderPage {
             return Err(Error::invalid_database());
         }
 
-        self.creation_time = buffer.read_date_time(P_CREATION_TIME);
+        self.creation_time = buffer.read_date_time(P_CREATION_TIME)?;
 
         self.free_empty_page_list = buffer.read_u32(P_FREE_EMPTY_PAGE_ID);
         self.last_page_id = buffer.read_u32(P_LAST_PAGE_ID);
