@@ -1,4 +1,4 @@
-use std::env::var;
+use std::ops::{Deref, DerefMut};
 use crate::engine::PageBuffer;
 use crate::{Error, Result};
 use crate::engine::buffer_reader::BufferReader;
@@ -24,12 +24,12 @@ const P_COLLECTIONS: usize = 192; // 192-8159 (8064 bytes)
 const COLLECTIONS_SIZE: usize = 8000; // 250 blocks with 32 bytes each
 
 pub(crate) struct HeaderPage {
-    pub(crate) base: BasePage,
+    base: BasePage,
 
     creation_time: CsDateTime,
     free_empty_page_list: u32,
     last_page_id: u32,
-    pub(crate) pragmas: EnginePragmas,
+    pragmas: EnginePragmas,
     collections: bson::Document,
 
     collections_changed: bool,
@@ -50,7 +50,7 @@ impl HeaderPage {
             collections_changed: false,
         };
 
-        let mut buffer = &mut header.base.buffer;
+        let mut buffer = header.base.buffer_mut();
         buffer.write_bytes(P_HEADER_INFO, HEADER_INFO);
         buffer.write_byte(P_FILE_VERSION, FILE_VERSION);
         buffer.write_date_time(P_CREATION_TIME, header.creation_time);
@@ -76,7 +76,7 @@ impl HeaderPage {
     }
 
     fn load_header_page(&mut self) -> Result<()> {
-        let buffer = &self.base.buffer;
+        let buffer = &self.base.buffer();
 
         let info = buffer.read_bytes(P_HEADER_INFO, HEADER_INFO.len());
         let version = buffer.read_byte(P_FILE_VERSION);
@@ -98,7 +98,7 @@ impl HeaderPage {
     }
 
     pub fn update_buffer(&mut self) -> Result<&PageBuffer> {
-        let mut buffer = &mut self.base.buffer;
+        let mut buffer = self.base.buffer_mut();
 
         buffer.write_u32(P_FREE_EMPTY_PAGE_ID, self.free_empty_page_list);
         buffer.write_u32(P_LAST_PAGE_ID, self.last_page_id);
@@ -114,5 +114,27 @@ impl HeaderPage {
         }
 
         self.base.update_buffer()
+    }
+
+    pub fn pragmas(&self) -> &EnginePragmas {
+        &self.pragmas
+    }
+
+    pub fn pragmas_mut(&mut self) -> &mut EnginePragmas {
+        &mut self.pragmas
+    }
+}
+
+impl Deref for HeaderPage {
+    type Target = BasePage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for HeaderPage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
     }
 }

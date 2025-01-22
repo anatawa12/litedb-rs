@@ -1,3 +1,4 @@
+use std::pin::pin;
 use futures::StreamExt;
 use crate::engine::disk::DiskService;
 use crate::engine::{FileOrigin, StreamFactory};
@@ -26,7 +27,7 @@ impl<SF:StreamFactory> LiteEngine<SF> {
 
         let mut disk = DiskService::new(settings.data_stream, settings.log_stream, settings.collation).await?;
 
-        let header_buffer = disk.read_full(FileOrigin::Data).next().await.transpose()?.expect("no header page");
+        let header_buffer = pin!(disk.read_full(FileOrigin::Data).next()).await.transpose()?.expect("no header page");
 
         if header_buffer.buffer()[0] == 1 {
             return Err(Error::encrypted_no_password());
@@ -34,12 +35,12 @@ impl<SF:StreamFactory> LiteEngine<SF> {
 
         let mut header = HeaderPage::new(header_buffer);
 
-        if header.base.buffer.buffer()[HeaderPage::P_INVALID_DATAFILE_STATE] != 0 && settings.auto_build {
+        if header.buffer().buffer()[HeaderPage::P_INVALID_DATAFILE_STATE] != 0 && settings.auto_build {
             todo!("rebuild when invalid");
         }
 
         if let Some(collation) = settings.collation {
-            if header.pragmas.collation != collation {
+            if header.pragmas().collation() != collation {
                 return Err(Error::collation_not_match());
             }
         }

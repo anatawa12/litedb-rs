@@ -52,15 +52,14 @@ impl<SF: StreamFactory> DiskService<SF> {
         let collation = collation.unwrap_or_default();
         //let initial_size = 0;
 
-        let buffer = PageBuffer::new();
+        let buffer = Box::new(PageBuffer::new());
         let mut header = HeaderPage::new(buffer);
 
-        header.pragmas.collation = collation;
-        header.base.dirty = true;
+        header.pragmas().set_collation(collation);
 
         header.update_buffer()?;
 
-        stream.write_all(header.base.buffer.buffer()).await?;
+        stream.write_all(header.buffer().buffer()).await?;
 
         // initial size
         stream.flush().await?;
@@ -83,7 +82,7 @@ impl<SF: StreamFactory> DiskService<SF> {
     }
 
     pub fn read_full(&mut self, origin: FileOrigin) -> impl futures::Stream<Item = Result<Box<PageBuffer>>> {
-        futures::stream::try_unfold(0, async |mut position| {
+        futures::stream::try_unfold(0, async move |mut position| {
             let length = self.get_file_length(origin);
             let stream = self.data_stream.get_stream().await?;
 

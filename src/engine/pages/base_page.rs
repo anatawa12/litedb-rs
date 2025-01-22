@@ -24,7 +24,7 @@ const P_HIGHEST_INDEX: usize = 30; // 30-30 [byte]
 
 pub(crate) struct BasePage {
     // TODO: should we use a reference, or passed from caller when needed instead of storing it here?
-    pub buffer: Box<PageBuffer>,
+    buffer: Box<PageBuffer>,
     page_id: u32,
     page_type: PageType,
     prev_page_id: u32,
@@ -39,7 +39,7 @@ pub(crate) struct BasePage {
     next_free_position: u16,
     highest_index: u8,
 
-    pub(crate) dirty: bool,
+    dirty: bool,
 }
 
 impl BasePage {
@@ -137,6 +137,14 @@ impl BasePage {
         buffer.write_byte(P_HIGHEST_INDEX, self.highest_index);
 
         Ok(buffer)
+    }
+
+    pub(crate) fn buffer(&self) -> &PageBuffer {
+        &self.buffer
+    }
+
+    pub(crate) fn buffer_mut(&mut self) -> &mut PageBuffer {
+        &mut self.buffer
     }
 }
 
