@@ -1,4 +1,5 @@
-use crate::engine::{Page, PageBuffer, PAGE_HEADER_SIZE, PAGE_SIZE};
+use crate::engine::{PageBuffer, PAGE_HEADER_SIZE, PAGE_SIZE};
+use crate::utils::BufferSlice;
 use crate::Error;
 use crate::Result;
 
@@ -40,6 +41,8 @@ pub(crate) struct BasePage {
     highest_index: u8,
 
     dirty: bool,
+    // cache for GetFreeIndex
+    start_index: u8,
 }
 
 impl BasePage {
@@ -71,6 +74,7 @@ impl BasePage {
             highest_index: u8::MAX,
 
             dirty: false,
+            start_index: 0,
         };
 
         base.buffer.write_u32(P_PAGE_ID, base.page_id);
@@ -107,12 +111,18 @@ impl BasePage {
         self.fragmented_bytes = buffer.read_u16(P_FRAGMENTED_BYTES);
         self.next_free_position = buffer.read_u16(P_NEXT_FREE_POSITION);
         self.highest_index = buffer.read_byte(P_HIGHEST_INDEX);
+
+        Ok(())
     }
 
     pub(crate) fn update_buffer(&mut self) -> Result<&PageBuffer> {
         let buffer = &mut self.buffer;
 
-        assert_eq!(buffer.read_u32(P_PAGE_ID), self.page_id, "Page id cannot be changed");
+        assert_eq!(
+            buffer.read_u32(P_PAGE_ID),
+            self.page_id,
+            "Page id cannot be changed"
+        );
 
         // page info
         buffer.write_u32(P_PREV_PAGE_ID, self.prev_page_id);
@@ -132,6 +142,34 @@ impl BasePage {
         buffer.write_byte(P_HIGHEST_INDEX, self.highest_index);
 
         Ok(buffer)
+    }
+
+    pub fn mark_as_empty(&mut self) {
+        self.set_dirty();
+
+        // page information
+        // PageID never change
+        self.page_type = PageType::Empty;
+        self.prev_page_id = u32::MAX;
+        self.next_page_id = u32::MAX;
+        self.page_list_slot = u8::MAX;
+
+        // transaction information
+        self.col_id = u32::MAX;
+        self.transaction_id = u32::MAX;
+        self.is_confirmed = false;
+
+        // block information
+        self.items_count = 0;
+        self.used_bytes = 0;
+        self.fragmented_bytes = 0;
+        self.next_free_position = PAGE_HEADER_SIZE as u16;
+        self.highest_index = u8::MAX;
+
+        // clear content
+        self.buffer
+            .clear(PAGE_HEADER_SIZE, PAGE_SIZE - PAGE_HEADER_SIZE);
+        self.buffer.write_u8(P_PAGE_TYPE, self.page_type as u8);
     }
 
     pub fn page_id(&self) -> u32 {
@@ -173,11 +211,418 @@ impl BasePage {
     pub(crate) fn is_dirty(&self) -> bool {
         self.dirty
     }
+
+    pub(crate) fn dirty_mut(&mut self) -> &mut bool {
+        &mut self.dirty
+    }
+
+    pub(crate) fn free_bytes(&self) -> usize {
+        if self.items_count == u8::MAX {
+            0
+        } else {
+            PAGE_SIZE - PAGE_HEADER_SIZE - self.used_bytes as usize - self.footer_size()
+        }
+    }
+
+    pub(crate) fn footer_size(&self) -> usize {
+        if self.highest_index == u8::MAX {
+            0
+        } else {
+            (self.highest_index as usize + 1) * SLOT_SIZE
+        }
+    }
 }
 
+// Access/Manipulate PageSegments
+impl BasePage {
+    pub fn get(&self, index: u8) -> &BufferSlice {
+        assert!(self.items_count > 0, "should have items in this page");
+        assert_ne!(
+            self.highest_index,
+            u8::MAX,
+            "should have at least 1 index in this page"
+        );
+        assert!(
+            index < self.highest_index,
+            "get only index below highest index"
+        );
+
+        let position_addr = Self::calc_position_addr(index);
+        let length_addr = Self::calc_length_addr(index);
+
+        let position = self.buffer.read_u16(position_addr) as usize;
+        let length = self.buffer.read_u16(length_addr) as usize;
+
+        assert!(
+            self.valid_position(position, length),
+            "invalid position or length"
+        );
+
+        self.buffer.slice(position, length)
+    }
+
+    pub fn get_mut(&mut self, index: u8) -> &mut BufferSlice {
+        self.get_mut_with_dirty(index).0
+    }
+
+    pub fn get_mut_with_dirty(&mut self, index: u8) -> (&mut BufferSlice, &mut bool) {
+        assert!(self.items_count > 0, "should have items in this page");
+        assert_ne!(
+            self.highest_index,
+            u8::MAX,
+            "should have at least 1 index in this page"
+        );
+        assert!(
+            index < self.highest_index,
+            "get only index below highest index"
+        );
+
+        let position_addr = Self::calc_position_addr(index);
+        let length_addr = Self::calc_length_addr(index);
+
+        let position = self.buffer.read_u16(position_addr) as usize;
+        let length = self.buffer.read_u16(length_addr) as usize;
+
+        assert!(
+            self.valid_position(position, length),
+            "invalid position or length"
+        );
+
+        (self.buffer.slice_mut(position, length), &mut self.dirty)
+    }
+
+    pub fn insert(&mut self, length: usize) -> Result<(&mut BufferSlice, u8)> {
+        self.internal_insert(length, u8::MAX)
+            .map(|(slice, index, _)| (slice, index))
+    }
+
+    pub fn insert_with_dirty(
+        &mut self,
+        length: usize,
+    ) -> Result<(&mut BufferSlice, u8, &mut bool)> {
+        self.internal_insert(length, u8::MAX)
+    }
+
+    fn internal_insert(
+        &mut self,
+        length: usize,
+        mut index: u8,
+    ) -> Result<(&mut BufferSlice, u8, &mut bool)> {
+        let is_new = index == u8::MAX;
+
+        // assert!(self.buffer.writable)
+        assert!(length > 0, "length should be greater than 0");
+        assert!(
+            self.free_bytes() >= length + (if is_new { SLOT_SIZE } else { 0 }),
+            "not enough space"
+        );
+        assert!(self.items_count < u8::MAX, "page full");
+        assert!(
+            self.free_bytes() >= self.fragmented_bytes as usize,
+            "fragmented bytes must be at most free bytes"
+        );
+
+        if !(self.free_bytes() >= length + (if is_new { SLOT_SIZE } else { 0 })) {
+            return Err(Error::no_free_space_page(
+                self.page_id(),
+                self.free_bytes(),
+                length,
+            ));
+        }
+
+        let continuous_blocks = self.free_bytes()
+            - self.fragmented_bytes as usize
+            - (if is_new { SLOT_SIZE } else { 0 });
+
+        // PAGE_SIZE - this.NextFreePosition - this.FooterSize - (isNewInsert ? SLOT_SIZE : 0)
+        debug_assert_eq!(
+            continuous_blocks,
+            PAGE_SIZE
+                - self.next_free_position as usize
+                - self.footer_size()
+                - (if is_new { SLOT_SIZE } else { 0 }),
+            "continuousBlock must be same as from NextFreePosition"
+        );
+
+        if length > continuous_blocks {
+            self.defrag();
+        }
+
+        if index == u8::MAX {
+            index = self.get_free_index();
+        }
+
+        if index > self.highest_index || self.highest_index == u8::MAX {
+            debug_assert_eq!(
+                index,
+                self.highest_index.wrapping_add(1),
+                "index should be highest index + 1"
+            );
+            self.highest_index = index;
+        }
+
+        let position_addr = Self::calc_position_addr(index);
+        let length_addr = Self::calc_length_addr(index);
+
+        debug_assert!(
+            self.buffer.read_u16(position_addr) == 0,
+            "slot position should be 0 before use"
+        );
+        debug_assert!(
+            self.buffer.read_u16(length_addr) == 0,
+            "slot length should be 0 before use"
+        );
+
+        let position = self.next_free_position;
+
+        self.buffer.write_u16(position_addr, position);
+        self.buffer.write_u16(length_addr, length as u16);
+
+        self.items_count += 1;
+        self.used_bytes += length as u16;
+        self.next_free_position += length as u16;
+
+        self.set_dirty();
+
+        Ok((
+            self.buffer.slice_mut(position as usize, length),
+            index,
+            &mut self.dirty,
+        ))
+    }
+
+    pub fn delete(&mut self, index: u8) {
+        // assert!(this.buffer.writable)
+
+        let position_addr = Self::calc_position_addr(index);
+        let length_addr = Self::calc_length_addr(index);
+
+        let position = self.buffer.read_u16(position_addr) as usize;
+        let length = self.buffer.read_u16(length_addr) as usize;
+
+        assert!(
+            self.valid_position(position, length),
+            "invalid position or length"
+        );
+
+        self.buffer.write_u16(position_addr, 0);
+        self.buffer.write_u16(length_addr, 0);
+
+        self.items_count -= 1;
+        self.used_bytes -= length as u16;
+
+        self.buffer.clear(position, length);
+
+        let is_last_segment = position + length == self.next_free_position as usize;
+
+        if is_last_segment {
+            self.next_free_position = position as u16;
+        } else {
+            self.fragmented_bytes += length as u16;
+        }
+
+        if index == self.highest_index {
+            self.update_highest_index();
+        }
+
+        self.start_index = 0;
+
+        if self.items_count == 0 {
+            debug_assert_eq!(
+                self.highest_index,
+                u8::MAX,
+                "if there is no items, HighestIndex must be clear"
+            );
+            debug_assert_eq!(self.used_bytes, 0, "should be no bytes used in clean page");
+            debug_assert!(
+                self.buffer
+                    .slice(PAGE_HEADER_SIZE, PAGE_SIZE - PAGE_HEADER_SIZE - 1)
+                    .as_bytes()
+                    .iter()
+                    .all(|&x| x == 0),
+                "all content area must be 0"
+            );
+
+            self.next_free_position = PAGE_HEADER_SIZE as u16;
+            self.fragmented_bytes = 0;
+        }
+
+        self.set_dirty();
+    }
+
+    pub fn update(&mut self, index: u8, length: usize) -> Result<&mut BufferSlice> {
+        self.update_with_ptr(index, length).map(|(slice, _)| slice)
+    }
+
+    pub fn update_with_dirty(
+        &mut self,
+        index: u8,
+        length: usize,
+    ) -> Result<(&mut BufferSlice, &mut bool)> {
+        // debug_assert!(this.buffer.writable)
+        debug_assert!(length > 0, "length should be greater than 0");
+
+        let position_addr = Self::calc_position_addr(index);
+        let length_addr = Self::calc_length_addr(index);
+
+        let position = self.buffer.read_u16(position_addr) as usize;
+        let old_length = self.buffer.read_u16(length_addr) as usize;
+
+        assert!(
+            self.valid_position(position, old_length),
+            "invalid position or length"
+        );
+
+        let is_last_segment = position + old_length == self.next_free_position as usize;
+        self.set_dirty();
+
+        if length == old_length {
+            // length unchanged; nothing special to do
+            Ok((self.buffer.slice_mut(position, old_length), &mut self.dirty))
+        } else if length < old_length {
+            // if the new length is smaller than the old length,
+            // we can just update the length, and increase fragmented / next free position
+
+            let diff = old_length - length;
+
+            if is_last_segment {
+                self.next_free_position -= diff as u16;
+            } else {
+                self.fragmented_bytes += diff as u16;
+            }
+
+            self.used_bytes -= diff as u16;
+
+            self.buffer.write_u16(length_addr, length as u16);
+
+            // clear fragmented bytes
+            self.buffer.clear(position + length, diff);
+
+            Ok((self.buffer.slice_mut(position, length), &mut self.dirty))
+        } else {
+            // if the new length is greater than the old length,
+            // remove the old segment, and insert a new one
+
+            self.buffer.clear(position, old_length);
+
+            self.items_count -= 1;
+            self.used_bytes -= old_length as u16;
+
+            if is_last_segment {
+                self.next_free_position = position as u16;
+            } else {
+                self.fragmented_bytes += old_length as u16;
+            }
+
+            self.buffer.write_u16(position_addr, 0);
+            self.buffer.write_u16(length_addr, 0);
+
+            self.internal_insert(length, index)
+                .map(|(slice, _, dirty)| (slice, dirty))
+        }
+    }
+
+    pub fn defrag(&mut self) {
+        // assert!(this.buffer.writable)
+        debug_assert!(
+            self.fragmented_bytes > 0,
+            "should have fragmented bytes to defrag"
+        );
+        debug_assert!(
+            self.highest_index < u8::MAX,
+            "should have at least 1 index in this page"
+        );
+
+        // log.debug("Defrag page", this.PageId, this.FragmentedBytes);
+
+        let mut segments = Vec::with_capacity(self.highest_index as usize);
+
+        for index in 0..self.highest_index {
+            let position_addr = Self::calc_position_addr(index);
+            let position = self.buffer.read_u16(position_addr) as usize;
+
+            if position != 0 {
+                segments.push((position, index));
+            }
+        }
+
+        segments.sort_by_key(|(position, _)| *position);
+
+        let mut next_position = PAGE_HEADER_SIZE;
+
+        for (position, index) in segments {
+            let length_addr = Self::calc_length_addr(index);
+            let position_addr = Self::calc_position_addr(index);
+
+            let length = self.buffer.read_u16(length_addr) as usize;
+            //let position = self.buffer.read_u16(position_addr) as usize;
+
+            debug_assert!(
+                self.valid_position(position, length),
+                "invalid position or length"
+            );
+
+            if position != next_position {
+                self.buffer
+                    .buffer_mut()
+                    .copy_within(position..position + length, next_position);
+                self.buffer.write_u16(position_addr, next_position as u16);
+            }
+
+            next_position += length;
+        }
+
+        let empty_length = PAGE_SIZE - next_position - self.footer_size();
+        self.buffer.clear(next_position, empty_length);
+
+        self.fragmented_bytes = 0;
+        self.next_free_position = next_position as u16;
+    }
+
+    fn get_free_index(&mut self) -> u8 {
+        for index in self.start_index..=self.highest_index {
+            let position_addr = Self::calc_position_addr(index);
+            let position = self.buffer.read_u16(position_addr) as usize;
+
+            if position == 0 {
+                self.start_index = index + 1;
+                return index;
+            }
+        }
+
+        return self.highest_index + 1;
+    }
+
+    pub fn get_used_indices(&self) -> impl Iterator<Item = u8> {
+        (0..=self.highest_index).filter(move |&index| {
+            let position_addr = Self::calc_position_addr(index);
+            let position = self.buffer.read_u16(position_addr) as usize;
+            position != 0
+        })
+    }
+
+    fn update_highest_index(&mut self) {
+        self.highest_index = self.get_used_indices().max().unwrap_or(u8::MAX);
+    }
+
+    fn valid_position(&self, position: usize, length: usize) -> bool {
+        (position >= PAGE_HEADER_SIZE && position < (PAGE_SIZE - self.footer_size()))
+            && (length > 0 && length <= PAGE_SIZE - PAGE_HEADER_SIZE - self.footer_size())
+    }
+}
+
+// static helpers
 impl BasePage {
     pub fn get_page_position(page_id: u32) -> u64 {
         page_id as u64 * PAGE_SIZE as u64
+    }
+
+    pub fn calc_position_addr(index: u8) -> usize {
+        PAGE_HEADER_SIZE + index as usize * SLOT_SIZE + 2
+    }
+
+    pub fn calc_length_addr(index: u8) -> usize {
+        PAGE_HEADER_SIZE + index as usize * SLOT_SIZE
     }
 }
 

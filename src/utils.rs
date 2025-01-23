@@ -53,6 +53,10 @@ impl BufferSlice {
     pub fn new_mut(buffer: &mut [u8]) -> &mut Self {
         unsafe { &mut *(buffer as *mut _ as *mut Self) }
     }
+
+    pub fn len(&self) -> usize {
+        self.buffer.len()
+    }
 }
 
 impl BufferSlice {
@@ -109,6 +113,14 @@ impl BufferSlice {
     pub(crate) fn slice(&self, offset: usize, count: usize) -> &Self {
         Self::new(&self.buffer[offset..][..count])
     }
+
+    pub fn clear(&mut self, offset: usize, count: usize) {
+        self.buffer[offset..][..count].fill(0);
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.buffer
+    }
 }
 
 // writers
@@ -131,6 +143,10 @@ impl BufferSlice {
 
     pub fn write_i64(&mut self, offset: usize, value: i64) {
         self.buffer[offset..][..8].copy_from_slice(&value.to_le_bytes());
+    }
+
+    pub fn write_u8(&mut self, offset: usize, value: u8) {
+        self.buffer[offset] = value;
     }
 
     pub fn write_u16(&mut self, offset: usize, value: u16) {

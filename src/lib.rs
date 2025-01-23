@@ -55,6 +55,10 @@ impl Error {
     pub(crate) fn invalid_collection_name(name: &str) -> Error {
         Error::err(format!("Invalid collection name: {}", name))
     }
+
+    pub(crate) fn no_free_space_page(page_id: u32, available: usize, need: usize) -> Error {
+        Error::err(format!("No free space in page: {} (available: {}, need: {})", page_id, available, need))
+    }
 }
 
 impl Error {

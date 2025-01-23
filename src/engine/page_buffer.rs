@@ -54,6 +54,7 @@ impl fmt::Debug for PositionOrigin {
 }
 
 pub(crate) struct PageBuffer {
+    unique_id: i32,
     position: u64,
     origin: Option<FileOrigin>,
     buffer: [u8; PAGE_SIZE],
@@ -62,6 +63,7 @@ pub(crate) struct PageBuffer {
 impl PageBuffer {
     pub fn new() -> Self {
         PageBuffer {
+            unique_id: 0,
             position: 0,
             origin: None,
             buffer: [0; PAGE_SIZE],
