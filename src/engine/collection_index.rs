@@ -1,0 +1,121 @@
+use crate::engine::buffer_reader::BufferReader;
+use crate::engine::buffer_writer::BufferWriter;
+use crate::engine::page_address::PageAddress;
+use crate::Result;
+
+pub(crate) struct CollectionIndex {
+    slot: u8,
+    index_type: u8,
+    name: String,
+    expression: String,
+    // bson_expr: 
+    unique: bool,
+    head: PageAddress,
+    tail: PageAddress,
+    reserved: u8, // previously level max
+    free_index_page_list: u32,
+}
+
+impl CollectionIndex {
+    pub fn new(slot: u8, index_type: u8, name: String, expression: String, unique: bool) -> Self {
+        Self {
+            slot,
+            index_type,
+            name,
+            expression,
+            unique,
+            head: PageAddress::default(),
+            tail: PageAddress::default(),
+            reserved: 0,
+            free_index_page_list: u32::MAX,
+        }
+    }
+
+    pub fn load(reader: &mut BufferReader) -> Result<Self> {
+        let slot = reader.read_u8();
+        let index_type = reader.read_u8();
+        let name = reader.read_cstring()?;
+        let expression = reader.read_cstring()?;
+        let unique = reader.read_bool();
+        let head = reader.read_page_address();
+        let tail = reader.read_page_address();
+        let reserved = reader.read_u8();
+        let free_index_page_list = reader.read_u32();
+
+        Ok(Self {
+            slot,
+            index_type,
+            name,
+            expression,
+            unique,
+            head,
+            tail,
+            reserved,
+            free_index_page_list,
+        })
+    }
+
+    pub fn update_buffer(&self, writer: &mut BufferWriter) {
+        writer.write_u8(self.slot);
+        writer.write_u8(self.index_type);
+        writer.write_cstring(&self.name);
+        writer.write_cstring(&self.expression);
+        writer.write_bool(self.unique);
+        writer.write_page_address(self.head);
+        writer.write_page_address(self.tail);
+        writer.write_u8(self.reserved);
+        writer.write_u32(self.free_index_page_list);
+    }
+
+    pub fn slot(&self) -> u8 {
+        self.slot
+    }
+
+    pub fn index_type(&self) -> u8 {
+        self.index_type
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn expression(&self) -> &str {
+        &self.expression
+    }
+
+    pub fn unique(&self) -> bool {
+        self.unique
+    }
+
+    pub fn head(&self) -> PageAddress {
+        self.head
+    }
+
+    pub fn tail(&self) -> PageAddress {
+        self.tail
+    }
+
+    pub fn reserved(&self) -> u8 {
+        self.reserved
+    }
+
+    pub fn free_index_page_list(&self) -> u32 {
+        self.free_index_page_list
+    }
+
+    pub fn get_length(&self) -> usize {
+        Self::get_length_static(&self.name, &self.expression)
+    }
+
+    pub fn get_length_static(name: &str, expr: &str) -> usize {
+        1 
+            + 1
+            + name.len()+ 1
+            + expr.len() + 1
+            + 1
+            + PageAddress::SERIALIZED_SIZE
+            + PageAddress::SERIALIZED_SIZE
+            + 1
+            + 4
+    }
+}

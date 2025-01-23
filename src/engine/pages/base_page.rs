@@ -138,6 +138,10 @@ impl BasePage {
         self.page_id
     }
 
+    pub fn page_type(&self) -> PageType {
+        self.page_type
+    }
+
     pub fn transaction_id(&self) -> u32 {
         self.transaction_id
     }
@@ -160,6 +164,10 @@ impl BasePage {
 
     pub(crate) fn buffer_mut(&mut self) -> &mut PageBuffer {
         &mut self.buffer
+    }
+
+    pub(crate) fn set_dirty(&mut self) {
+        self.dirty = true;
     }
 }
 

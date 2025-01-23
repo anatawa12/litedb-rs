@@ -10,6 +10,8 @@ mod lock_service;
 mod wal_index_service;
 mod page_position;
 mod sort_disk;
+mod collection_index;
+mod page_address;
 
 use futures::{AsyncSeek, AsyncWrite, AsyncRead};
 

@@ -8,6 +8,7 @@
  */
 
 use std::fmt::Display;
+use crate::engine::{BasePage, PageType};
 
 mod engine;
 mod utils;
@@ -37,6 +38,14 @@ impl Error {
 
     pub(crate) fn collation_not_match() -> Error {
         Error::err("Collation not match")
+    }
+
+    pub(crate) fn invalid_page_type(expected: PageType, page: BasePage) -> Error {
+        Error::err(format!("Invalid page type: expected {:?}, got {:?}", expected, page.page_type()))
+    }
+
+    pub(crate) fn collection_index_limit_reached() -> Error {
+        Error::err("Collection index limit reached")
     }
 }
 
@@ -69,5 +78,11 @@ impl From<bson::ser::Error> for Error {
         Error {
             message: err.to_string(),
         }
+    }
+}
+
+impl From<std::string::FromUtf8Error> for Error {
+    fn from(err: bson::ser::Error) -> Self {
+        Self::err(err)
     }
 }
