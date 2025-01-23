@@ -1,17 +1,17 @@
-use std::ops::{Deref, DerefMut};
-use crate::engine::PageBuffer;
-use crate::{Error, Result};
 use crate::engine::buffer_reader::BufferReader;
 use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::engine_pragmas::EnginePragmas;
 use crate::engine::pages::base_page::BasePage;
 use crate::engine::pages::PageType;
+use crate::engine::PageBuffer;
 use crate::utils::CsDateTime;
+use crate::{Error, Result};
+use std::ops::{Deref, DerefMut};
 
 const HEADER_INFO: &[u8] = b"** This is a LiteDB file **";
 const FILE_VERSION: u8 = 8;
 
-const P_HEADER_INFO: usize = 32;  // 32-58 (27 bytes)
+const P_HEADER_INFO: usize = 32; // 32-58 (27 bytes)
 const P_FILE_VERSION: usize = 59; // 59-59 (1 byte)
 const P_FREE_EMPTY_PAGE_ID: usize = 60; // 60-63 (4 bytes)
 const P_LAST_PAGE_ID: usize = 64; // 64-67 (4 bytes)
@@ -129,6 +129,60 @@ impl HeaderPage {
 
     pub fn pragmas_mut(&mut self) -> &mut EnginePragmas {
         &mut self.pragmas
+    }
+
+    pub fn save_point(&mut self) -> Result<Box<PageBuffer>> {
+        self.update_buffer()?;
+
+        let mut save_point = Box::new(PageBuffer::new());
+
+        *save_point.buffer_mut() = *self.buffer().buffer();
+
+        Ok(save_point)
+    }
+
+    pub fn restore(&mut self, save_point: &PageBuffer) -> Result<()> {
+        *self.buffer_mut().buffer_mut() = *save_point.buffer();
+        self.load_header_page()?;
+        Ok(())
+    }
+
+    pub fn get_collection_page_id(&self, collection: &str) -> u32 {
+        self.collections
+            .get(collection)
+            .map(|x| x.as_i32().unwrap() as u32)
+            .unwrap_or(u32::MAX)
+    }
+
+    pub fn collections(&self) -> impl Iterator<Item = (&str, u32)> {
+        self.collections
+            .iter()
+            .map(|(k, v)| (k, v.as_i32().unwrap() as u32))
+    }
+
+    pub fn insert_collection(&mut self, collection: &str, page_id: u32) {
+        self.collections
+            .insert(collection.to_string(), page_id as i32);
+        self.collections_changed = true;
+    }
+
+    pub fn delete_collection(&mut self, collection: &str) {
+        self.collections.remove(collection);
+        self.collections_changed = true;
+    }
+
+    pub fn rename_collection(&mut self, old_name: &str, new_name: &str) {
+        let page_id = self.collections.remove(old_name).unwrap();
+        self.collections.insert(new_name.to_string(), page_id);
+        self.collections_changed = true;
+    }
+
+    pub fn get_available_collection_space(&self) -> usize {
+        COLLECTIONS_SIZE - bson::to_vec(&self.collections).unwrap().len()
+            - 1 // for int32 type (0x10)
+            - 1 // for new CString ('\0')
+            - 4 // for PageID (int32)
+            - 8 // reserved
     }
 }
 

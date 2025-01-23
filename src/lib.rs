@@ -47,6 +47,14 @@ impl Error {
     pub(crate) fn collection_index_limit_reached() -> Error {
         Error::err("Collection index limit reached")
     }
+
+    pub(crate) fn name_length_header_space(name: &str) -> Error {
+        Error::err(format!("Name length exceeds available header space: {}", name))
+    }
+
+    pub(crate) fn invalid_collection_name(name: &str) -> Error {
+        Error::err(format!("Invalid collection name: {}", name))
+    }
 }
 
 impl Error {
