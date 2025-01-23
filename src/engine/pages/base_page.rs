@@ -50,6 +50,7 @@ impl BasePage {
     pub const P_PAGE_TYPE: usize = P_PAGE_TYPE;
     pub const P_IS_CONFIRMED: usize = P_IS_CONFIRMED;
     pub const P_TRANSACTION_ID: usize = P_TRANSACTION_ID;
+    pub const SLOT_SIZE: usize = SLOT_SIZE;
 
     pub fn new(buffer: Box<PageBuffer>, page_id: u32, page_type: PageType) -> Self {
         let mut base = BasePage {
@@ -182,6 +183,42 @@ impl BasePage {
 
     pub fn transaction_id(&self) -> u32 {
         self.transaction_id
+    }
+
+    pub fn prev_page_id(&self) -> u32 {
+        self.prev_page_id
+    }
+
+    pub fn next_page_id(&self) -> u32 {
+        self.next_page_id
+    }
+
+    pub fn page_list_slot(&self) -> u8 {
+        self.page_list_slot
+    }
+
+    pub fn items_count(&self) -> u8 {
+        self.items_count
+    }
+
+    pub fn used_bytes(&self) -> u16 {
+        self.used_bytes
+    }
+
+    pub fn fragmented_bytes(&self) -> u16 {
+        self.fragmented_bytes
+    }
+
+    pub fn next_free_position(&self) -> u16 {
+        self.next_free_position
+    }
+
+    pub fn highest_index(&self) -> u8 {
+        self.highest_index
+    }
+
+    pub fn col_id(&self) -> u32 {
+        self.col_id
     }
 
     pub fn set_transaction_id(&mut self, value: u32) {
