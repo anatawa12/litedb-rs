@@ -12,12 +12,15 @@ mod page_position;
 mod sort_disk;
 mod collection_index;
 mod page_address;
+mod index_service;
+mod snapshot;
 
 use futures::{AsyncSeek, AsyncWrite, AsyncRead};
 
+pub(crate) use pages::*;
 pub(crate) use page_buffer::*;
 pub(crate) use constants::*;
-pub(crate) use super::{Result, Error};
+pub(crate) use super::Result;
 pub(crate) type PageBufferArray = [u8; PAGE_SIZE];
 
 pub(crate) trait Stream: AsyncRead + AsyncWrite + AsyncSeek + Unpin {
