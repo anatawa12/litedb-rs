@@ -1,4 +1,4 @@
-use crate::engine::{PageBuffer, PAGE_HEADER_SIZE, PAGE_SIZE};
+use crate::engine::{Page, PageBuffer, PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::Error;
 use crate::Result;
 
@@ -168,6 +168,10 @@ impl BasePage {
 
     pub(crate) fn set_dirty(&mut self) {
         self.dirty = true;
+    }
+
+    pub(crate) fn is_dirty(&self) -> bool {
+        self.dirty
     }
 }
 

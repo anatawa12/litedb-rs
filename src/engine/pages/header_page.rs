@@ -3,7 +3,7 @@ use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::engine_pragmas::EnginePragmas;
 use crate::engine::pages::base_page::BasePage;
 use crate::engine::pages::PageType;
-use crate::engine::PageBuffer;
+use crate::engine::{CollectionPage, Page, PageBuffer};
 use crate::utils::CsDateTime;
 use crate::{Error, Result};
 use std::ops::{Deref, DerefMut};
@@ -197,5 +197,15 @@ impl Deref for HeaderPage {
 impl DerefMut for HeaderPage {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.base
+    }
+}
+
+impl Page for HeaderPage {
+    fn load(buffer: Box<PageBuffer>) -> Result<Self> {
+        Self::load(buffer)
+    }
+
+    fn new(_: Box<PageBuffer>, _: u32) -> Self {
+        panic!("create HeaderPage")
     }
 }

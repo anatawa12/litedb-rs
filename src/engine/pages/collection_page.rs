@@ -2,7 +2,7 @@ use crate::engine::buffer_reader::BufferReader;
 use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::collection_index::CollectionIndex;
 use crate::engine::pages::{BasePage, PageType};
-use crate::engine::{PageBuffer, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE};
+use crate::engine::{Page, PageBuffer, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::{Error, Result};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
@@ -176,5 +176,15 @@ impl Deref for CollectionPage {
 impl DerefMut for CollectionPage {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.base
+    }
+}
+
+impl Page for CollectionPage {
+    fn load(buffer: Box<PageBuffer>) -> Result<Self> {
+        Self::load(buffer)
+    }
+
+    fn new(buffer: Box<PageBuffer>, page_id: u32) -> Self {
+        Self::new(buffer, page_id)
     }
 }
