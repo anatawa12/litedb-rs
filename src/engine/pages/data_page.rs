@@ -1,4 +1,4 @@
-use crate::engine::{BasePage, Page, PageBuffer, PageType};
+use crate::engine::{BasePage, Page, PageBuffer, PageType, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::Result;
 use std::ops::{Deref, DerefMut};
 use crate::engine::data_block::{DataBlock, DataBlockMut};
@@ -56,6 +56,24 @@ impl DataPage {
             let extend = self.base.buffer().read_bool(position + DataBlock::P_EXTEND);
             extend == false
         }).map(|index| PageAddress::new(self.page_id(), index))
+    }
+
+    const FREE_PAGE_SLOTS: [usize; 4] = [
+        ((PAGE_SIZE - PAGE_HEADER_SIZE) as f64 * 0.90) as usize, // 0
+        ((PAGE_SIZE - PAGE_HEADER_SIZE) as f64 * 0.75) as usize, // 1
+        ((PAGE_SIZE - PAGE_HEADER_SIZE) as f64 * 0.60) as usize, // 2
+        ((PAGE_SIZE - PAGE_HEADER_SIZE) as f64 * 0.30) as usize, // 3
+    ];
+
+    pub fn free_index_slot(free_bytes: usize) -> u8 {
+        Self::FREE_PAGE_SLOTS.iter().enumerate()
+            .find(|(_, &slot)| slot >= free_bytes)
+            .map(|(index, _)| index as u8)
+            .unwrap_or((PAGE_FREE_LIST_SLOTS - 1) as u8)
+    }
+
+    pub fn get_minimum_index_slot(length: usize) -> i32 {
+        Self::free_index_slot(length) as i32 - 1
     }
 }
 
