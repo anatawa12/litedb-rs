@@ -1,4 +1,5 @@
 use std::time::SystemTime;
+use crate::engine::PageAddress;
 use crate::Error;
 
 // TODO: Implement the CompareOptions struct
@@ -110,6 +111,10 @@ impl BufferSlice {
         CsDateTime::from_ticks(self.read_u64(offset)).ok_or_else(|| Error::datetime_overflow())
     }
 
+    pub fn read_page_address(&self, offset: usize) -> PageAddress {
+        PageAddress::new(self.read_u32(offset), self.read_byte(offset + 4))
+    }
+
     pub(crate) fn slice(&self, offset: usize, count: usize) -> &Self {
         Self::new(&self.buffer[offset..][..count])
     }
@@ -175,6 +180,11 @@ impl BufferSlice {
 
     pub fn write_date_time(&mut self, offset: usize, value: CsDateTime) {
         self.write_u64(offset, value.ticks());
+    }
+
+    pub fn write_page_address(&mut self, offset: usize, value: PageAddress) {
+        self.write_u32(offset, value.page_id());
+        self.write_u8(offset + 4, value.index());
     }
 
     pub(crate) fn slice_mut(&mut self, offset: usize, count: usize) -> &mut Self {
