@@ -13,7 +13,7 @@ const P_INDEXES_COUNT: usize = PAGE_SIZE - P_INDEXES;
 pub(crate) struct CollectionPage {
     base: BasePage,
 
-    free_data_page_list: [u32; PAGE_FREE_LIST_SLOTS],
+    pub free_data_page_list: [u32; PAGE_FREE_LIST_SLOTS],
     indexes: HashMap<String, CollectionIndex>,
 }
 
@@ -65,7 +65,7 @@ impl CollectionPage {
         if self.page_type() == PageType::Empty {
             return self.base.update_buffer();
         }
-        let buffer = self.base.buffer().as_mut();
+        let buffer = self.base.buffer_mut();
         let mut writer = BufferWriter::new(buffer);
 
         for i in 0..PAGE_FREE_LIST_SLOTS {
@@ -123,7 +123,7 @@ impl CollectionPage {
         unique: bool,
     ) -> Result<&mut CollectionIndex> {
         let total_length = 1
-            + self.indexes.values().map(CollectionIndex::get_length).sum()
+            + self.indexes.values().map(CollectionIndex::get_length).sum::<usize>()
             + CollectionIndex::get_length_static(name, expr);
 
         if self.indexes.len() == 255 || total_length >= P_INDEXES_COUNT {
@@ -144,7 +144,7 @@ impl CollectionPage {
             .indexes
             .entry(name.into())
             .insert_entry(index)
-            .get_mut();
+            .into_mut();
         self.base.set_dirty();
 
         Ok(result)
@@ -154,9 +154,8 @@ impl CollectionPage {
         &mut self,
         name: &str
     ) -> &mut CollectionIndex {
-        let index = &mut self.indexes[name];
-        index.set_dirty();
-        Ok(index)
+        self.set_dirty();
+        self.indexes.get_mut(name).unwrap()
     }
 
     pub fn delete_collection_index(&mut self, name: &str) {
@@ -179,6 +178,18 @@ impl DerefMut for CollectionPage {
     }
 }
 
+impl AsRef<BasePage> for CollectionPage {
+    fn as_ref(&self) -> &BasePage {
+        &self.base
+    }
+}
+
+impl AsMut<BasePage> for CollectionPage {
+    fn as_mut(&mut self) -> &mut BasePage {
+        &mut self.base
+    }
+}
+
 impl Page for CollectionPage {
     fn load(buffer: Box<PageBuffer>) -> Result<Self> {
         Self::load(buffer)
@@ -186,5 +197,13 @@ impl Page for CollectionPage {
 
     fn new(buffer: Box<PageBuffer>, page_id: u32) -> Self {
         Self::new(buffer, page_id)
+    }
+
+    fn update_buffer(&mut self) -> Result<&PageBuffer> {
+        self.update_buffer()
+    }
+
+    fn into_base(self: Box<Self>) -> BasePage {
+        self.base
     }
 }

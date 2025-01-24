@@ -64,6 +64,14 @@ impl Error {
     pub(crate) fn invalid_bson() -> Error {
         Error::err("Invalid BSON")
     }
+
+    pub(crate) fn size_limit_reached() -> Self {
+        Self::err("Size limit reached")
+    }
+
+    pub(crate) fn transaction_limit() -> Error {
+        Self::err("Maximum number of transactions reached")
+    }
 }
 
 impl Error {

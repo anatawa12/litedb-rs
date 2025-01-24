@@ -1,7 +1,8 @@
-use crate::engine::{PageBuffer, PAGE_HEADER_SIZE, PAGE_SIZE};
+use crate::engine::{Page, PageBuffer, PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::utils::BufferSlice;
 use crate::Error;
 use crate::Result;
+use std::fmt::Debug;
 
 /// The common variables for each page
 
@@ -193,8 +194,16 @@ impl BasePage {
         self.next_page_id
     }
 
+    pub fn set_next_page_id(&mut self, next_page_id: u32) {
+        self.page_id = next_page_id;
+    }
+
     pub fn page_list_slot(&self) -> u8 {
         self.page_list_slot
+    }
+
+    pub fn set_page_list_slot(&mut self, page_list_slot: u8) {
+        self.page_list_slot = page_list_slot;
     }
 
     pub fn items_count(&self) -> u8 {
@@ -221,6 +230,10 @@ impl BasePage {
         self.col_id
     }
 
+    pub fn set_col_id(&mut self, col_id: u32) {
+        self.col_id = col_id;
+    }
+
     pub fn set_transaction_id(&mut self, value: u32) {
         self.transaction_id = value;
     }
@@ -239,6 +252,10 @@ impl BasePage {
 
     pub(crate) fn buffer_mut(&mut self) -> &mut PageBuffer {
         &mut self.buffer
+    }
+
+    pub(crate) fn into_buffer(self) -> Box<PageBuffer> {
+        self.buffer
     }
 
     pub(crate) fn set_dirty(&mut self) {
@@ -328,15 +345,12 @@ impl BasePage {
         (self.buffer.slice_mut(position, length), &mut self.dirty)
     }
 
-    pub fn insert(&mut self, length: usize) -> Result<(&mut BufferSlice, u8)> {
-        self.internal_insert(length, u8::MAX)
-            .map(|(slice, index, _)| (slice, index))
+    pub fn insert(&mut self, length: usize) -> (&mut BufferSlice, u8) {
+        let (slice, index, _) = self.internal_insert(length, u8::MAX);
+        (slice, index)
     }
 
-    pub fn insert_with_dirty(
-        &mut self,
-        length: usize,
-    ) -> Result<(&mut BufferSlice, u8, &mut bool)> {
+    pub fn insert_with_dirty(&mut self, length: usize) -> (&mut BufferSlice, u8, &mut bool) {
         self.internal_insert(length, u8::MAX)
     }
 
@@ -344,11 +358,12 @@ impl BasePage {
         &mut self,
         length: usize,
         mut index: u8,
-    ) -> Result<(&mut BufferSlice, u8, &mut bool)> {
+    ) -> (&mut BufferSlice, u8, &mut bool) {
         let is_new = index == u8::MAX;
 
         // assert!(self.buffer.writable)
         assert!(length > 0, "length should be greater than 0");
+        // the assert below is to avoid corrupted pages essential
         assert!(
             self.free_bytes() >= length + (if is_new { SLOT_SIZE } else { 0 }),
             "not enough space"
@@ -359,13 +374,14 @@ impl BasePage {
             "fragmented bytes must be at most free bytes"
         );
 
-        if !(self.free_bytes() >= length + (if is_new { SLOT_SIZE } else { 0 })) {
-            return Err(Error::no_free_space_page(
-                self.page_id(),
-                self.free_bytes(),
-                length,
-            ));
-        }
+        // We've checked with assert.
+        //if !(self.free_bytes() >= length + (if is_new { SLOT_SIZE } else { 0 })) {
+        //    return Err(Error::no_free_space_page(
+        //        self.page_id(),
+        //        self.free_bytes(),
+        //        length,
+        //    ));
+        //}
 
         let continuous_blocks = self.free_bytes()
             - self.fragmented_bytes as usize
@@ -421,11 +437,11 @@ impl BasePage {
 
         self.set_dirty();
 
-        Ok((
+        (
             self.buffer.slice_mut(position as usize, length),
             index,
             &mut self.dirty,
-        ))
+        )
     }
 
     pub fn delete(&mut self, index: u8) {
@@ -487,15 +503,15 @@ impl BasePage {
         self.set_dirty();
     }
 
-    pub fn update(&mut self, index: u8, length: usize) -> Result<&mut BufferSlice> {
-        self.update_with_ptr(index, length).map(|(slice, _)| slice)
+    pub fn update(&mut self, index: u8, length: usize) -> &mut BufferSlice {
+        self.update_with_dirty(index, length).0
     }
 
     pub fn update_with_dirty(
         &mut self,
         index: u8,
         length: usize,
-    ) -> Result<(&mut BufferSlice, &mut bool)> {
+    ) -> (&mut BufferSlice, &mut bool) {
         // debug_assert!(this.buffer.writable)
         debug_assert!(length > 0, "length should be greater than 0");
 
@@ -515,7 +531,7 @@ impl BasePage {
 
         if length == old_length {
             // length unchanged; nothing special to do
-            Ok((self.buffer.slice_mut(position, old_length), &mut self.dirty))
+            (self.buffer.slice_mut(position, old_length), &mut self.dirty)
         } else if length < old_length {
             // if the new length is smaller than the old length,
             // we can just update the length, and increase fragmented / next free position
@@ -535,7 +551,7 @@ impl BasePage {
             // clear fragmented bytes
             self.buffer.clear(position + length, diff);
 
-            Ok((self.buffer.slice_mut(position, length), &mut self.dirty))
+            (self.buffer.slice_mut(position, length), &mut self.dirty)
         } else {
             // if the new length is greater than the old length,
             // remove the old segment, and insert a new one
@@ -554,8 +570,8 @@ impl BasePage {
             self.buffer.write_u16(position_addr, 0);
             self.buffer.write_u16(length_addr, 0);
 
-            self.internal_insert(length, index)
-                .map(|(slice, _, dirty)| (slice, dirty))
+            let (slice, _, dirty) = self.internal_insert(length, index);
+            (slice, dirty)
         }
     }
 
@@ -660,6 +676,36 @@ impl BasePage {
 
     pub fn calc_length_addr(index: u8) -> usize {
         PAGE_HEADER_SIZE + index as usize * SLOT_SIZE
+    }
+}
+
+impl AsRef<BasePage> for BasePage {
+    fn as_ref(&self) -> &BasePage {
+        self
+    }
+}
+
+impl AsMut<BasePage> for BasePage {
+    fn as_mut(&mut self) -> &mut BasePage {
+        self
+    }
+}
+
+impl Page for BasePage {
+    fn load(buffer: Box<PageBuffer>) -> Result<Self> {
+        Self::load(buffer)
+    }
+
+    fn new(buffer: Box<PageBuffer>, page_id: u32) -> Self {
+        Self::new(buffer, page_id, PageType::Empty)
+    }
+
+    fn update_buffer(&mut self) -> Result<&PageBuffer> {
+        self.update_buffer()
+    }
+
+    fn into_base(self: Box<Self>) -> BasePage {
+        *self
     }
 }
 

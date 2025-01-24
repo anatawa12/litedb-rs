@@ -1,4 +1,3 @@
-use std::arch::aarch64::int8x8_t;
 use std::collections::{HashMap, HashSet};
 use std::pin::pin;
 use futures::prelude::*;
@@ -12,7 +11,7 @@ use crate::Result;
 pub(crate) struct WalIndexService {
     current_read_version: i32,
     last_transaction_id: i32,
-    index: HashMap<u32, Vec<(i32, i64)>>,
+    index: HashMap<u32, Vec<(i32, u64)>>,
     confirm_transactions: HashSet<u32>,
 }
 
@@ -50,14 +49,14 @@ impl WalIndexService {
         Ok(())
     }
 
-    pub fn next_transaction_id(&mut self) -> i32 {
+    pub fn next_transaction_id(&mut self) -> u32 {
         self.last_transaction_id += 1;
-        self.last_transaction_id
+        self.last_transaction_id as u32
     }
 
-    pub fn get_page_index(&mut self, page_id: u32, version: i32) -> (i32, i64) {
+    pub fn get_page_index(&mut self, page_id: u32, version: i32) -> (i32, u64) {
         if version == 0 {
-            return (0, i64::MAX);
+            return (0, u64::MAX);
         }
 
         if let Some(index) = self.index.get(&page_id) {
@@ -67,9 +66,9 @@ impl WalIndexService {
                 }
             }
 
-            return (version, i64::MAX);
+            return (version, u64::MAX);
         }
-        (i32::MAX, i64::MAX)
+        (i32::MAX, u64::MAX)
     }
 
     pub fn confirm_transaction(&mut self, transaction_id: u32, positions: &[PagePosition]) {
@@ -98,7 +97,7 @@ impl WalIndexService {
             let is_confirmed = buffer.read_bool(BasePage::P_IS_CONFIRMED);
             let transaction_id = buffer.read_u32(BasePage::P_TRANSACTION_ID);
 
-            let position = PagePosition::new(page_id, current as i64);
+            let position = PagePosition::new(page_id, current as u64);
 
             let positions_for_transaction = positions.entry(transaction_id as i64).or_default();
             positions_for_transaction.push(position);
@@ -117,7 +116,7 @@ impl WalIndexService {
                     // reload header
                     header.reload_fully()?;
                     header.set_transaction_id(u32::MAX);
-                    header.set_is_confirmed(false);
+                    header.set_confirmed(false);
                 }
             }
 
@@ -128,14 +127,14 @@ impl WalIndexService {
         Ok(())
     }
 
-    pub async fn checkpoint(&mut self, disk: &mut DiskService<impl StreamFactory>, locker: &mut LockService) -> Result<()> {
+    pub async fn checkpoint(&mut self, disk: &mut DiskService<impl StreamFactory>, locker: &LockService) -> Result<()> {
         if disk.get_file_length(FileOrigin::Log) == 0 || self.confirm_transactions.is_empty() {
             return Ok(());
         }
 
-        let _scope = locker.enter_exclusive().await?;
+        let _scope = locker.enter_exclusive().await;
 
-        self.checkpoint_internal(disk);
+        self.checkpoint_internal(disk).await?;
 
         Ok(())
     }
@@ -145,22 +144,24 @@ impl WalIndexService {
 
         let mut buffers = Vec::new();
 
-        let mut reader = pin!(disk.read_full(FileOrigin::Log));
-        while let Some(mut buffer) = reader.try_next().await? {
-            if buffer.is_blank() {
-                continue;
-            }
+        {
+            let mut reader = pin!(disk.read_full(FileOrigin::Log));
+            while let Some(mut buffer) = reader.try_next().await? {
+                if buffer.is_blank() {
+                    continue;
+                }
 
-            let transaction_id = buffer.read_u32(BasePage::P_TRANSACTION_ID);
+                let transaction_id = buffer.read_u32(BasePage::P_TRANSACTION_ID);
 
-            if self.confirm_transactions.contains(&transaction_id) {
-                let page_id = buffer.read_u32(BasePage::P_PAGE_ID);
+                if self.confirm_transactions.contains(&transaction_id) {
+                    let page_id = buffer.read_u32(BasePage::P_PAGE_ID);
 
-                buffer.write_u32(BasePage::P_TRANSACTION_ID, u32::MAX);
-                buffer.write_bool(BasePage::P_IS_CONFIRMED, false);
-                buffer.set_position(BasePage::get_page_position(page_id));
+                    buffer.write_u32(BasePage::P_TRANSACTION_ID, u32::MAX);
+                    buffer.write_bool(BasePage::P_IS_CONFIRMED, false);
+                    buffer.set_position(BasePage::get_page_position(page_id));
 
-                buffers.push(*buffer);
+                    buffers.push(buffer);
+                }
             }
         }
 

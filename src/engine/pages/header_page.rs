@@ -3,7 +3,7 @@ use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::engine_pragmas::EnginePragmas;
 use crate::engine::pages::base_page::BasePage;
 use crate::engine::pages::PageType;
-use crate::engine::{CollectionPage, Page, PageBuffer};
+use crate::engine::{Page, PageBuffer};
 use crate::utils::CsDateTime;
 use crate::{Error, Result};
 use std::ops::{Deref, DerefMut};
@@ -131,10 +131,27 @@ impl HeaderPage {
         &mut self.pragmas
     }
 
+    pub fn free_empty_page_list(&self) -> u32 {
+        self.free_empty_page_list
+    }
+
+    pub fn set_free_empty_page_list(&mut self, page_id: u32) {
+        self.free_empty_page_list = page_id;
+    }
+
+    pub fn last_page_id(&self) -> u32 {
+        self.last_page_id
+    }
+
+    pub fn set_last_page_id(&mut self, page_id: u32) {
+        self.last_page_id = page_id;
+    }
+
+    // TODO: create RAII struct for save_point and resore pair
     pub fn save_point(&mut self) -> Result<Box<PageBuffer>> {
         self.update_buffer()?;
 
-        let mut save_point = Box::new(PageBuffer::new());
+        let mut save_point = Box::new(PageBuffer::new(0));
 
         *save_point.buffer_mut() = *self.buffer().buffer();
 
@@ -157,7 +174,7 @@ impl HeaderPage {
     pub fn collections(&self) -> impl Iterator<Item = (&str, u32)> {
         self.collections
             .iter()
-            .map(|(k, v)| (k, v.as_i32().unwrap() as u32))
+            .map(|(k, v)| (k.as_str(), v.as_i32().unwrap() as u32))
     }
 
     pub fn insert_collection(&mut self, collection: &str, page_id: u32) {
@@ -200,6 +217,18 @@ impl DerefMut for HeaderPage {
     }
 }
 
+impl AsRef<BasePage> for HeaderPage {
+    fn as_ref(&self) -> &BasePage {
+        &self.base
+    }
+}
+
+impl AsMut<BasePage> for HeaderPage {
+    fn as_mut(&mut self) -> &mut BasePage {
+        &mut self.base
+    }
+}
+
 impl Page for HeaderPage {
     fn load(buffer: Box<PageBuffer>) -> Result<Self> {
         Self::load(buffer)
@@ -207,5 +236,13 @@ impl Page for HeaderPage {
 
     fn new(_: Box<PageBuffer>, _: u32) -> Self {
         panic!("create HeaderPage")
+    }
+
+    fn update_buffer(&mut self) -> Result<&PageBuffer> {
+        self.update_buffer()
+    }
+
+    fn into_base(self: Box<Self>) -> BasePage {
+        self.base
     }
 }

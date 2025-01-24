@@ -69,11 +69,25 @@ impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
         })
     }
 
+    pub fn position(&self) -> PageAddress {
+        self.position
+    }
+
     fn get_next_prev(&self, level: u8, order: Order) -> PageAddress {
         match order {
             Order::Ascending => self.next[level as usize],
             Order::Descending => self.prev[level as usize],
         }
+    }
+
+    pub fn get_key_length(key: &bson::Bson, recalc: bool) -> usize {
+        todo!("reimplement when bson is reimplemented")
+    }
+
+    pub fn get_node_length(level: u8, key: &bson::Bson) -> usize {
+        let key_length = Self::get_key_length(key, false);
+
+        INDEX_NODE_FIXED_SIZE + level as usize * PageAddress::SERIALIZED_SIZE * 2 + key_length
     }
 }
 
@@ -144,13 +158,13 @@ impl<'a> IndexNodeMut<'a> {
         *self.dirty_ptr = true;
     }
 
-    fn set_next_node(&mut self, values: PageAddress) {
+    pub fn set_next_node(&mut self, values: PageAddress) {
         self.next_node = values;
         self.segment.write_page_address(P_NEXT_NODE, values);
         self.set_dirty();
     }
 
-    fn set_prev(&mut self, level: u8, address: PageAddress) {
+    pub fn set_prev(&mut self, level: u8, address: PageAddress) {
         self.prev[level as usize] = address;
         self.segment.write_page_address(
             P_PREV_NEXT + (level as usize * PageAddress::SERIALIZED_SIZE * 2),
@@ -159,7 +173,7 @@ impl<'a> IndexNodeMut<'a> {
         self.set_dirty();
     }
 
-    fn set_next(&mut self, level: u8, address: PageAddress) {
+    pub fn set_next(&mut self, level: u8, address: PageAddress) {
         self.prev[level as usize] = address;
         self.segment.write_page_address(
             P_PREV_NEXT

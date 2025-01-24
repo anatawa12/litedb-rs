@@ -1,4 +1,4 @@
-use crate::engine::{BasePage, Page, PageBuffer, PageType, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE};
+use crate::engine::{BasePage, CollectionPage, Page, PageBuffer, PageType, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::Result;
 use std::ops::{Deref, DerefMut};
 use crate::engine::data_block::{DataBlock, DataBlockMut};
@@ -32,17 +32,17 @@ impl DataPage {
         DataBlockMut::load(page_id, dirty, index, segment)
     }
 
-    pub fn insert_block(&mut self, length: usize, extend: bool) -> Result<DataBlockMut> {
+    pub fn insert_block(&mut self, length: usize, extend: bool) -> DataBlockMut {
         let page_id = self.page_id();
-        let (segment, index, dirty) = self.insert_with_dirty(length + DataBlock::DATA_BLOCK_FIXED_SIZE)?;
-        Ok(DataBlockMut::new(page_id, dirty, index, segment, extend, PageAddress::default()))
+        let (segment, index, dirty) = self.insert_with_dirty(length + DataBlock::DATA_BLOCK_FIXED_SIZE);
+        DataBlockMut::new(page_id, dirty, index, segment, extend, PageAddress::default())
     }
 
-    pub fn update_block(&mut self, index: u8, extend: bool, next_block: PageAddress, length: usize) -> Result<DataBlockMut> {
+    pub fn update_block(&mut self, index: u8, extend: bool, next_block: PageAddress, length: usize) -> DataBlockMut {
         let page_id = self.page_id();
-        let (buffer, dirty) = self.update_with_dirty(index, length + DataBlock::DATA_BLOCK_FIXED_SIZE)?;
+        let (buffer, dirty) = self.update_with_dirty(index, length + DataBlock::DATA_BLOCK_FIXED_SIZE);
 
-        Ok(DataBlockMut::new(page_id, dirty, index, buffer, extend, next_block))
+        DataBlockMut::new(page_id, dirty, index, buffer, extend, next_block)
     }
 
     pub fn delete_block(&mut self, index: u8) {
@@ -67,7 +67,7 @@ impl DataPage {
 
     pub fn free_index_slot(free_bytes: usize) -> u8 {
         Self::FREE_PAGE_SLOTS.iter().enumerate()
-            .find(|(_, &slot)| slot >= free_bytes)
+            .find(|&(_, &slot)| slot >= free_bytes)
             .map(|(index, _)| index as u8)
             .unwrap_or((PAGE_FREE_LIST_SLOTS - 1) as u8)
     }
@@ -91,6 +91,18 @@ impl DerefMut for DataPage {
     }
 }
 
+impl AsRef<BasePage> for DataPage {
+    fn as_ref(&self) -> &BasePage {
+        &self.base
+    }
+}
+
+impl AsMut<BasePage> for DataPage {
+    fn as_mut(&mut self) -> &mut BasePage {
+        &mut self.base
+    }
+}
+
 impl Page for DataPage {
     fn load(buffer: Box<PageBuffer>) -> Result<Self> {
         Self::load(buffer)
@@ -98,5 +110,13 @@ impl Page for DataPage {
 
     fn new(buffer: Box<PageBuffer>, page_id: u32) -> Self {
         Self::new(buffer, page_id)
+    }
+
+    fn update_buffer(&mut self) -> Result<&PageBuffer> {
+        self.base.update_buffer()
+    }
+
+    fn into_base(self: Box<Self>) -> BasePage {
+        self.base
     }
 }

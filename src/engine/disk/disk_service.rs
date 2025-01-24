@@ -1,10 +1,14 @@
+use std::borrow::{Borrow, BorrowMut};
 use std::cmp::max;
+use std::collections::hash_map::Values;
 use std::io::SeekFrom;
+use std::iter::{Filter, FlatMap, Map};
 use futures::prelude::*;
 use super::memory_cache::MemoryCache;
 use crate::engine::disk::disk_reader::DiskReader;
 use crate::engine::*;
 use crate::engine::pages::HeaderPage;
+use crate::engine::snapshot::Snapshot;
 use crate::Result;
 use crate::utils::Collation;
 
@@ -54,7 +58,7 @@ impl<SF: StreamFactory> DiskService<SF> {
         let collation = collation.unwrap_or_default();
         //let initial_size = 0;
 
-        let buffer = Box::new(PageBuffer::new());
+        let buffer = Box::new(PageBuffer::new(0));
         let mut header = HeaderPage::new(buffer);
 
         header.pragmas().set_collation(collation);
@@ -76,6 +80,57 @@ impl<SF: StreamFactory> DiskService<SF> {
         Ok(DiskReader::new(&mut self.cache, self.data_stream.get_stream().await?, self.log_stream.get_stream().await?))
     }
 
+    pub fn max_items_count(&self) -> u32 {
+        ((self.data_length + self.log_length / PAGE_SIZE as i64 + 10) * u8::MAX as i64) as u32
+    }
+
+    pub fn new_page(&mut self) -> Box<PageBuffer> {
+        self.cache.new_page()
+    }
+
+    pub(crate) fn discard_dirty_pages(&self, _pages: &[impl Borrow<PageBuffer>]) {
+        // no reusing buffer in rust impl for now
+        // // only for ROLLBACK action
+        // for page in pages
+        // {
+        //     let page = page.borrow();
+        //     // complete discard page and content
+        //     self.cache.DiscardPage(page);
+        // }
+    }
+
+    pub(crate) fn discard_clean_pages(&self, _pages: &[impl Borrow<PageBuffer>]) {
+        // no reusing buffer in rust impl for now
+        // for page in pages {
+        //     let page = page.borrow();
+        // 
+        //     if (self.cache.try_move_to_readable(page)) {
+        //         self.cache.discard_page(page)
+        //     }
+        // }
+    }
+
+    pub(crate) async fn write_log_disk(&mut self, pages: Vec<Box<PageBuffer>>) -> Result<usize> {
+        let mut count = 0;
+        let stream = self.log_stream.get_stream().await?;
+
+        // lock on stream
+        for mut page in pages {
+            self.log_length += PAGE_SIZE as i64;
+            page.set_position_origin(self.log_length as u64, FileOrigin::Log);
+
+            let page  = self.cache.move_to_readable(page);
+
+            stream.seek(SeekFrom::Start(page.position())).await?;
+
+            stream.write(page.buffer()).await?;
+
+            count += 1;
+        }
+
+        Ok(count)
+    }
+
     pub fn get_file_length(&self, origin: FileOrigin) -> i64 {
         match origin {
             FileOrigin::Data => self.data_length + PAGE_SIZE as i64,
@@ -92,7 +147,7 @@ impl<SF: StreamFactory> DiskService<SF> {
                 return Ok(None);
             }
 
-            let mut buffer = Box::new(PageBuffer::new());
+            let mut buffer = Box::new(PageBuffer::new(0));
             buffer.set_position_origin(position as u64, origin);
             stream.read_exact(buffer.buffer_mut()).await?;
 
@@ -102,7 +157,7 @@ impl<SF: StreamFactory> DiskService<SF> {
         })
     }
 
-    pub(crate) async fn write_data_disk(&mut self, pages: &[PageBuffer]) -> Result<()> {
+    pub(crate) async fn write_data_disk(&mut self, pages: &[Box<PageBuffer>]) -> Result<()> {
         let stream = self.data_stream.get_stream().await?;
 
         for page in pages {

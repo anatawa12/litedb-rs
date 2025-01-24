@@ -25,14 +25,14 @@ impl<SF: StreamFactory> SortDisk<SF> {
         self.container_size
     }
 
-    pub async fn get_reader(&self) -> Result<SF::Stream> {
+    pub async fn get_reader(&self) -> Result<&mut SF::Stream> {
         self.temp_stream.get_stream().await
     }
 
     pub fn get_container_position(&mut self) -> u64 {
-        if let Some(position) = self.free_positions.iter().next() {
-            self.free_positions.remove(position);
-            *position as u64
+        if let Some(&position) = self.free_positions.iter().next() {
+            self.free_positions.remove(&position);
+            position as u64
         } else {
             self.last_container_position += self.container_size as i64;
             self.last_container_position as u64

@@ -91,8 +91,16 @@ impl CollectionIndex {
         self.head
     }
 
+    pub fn set_head(&mut self, page: PageAddress) {
+        self.head = page;
+    }
+
     pub fn tail(&self) -> PageAddress {
         self.tail
+    }
+
+    pub fn set_tail(&mut self, page: PageAddress) {
+        self.tail = page;
     }
 
     pub fn reserved(&self) -> u8 {
@@ -101,6 +109,10 @@ impl CollectionIndex {
 
     pub fn free_index_page_list(&self) -> u32 {
         self.free_index_page_list
+    }
+
+    pub fn set_free_index_page_list(&mut self, list: u32) {
+        self.free_index_page_list = list;
     }
 
     pub fn get_length(&self) -> usize {

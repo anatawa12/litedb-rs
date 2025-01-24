@@ -1,5 +1,5 @@
 use crate::engine::index_node::{IndexNode, IndexNodeMut};
-use crate::engine::{BasePage, PageBuffer, PageType, MAX_INDEX_LENGTH};
+use crate::engine::{BasePage, Page, PageAddress, PageBuffer, PageType, MAX_INDEX_LENGTH};
 use crate::Result;
 use std::ops::{Deref, DerefMut};
 
@@ -31,6 +31,20 @@ impl IndexPage {
         IndexNodeMut::load(page_id, dirty_ptr, index, segment)
     }
 
+    pub fn insert_index_node(
+        &mut self,
+        slot: u8,
+        level: u8,
+        key: bson::Bson,
+        data_block: PageAddress,
+        length: usize,
+    ) -> IndexNodeMut {
+        let page_id = self.base.page_id();
+        let (segment, index, dirty) = self.base.insert_with_dirty(length);
+
+        IndexNodeMut::new(page_id, index, dirty, segment, slot, level, key, data_block)
+    }
+
     pub fn delete_index_node(&mut self, index: u8) {
         self.base.delete(index);
     }
@@ -55,5 +69,35 @@ impl Deref for IndexPage {
 impl DerefMut for IndexPage {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.base
+    }
+}
+
+impl AsRef<BasePage> for IndexPage {
+    fn as_ref(&self) -> &BasePage {
+        &self.base
+    }
+}
+
+impl AsMut<BasePage> for IndexPage {
+    fn as_mut(&mut self) -> &mut BasePage {
+        &mut self.base
+    }
+}
+
+impl Page for IndexPage {
+    fn load(buffer: Box<PageBuffer>) -> Result<Self> {
+        Self::load(buffer)
+    }
+
+    fn new(buffer: Box<PageBuffer>, page_id: u32) -> Self {
+        Self::new(buffer, page_id)
+    }
+
+    fn update_buffer(&mut self) -> Result<&PageBuffer> {
+        self.base.update_buffer()
+    }
+
+    fn into_base(self: Box<Self>) -> BasePage {
+        self.base
     }
 }

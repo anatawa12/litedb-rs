@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::pin::pin;
 use futures::StreamExt;
 use crate::engine::disk::DiskService;
@@ -18,7 +19,7 @@ pub struct LiteSettings<SF: StreamFactory> {
 }
 
 pub struct LiteEngine<SF: StreamFactory> {
-    
+    _unused: PhantomData<SF>,
 }
 
 impl<SF:StreamFactory> LiteEngine<SF> {

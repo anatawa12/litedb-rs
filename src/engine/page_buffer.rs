@@ -61,10 +61,10 @@ pub(crate) struct PageBuffer {
 }
 
 impl PageBuffer {
-    pub fn new() -> Self {
+    pub fn new(unique_id: i32) -> Self {
         PageBuffer {
-            unique_id: 0,
-            position: 0,
+            unique_id,
+            position: u64::MAX,
             origin: None,
             buffer: [0; PAGE_SIZE],
         }
@@ -95,6 +95,10 @@ impl PageBuffer {
     pub fn position(&self) -> u64 {
         self.position
     }
+
+    pub fn origin(&self) -> Option<FileOrigin> {
+        self.origin
+    }    
 
     pub fn is_blank(&self) -> bool {
         self.buffer[..16].iter().all(|&b| b == 0)
