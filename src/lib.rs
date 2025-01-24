@@ -15,6 +15,7 @@ mod utils;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug)]
 pub struct Error {
     message: String,
 }
@@ -58,6 +59,10 @@ impl Error {
 
     pub(crate) fn no_free_space_page(page_id: u32, available: usize, need: usize) -> Error {
         Error::err(format!("No free space in page: {} (available: {}, need: {})", page_id, available, need))
+    }
+
+    pub(crate) fn invalid_bson() -> Error {
+        Error::err("Invalid BSON")
     }
 }
 

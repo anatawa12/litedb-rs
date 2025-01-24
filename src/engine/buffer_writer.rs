@@ -1,3 +1,4 @@
+use bson::Array;
 use crate::engine::page_address::PageAddress;
 use crate::utils::BufferSlice;
 
@@ -17,6 +18,10 @@ impl BufferWriter<'_> {
         self.slice.write_bytes(self.position, &bytes);
         self.position += bytes.len();
         Ok(())
+    }
+
+    pub(crate) fn write_array(&self, p0: &&Array) -> () {
+        todo!()
     }
 
     pub fn skip(&mut self, bytes: usize) {

@@ -1,4 +1,3 @@
-use std::os::unix::raw::mode_t;
 use std::rc::Rc;
 use futures::prelude::*;
 use futures::io;

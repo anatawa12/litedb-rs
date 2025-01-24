@@ -14,6 +14,7 @@ mod collection_index;
 mod page_address;
 mod index_service;
 mod snapshot;
+mod index_node;
 
 use futures::{AsyncSeek, AsyncWrite, AsyncRead};
 
@@ -21,6 +22,8 @@ pub(crate) use pages::*;
 pub(crate) use page_buffer::*;
 pub(crate) use constants::*;
 pub(crate) use page_address::*;
+pub(crate) use buffer_reader::*;
+pub(crate) use buffer_writer::*;
 pub(crate) use super::Result;
 pub(crate) type PageBufferArray = [u8; PAGE_SIZE];
 

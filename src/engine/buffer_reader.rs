@@ -19,6 +19,10 @@ impl BufferReader<'_> {
         Ok(bson::Document::from_reader(document_bin)?)
     }
 
+    pub(crate) fn read_array(&self) -> Result<bson::Array> {
+        todo!()
+    }
+
     pub fn skip(&mut self, bytes: usize) {
         self.position += bytes;
     }
