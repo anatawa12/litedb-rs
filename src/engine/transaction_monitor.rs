@@ -39,8 +39,6 @@ impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
         } else {
             is_new = true;
 
-            
-
             if self.transactions.len() >= MAX_OPEN_TRANSACTIONS {
                 return Err(Error::transaction_limit());
             }

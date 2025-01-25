@@ -88,8 +88,7 @@ impl<'snapshot, 'engine, SF: StreamFactory> CollectionService<'snapshot, 'engine
 
         indexer.create_index("_id", "$._id", true).await?;
 
-        self
-            .snapshot
+        self.snapshot
             .get_page::<CollectionPage>(page_id, false)
             .await
     }

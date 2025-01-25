@@ -1,8 +1,8 @@
-use std::cmp::Ordering;
 use crate::Error;
 use crate::Result;
 use crate::engine::{PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer};
 use crate::utils::BufferSlice;
+use std::cmp::Ordering;
 use std::fmt::Debug;
 
 // The common variables for each page
