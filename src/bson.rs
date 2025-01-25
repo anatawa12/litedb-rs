@@ -53,31 +53,71 @@ pub enum BsonType {
 }
 
 impl BsonType {
-    pub(crate) fn bson_tag(self) -> u8 {
+    pub(crate) fn bson_tag(self) -> BsonTag {
         match self {
-            BsonType::Double => 1,
-            BsonType::String => 2,
-            BsonType::Document => 3,
-            BsonType::Array => 4,
-            BsonType::Binary => 5,
-            BsonType::Guid => 5, // GUID is a kind of binary in bson
-            // 6: undefined
-            BsonType::ObjectId => 7,
-            BsonType::Boolean => 8,
-            BsonType::DateTime => 9,
-            BsonType::Null => 10,
-            // 11: regex
-            // 12: DBPointer
-            // 13: JavaScript code
-            // 14: Symbol
-            // 15: JavaScript code with scope
-            BsonType::Int32 => 16,
-            // 17: timestamp
-            BsonType::Int64 => 18,
-            BsonType::Decimal => 19,
+            BsonType::Double => BsonTag::Double,
+            BsonType::String => BsonTag::String,
+            BsonType::Document => BsonTag::Document,
+            BsonType::Array => BsonTag::Array,
+            BsonType::Binary => BsonTag::Binary,
+            BsonType::Guid => BsonTag::Boolean, // GUID is a kind of binary in bson
+            BsonType::ObjectId => BsonTag::ObjectId,
+            BsonType::Boolean => BsonTag::Boolean,
+            BsonType::DateTime => BsonTag::DateTime,
+            BsonType::Null => BsonTag::Null,
+            BsonType::Int32 => BsonTag::Int32,
+            BsonType::Int64 => BsonTag::Int64,
+            BsonType::Decimal => BsonTag::Decimal,
+            BsonType::MinValue => BsonTag::MinValue,
+            BsonType::MaxValue => BsonTag::MaxValue,
+        }
+    }
+}
 
-            BsonType::MinValue => -1i8 as u8,
-            BsonType::MaxValue => 127,
+#[repr(i8)]
+enum BsonTag {
+    Double = 1,
+    String = 2,
+    Document = 3,
+    Array = 4,
+    Binary = 5,
+    // 6: undefined
+    ObjectId = 7,
+    Boolean = 8,
+    DateTime = 9,
+    Null = 10,
+    // 11: regex
+    // 12: DBPointer
+    // 13: JavaScript code
+    // 14: Symbol
+    // 15: JavaScript code with scope
+    Int32 = 16,
+    // 17: timestamp
+    Int64 = 18,
+    Decimal = 19,
+
+    MinValue = -1,
+    MaxValue = 127,
+}
+
+impl BsonTag {
+    fn from_i8(i: i8) -> Option<Self> {
+        match i {
+            1 => Some(Self::Double),
+            2 => Some(Self::String),
+            3 => Some(Self::Document),
+            4 => Some(Self::Array),
+            5 => Some(Self::Binary),
+            7 => Some(Self::ObjectId),
+            8 => Some(Self::Boolean),
+            9 => Some(Self::DateTime),
+            10 => Some(Self::Null),
+            16 => Some(Self::Int32),
+            18 => Some(Self::Int64),
+            19 => Some(Self::Decimal),
+            -1 => Some(Self::MinValue),
+            127 => Some(Self::MaxValue),
+            _ => None,
         }
     }
 }

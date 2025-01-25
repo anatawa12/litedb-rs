@@ -73,7 +73,7 @@ impl Array {
         w.write_bytes(&len.to_be_bytes())?;
 
         for (index, value) in self.data.iter().enumerate() {
-            w.write_bytes(&[value.ty().bson_tag()])?;
+            w.write_bytes(&[value.ty().bson_tag() as u8])?;
             super::utils::write_c_string(w, &index.to_string())?;
             value.write_value(w)?;
         }

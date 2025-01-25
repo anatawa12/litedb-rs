@@ -64,6 +64,10 @@ impl Document {
     pub fn len(&self) -> usize {
         self.inner.len()
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> {
+        self.inner.iter().map(|(k, v)| (&k.0, v))
+    }
 }
 
 impl Document {
@@ -88,7 +92,7 @@ impl Document {
         w.write_bytes(&len.to_be_bytes())?;
 
         for (key, value) in &self.inner {
-            w.write_bytes(&[value.ty().bson_tag()])?;
+            w.write_bytes(&[value.ty().bson_tag() as u8])?;
             super::utils::write_c_string(w, &key.0)?;
             value.write_value(w)?;
         }
