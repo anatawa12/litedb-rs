@@ -196,10 +196,13 @@ impl BufferSlice {
                 })
             }
             BsonType::ObjectId => {
-                bson::Bson::ObjectId(self.read_object_id(offset))
+                bson::Bson::ObjectId(bson::oid::ObjectId::from_bytes(self.read_bytes(offset, 16).try_into().unwrap()))
             }
             BsonType::Guid => {
-                todo!("GUID in BSON")
+                bson::Bson::Binary(bson::Binary{
+                    subtype: bson::spec::BinarySubtype::Uuid,
+                    bytes: self.read_bytes(offset, 16).to_vec()
+                })
             }
             BsonType::Boolean => {
                 bson::Bson::Boolean(self.read_bool(offset))
