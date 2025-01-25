@@ -9,6 +9,7 @@ mod utils;
 mod array;
 mod binary;
 mod date_time;
+mod de;
 mod decimal128;
 mod document;
 mod guid;
@@ -17,6 +18,7 @@ mod object_id;
 pub use array::Array;
 pub use binary::Binary;
 pub use date_time::DateTime;
+pub use de::*;
 pub use decimal128::Decimal128;
 pub use document::Document;
 pub use guid::Guid;
@@ -53,7 +55,7 @@ pub enum BsonType {
 }
 
 impl BsonType {
-    pub(crate) fn bson_tag(self) -> BsonTag {
+    fn bson_tag(self) -> BsonTag {
         match self {
             BsonType::Double => BsonTag::Double,
             BsonType::String => BsonTag::String,
@@ -70,6 +72,27 @@ impl BsonType {
             BsonType::Decimal => BsonTag::Decimal,
             BsonType::MinValue => BsonTag::MinValue,
             BsonType::MaxValue => BsonTag::MaxValue,
+        }
+    }
+
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::MinValue),
+            1 => Some(Self::Null),
+            2 => Some(Self::Int32),
+            3 => Some(Self::Int64),
+            4 => Some(Self::Double),
+            5 => Some(Self::Decimal),
+            6 => Some(Self::String),
+            7 => Some(Self::Document),
+            8 => Some(Self::Array),
+            9 => Some(Self::Binary),
+            10 => Some(Self::ObjectId),
+            11 => Some(Self::Guid),
+            12 => Some(Self::Boolean),
+            13 => Some(Self::DateTime),
+            14 => Some(Self::MaxValue),
+            _ => None,
         }
     }
 }
@@ -361,6 +384,134 @@ mod from_impls {
     {
         fn from(data: &'a [T]) -> Value {
             Value::Array(Array::from(data))
+        }
+    }
+}
+
+impl Value {
+    pub fn as_i32(&self) -> Option<i32> {
+        match self {
+            &Value::Int32(i) => Some(i),
+            _ => None,
+        }
+    }
+
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            &Value::Int64(i) => Some(i),
+            _ => None,
+        }
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            &Value::Double(i) => Some(i),
+            _ => None,
+        }
+    }
+
+    pub fn as_decimal128(&self) -> Option<Decimal128> {
+        match self {
+            &Value::Decimal(i) => Some(i),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn as_document(&self) -> Option<&Document> {
+        match self {
+            Value::Document(d) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn as_document_mut(&mut self) -> Option<&mut Document> {
+        match self {
+            Value::Document(d) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn into_document(self) -> Result<Document, Self> {
+        match self {
+            Value::Document(d) => Ok(d),
+            _ => Err(self),
+        }
+    }
+
+    pub fn as_array(&self) -> Option<&Array> {
+        match self {
+            Value::Array(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    pub fn as_array_mut(&mut self) -> Option<&mut Array> {
+        match self {
+            Value::Array(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    pub fn into_array(self) -> Result<Array, Self> {
+        match self {
+            Value::Array(a) => Ok(a),
+            _ => Err(self),
+        }
+    }
+
+    pub fn as_binary(&self) -> Option<&Binary> {
+        match self {
+            Value::Binary(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    pub fn as_binary_mut(&mut self) -> Option<&mut Binary> {
+        match self {
+            &mut Value::Binary(ref mut b) => Some(b),
+            _ => None,
+        }
+    }
+
+    pub fn into_binary(self) -> Result<Binary, Self> {
+        match self {
+            Value::Binary(b) => Ok(b),
+            _ => Err(self),
+        }
+    }
+
+    pub fn as_object_id(&self) -> Option<ObjectId> {
+        match self {
+            &Value::ObjectId(o) => Some(o),
+            _ => None,
+        }
+    }
+
+    pub fn as_guid(&self) -> Option<Guid> {
+        match self {
+            &Value::Guid(g) => Some(g),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            &Value::Boolean(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    pub fn as_date_time(&self) -> Option<DateTime> {
+        match self {
+            &Value::DateTime(dt) => Some(dt),
+            _ => None,
         }
     }
 }
