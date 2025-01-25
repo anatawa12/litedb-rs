@@ -134,7 +134,7 @@ impl Page for DataPage {
         Self::new(buffer, page_id)
     }
 
-    fn update_buffer(&mut self) -> Result<&PageBuffer> {
+    fn update_buffer(&mut self) -> &PageBuffer {
         self.base.update_buffer()
     }
 

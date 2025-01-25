@@ -446,7 +446,7 @@ impl<SF: StreamFactory> Snapshot<'_, SF> {
                 return Err(Error::size_limit_reached());
             }
 
-            let save_point = self.header.save_point()?;
+            let save_point = self.header.save_point();
 
             page_id = self.header.last_page_id() + 1;
             self.header.set_last_page_id(page_id);

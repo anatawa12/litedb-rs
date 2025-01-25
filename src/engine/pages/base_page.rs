@@ -118,7 +118,7 @@ impl BasePage {
         Ok(())
     }
 
-    pub(crate) fn update_buffer(&mut self) -> Result<&PageBuffer> {
+    pub(crate) fn update_buffer(&mut self) -> &PageBuffer {
         let buffer = &mut self.buffer;
 
         assert_eq!(
@@ -144,7 +144,7 @@ impl BasePage {
         buffer.write_u16(P_NEXT_FREE_POSITION, self.next_free_position);
         buffer.write_byte(P_HIGHEST_INDEX, self.highest_index);
 
-        Ok(buffer)
+        buffer
     }
 
     pub fn mark_as_empty(&mut self) {
@@ -701,7 +701,7 @@ impl Page for BasePage {
         Self::new(buffer, page_id, PageType::Empty)
     }
 
-    fn update_buffer(&mut self) -> Result<&PageBuffer> {
+    fn update_buffer(&mut self) -> &PageBuffer {
         self.update_buffer()
     }
 

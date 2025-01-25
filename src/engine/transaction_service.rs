@@ -223,7 +223,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
 
                 let page_id = page_mut.page_id();
 
-                let buffer = page.update_buffer()?;
+                let buffer = page.update_buffer();
                 let position = buffer.position();
 
                 buffers.push(page.into_base().into_buffer());
@@ -239,7 +239,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
 
                 self.trans_pages.borrow_mut().call_on_commit(self.header);
 
-                let buffer = self.header.update_buffer()?;
+                let buffer = self.header.update_buffer();
                 let mut new = self.disk.new_page();
 
                 *new.buffer_mut() = *buffer.buffer();
@@ -349,7 +349,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
         }
 
         let r = RestoreOnDrop {
-            safe_point: self.header.save_point()?,
+            safe_point: self.header.save_point(),
             header: self.header,
         };
 
@@ -369,7 +369,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
                 let mut page = BasePage::new(buffer, page_id, PageType::Empty);
                 page.set_next_page_id(next);
                 page.set_transaction_id(transaction_id);
-                page.update_buffer()?;
+                page.update_buffer();
                 buffers.push(page.into_buffer());
 
                 page_positions.insert(page_id, PagePosition::new(page_id, position));
@@ -380,7 +380,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
                 .set_free_empty_page_list(self.trans_pages.borrow().new_pages()[0]);
             r.header.set_confirmed(true);
 
-            let buf = r.header.update_buffer()?;
+            let buf = r.header.update_buffer();
             let mut clone = self.disk.new_page();
             *clone.buffer_mut() = *buf.buffer();
 

@@ -60,7 +60,7 @@ impl<SF: StreamFactory> DiskService<SF> {
 
         header.pragmas().set_collation(collation);
 
-        header.update_buffer()?;
+        header.update_buffer();
 
         stream.write_all(header.buffer().buffer()).await?;
 

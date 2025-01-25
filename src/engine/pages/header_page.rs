@@ -104,7 +104,7 @@ impl HeaderPage {
         Ok(())
     }
 
-    pub fn update_buffer(&mut self) -> Result<&PageBuffer> {
+    pub fn update_buffer(&mut self) -> &PageBuffer {
         let buffer = self.base.buffer_mut();
 
         buffer.write_u32(P_FREE_EMPTY_PAGE_ID, self.free_empty_page_list);
@@ -148,14 +148,14 @@ impl HeaderPage {
     }
 
     // TODO: create RAII struct for save_point and resore pair
-    pub fn save_point(&mut self) -> Result<Box<PageBuffer>> {
-        self.update_buffer()?;
+    pub fn save_point(&mut self) -> Box<PageBuffer> {
+        self.update_buffer();
 
         let mut save_point = Box::new(PageBuffer::new(0));
 
         *save_point.buffer_mut() = *self.buffer().buffer();
 
-        Ok(save_point)
+        save_point
     }
 
     pub fn restore(&mut self, save_point: &PageBuffer) -> Result<()> {
@@ -238,7 +238,7 @@ impl Page for HeaderPage {
         panic!("create HeaderPage")
     }
 
-    fn update_buffer(&mut self) -> Result<&PageBuffer> {
+    fn update_buffer(&mut self) -> &PageBuffer {
         self.update_buffer()
     }
 

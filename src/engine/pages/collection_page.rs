@@ -61,7 +61,7 @@ impl CollectionPage {
         })
     }
 
-    pub fn update_buffer(&mut self) -> Result<&PageBuffer> {
+    pub fn update_buffer(&mut self) -> &PageBuffer {
         if self.page_type() == PageType::Empty {
             return self.base.update_buffer();
         }
@@ -200,7 +200,7 @@ impl Page for CollectionPage {
         Self::new(buffer, page_id)
     }
 
-    fn update_buffer(&mut self) -> Result<&PageBuffer> {
+    fn update_buffer(&mut self) -> &PageBuffer {
         self.update_buffer()
     }
 

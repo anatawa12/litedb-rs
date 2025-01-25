@@ -20,7 +20,7 @@ pub(crate) trait Page: AsRef<BasePage> + AsMut<BasePage> + Any {
     fn new(buffer: Box<PageBuffer>, page_id: u32) -> Self
     where
         Self: Sized;
-    fn update_buffer(&mut self) -> Result<&PageBuffer>; // TODO? remove Result and just &PageBuffer
+    fn update_buffer(&mut self) -> &PageBuffer; // TODO? remove Result and just &PageBuffer
     fn into_base(self: Box<Self>) -> BasePage;
 }
 
