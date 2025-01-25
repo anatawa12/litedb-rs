@@ -377,15 +377,6 @@ mod from_impls {
             Value::Array(v.into())
         }
     }
-
-    impl<'a, T> From<&'a [T]> for Value
-    where
-        Value: From<&'a T>,
-    {
-        fn from(data: &'a [T]) -> Value {
-            Value::Array(Array::from(data))
-        }
-    }
 }
 
 impl Value {
