@@ -120,6 +120,14 @@ impl From<::bson::ser::Error> for Error {
     }
 }
 
+impl From<bson::ParseError> for Error {
+    fn from(err: bson::ParseError) -> Self {
+        Error {
+            message: err.to_string(),
+        }
+    }
+}
+
 impl From<std::string::FromUtf8Error> for Error {
     fn from(err: std::string::FromUtf8Error) -> Self {
         Self::err(err)
