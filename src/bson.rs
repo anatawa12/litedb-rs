@@ -221,3 +221,106 @@ pub trait BsonWriter {
     fn when_too_large(size: usize) -> Self::Error;
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Self::Error>;
 }
+
+mod from_impls {
+    use super::*;
+
+    impl From<i32> for Value {
+        fn from(v: i32) -> Value {
+            Value::Int32(v)
+        }
+    }
+
+    impl From<i64> for Value {
+        fn from(v: i64) -> Value {
+            Value::Int64(v)
+        }
+    }
+
+    impl From<f64> for Value {
+        fn from(v: f64) -> Value {
+            Value::Double(v)
+        }
+    }
+
+    impl From<Decimal128> for Value {
+        fn from(v: Decimal128) -> Value {
+            Value::Decimal(v)
+        }
+    }
+
+    impl From<String> for Value {
+        fn from(v: String) -> Value {
+            Value::String(v)
+        }
+    }
+
+    impl From<Document> for Value {
+        fn from(v: Document) -> Value {
+            Value::Document(v)
+        }
+    }
+
+    impl From<Array> for Value {
+        fn from(v: Array) -> Value {
+            Value::Array(v)
+        }
+    }
+
+    impl From<Binary> for Value {
+        fn from(v: Binary) -> Value {
+            Value::Binary(v)
+        }
+    }
+
+    impl From<ObjectId> for Value {
+        fn from(v: ObjectId) -> Value {
+            Value::ObjectId(v)
+        }
+    }
+
+    impl From<Guid> for Value {
+        fn from(v: Guid) -> Value {
+            Value::Guid(v)
+        }
+    }
+
+    impl From<bool> for Value {
+        fn from(v: bool) -> Value {
+            Value::Boolean(v)
+        }
+    }
+
+    impl From<DateTime> for Value {
+        fn from(v: DateTime) -> Value {
+            Value::DateTime(v)
+        }
+    }
+
+    impl From<Vec<Value>> for Value {
+        fn from(v: Vec<Value>) -> Value {
+            Value::Array(v.into())
+        }
+    }
+
+    impl<const L: usize> From<[Value; L]> for Value {
+        fn from(v: [Value; L]) -> Value {
+            Value::Array(v.into())
+        }
+    }
+
+    impl From<&[Value]> for Value {
+        fn from(v: &[Value]) -> Value {
+            Value::Array(v.into())
+        }
+    }
+
+    impl<'a, T> From<&'a [T]> for Value
+    where
+        Value: From<&'a T>,
+    {
+        fn from(data: &'a [T]) -> Value {
+            Value::Array(Array::from(data))
+        }
+    }
+}
