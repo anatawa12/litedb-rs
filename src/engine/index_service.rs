@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::bson;
 use crate::engine::collection_index::CollectionIndex;
 use crate::engine::index_node::IndexNode;
 use crate::engine::snapshot::Snapshot;
@@ -36,7 +37,7 @@ impl<SF: StreamFactory> IndexService<'_, '_, SF> {
         expression: &str,
         unique: bool,
     ) -> Result<&mut CollectionIndex> {
-        let length = IndexNode::get_node_length(MAX_LEVEL_LENGTH as u8, &bson::Bson::MinKey);
+        let length = IndexNode::get_node_length(MAX_LEVEL_LENGTH as u8, &bson::Value::MinValue);
 
         let index = self
             .snapshot
@@ -49,7 +50,7 @@ impl<SF: StreamFactory> IndexService<'_, '_, SF> {
         let head = index_page.insert_index_node(
             index_slot,
             MAX_LEVEL_LENGTH as u8,
-            bson::Bson::MinKey,
+            bson::Value::MinValue,
             PageAddress::default(),
             length,
         );
@@ -57,7 +58,7 @@ impl<SF: StreamFactory> IndexService<'_, '_, SF> {
         let mut tail = index_page.insert_index_node(
             index_slot,
             MAX_LEVEL_LENGTH as u8,
-            bson::Bson::MaxKey,
+            bson::Value::MaxValue,
             PageAddress::default(),
             length,
         );

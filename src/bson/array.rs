@@ -1,4 +1,4 @@
-use super::{BsonWriter, Value};
+use super::{BsonReader, BsonWriter, ParseError, Value};
 use std::fmt::Debug;
 use std::vec;
 
@@ -80,6 +80,40 @@ impl Array {
 
         w.write_bytes(&[0])?;
         Ok(())
+    }
+
+    /// Parses the array
+    pub fn parse_array<R: BsonReader>(r: &mut R) -> Result<Self, R::Error> {
+        let result = Self::parse_array_inner(r)?;
+        if !r.is_end() {
+            return Err(ParseError::RemainingDataInDocument.into());
+        }
+        Ok(result)
+    }
+    fn parse_array_inner<R: BsonReader>(r: &mut R) -> Result<Self, R::Error> {
+        let mut r = super::de::limit_reader(r)?;
+
+        let mut array = Self::new();
+
+        while let Some((key, value)) = super::de::parse_element(&mut r)? {
+            let index = array.len();
+            let index_str = index.to_string();
+            if key != index_str {
+                return Err(ParseError::BadIndexKey {
+                    expected: index,
+                    actual: key,
+                }
+                .into());
+            }
+
+            array.push(value);
+        }
+
+        if !r.is_end() {
+            return Err(ParseError::RemainingDataInDocument.into());
+        }
+
+        Ok(array)
     }
 }
 

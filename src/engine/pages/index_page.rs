@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::bson;
 use crate::engine::index_node::{IndexNode, IndexNodeMut};
 use crate::engine::{BasePage, MAX_INDEX_LENGTH, Page, PageAddress, PageBuffer, PageType};
 use std::ops::{Deref, DerefMut};
@@ -35,7 +36,7 @@ impl IndexPage {
         &mut self,
         slot: u8,
         level: u8,
-        key: bson::Bson,
+        key: bson::Value,
         data_block: PageAddress,
         length: usize,
     ) -> IndexNodeMut {

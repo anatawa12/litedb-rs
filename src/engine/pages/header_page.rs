@@ -1,10 +1,10 @@
+use crate::bson;
 use crate::engine::buffer_reader::BufferReader;
 use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::engine_pragmas::EnginePragmas;
 use crate::engine::pages::PageType;
 use crate::engine::pages::base_page::BasePage;
 use crate::engine::{Page, PageBuffer};
-use crate::utils::CsDateTime;
 use crate::{Error, Result};
 use std::ops::{Deref, DerefMut};
 
@@ -26,7 +26,7 @@ const COLLECTIONS_SIZE: usize = 8000; // 250 blocks with 32 bytes each
 pub(crate) struct HeaderPage {
     base: BasePage,
 
-    creation_time: CsDateTime,
+    creation_time: bson::DateTime,
     free_empty_page_list: u32,
     last_page_id: u32,
     pragmas: EnginePragmas,
@@ -41,7 +41,7 @@ impl HeaderPage {
     pub(crate) fn new(buffer: Box<PageBuffer>) -> Self {
         let mut header = HeaderPage {
             base: BasePage::new(buffer, 0, PageType::Header),
-            creation_time: CsDateTime::now(),
+            creation_time: bson::DateTime::now(),
             free_empty_page_list: 0,
             last_page_id: 0,
             pragmas: EnginePragmas::default(),
@@ -61,7 +61,7 @@ impl HeaderPage {
     pub fn load(buffer: Box<PageBuffer>) -> Result<Self> {
         let mut header = HeaderPage {
             base: BasePage::load(buffer)?,
-            creation_time: CsDateTime::now(),
+            creation_time: bson::DateTime::now(),
             free_empty_page_list: 0,
             last_page_id: 0,
             pragmas: EnginePragmas::default(),
@@ -115,7 +115,7 @@ impl HeaderPage {
             let area = buffer.slice_mut(P_COLLECTIONS, COLLECTIONS_SIZE);
 
             let mut writer = BufferWriter::new(area);
-            writer.write_document(&self.collections)?;
+            writer.write_document(&self.collections);
 
             self.collections_changed = false;
         }
@@ -174,7 +174,7 @@ impl HeaderPage {
     pub fn collections(&self) -> impl Iterator<Item = (&str, u32)> {
         self.collections
             .iter()
-            .map(|(k, v)| (k.as_str(), v.as_i32().unwrap() as u32))
+            .map(|(k, v)| (k, v.as_i32().unwrap() as u32))
     }
 
     pub fn insert_collection(&mut self, collection: &str, page_id: u32) {
@@ -195,7 +195,7 @@ impl HeaderPage {
     }
 
     pub fn get_available_collection_space(&self) -> usize {
-        COLLECTIONS_SIZE - bson::to_vec(&self.collections).unwrap().len()
+        COLLECTIONS_SIZE - self.collections.get_serialized_value_len()
             - 1 // for int32 type (0x10)
             - 1 // for new CString ('\0')
             - 4 // for PageID (int32)

@@ -1,6 +1,7 @@
 use crate::Error;
+use crate::bson;
 use crate::engine::{BufferReader, BufferWriter, PageAddress};
-use std::time::SystemTime;
+use bson::BsonType;
 
 // TODO: Implement the CompareOptions struct
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,49 +35,6 @@ impl Default for Collation {
 impl Collation {
     pub fn new(lcid: i32, sort_options: CompareOptions) -> Self {
         Collation { lcid, sort_options }
-    }
-}
-
-// TODO: move to somewhere better
-#[repr(u8)]
-enum BsonType {
-    MinValue = 0,
-    Null = 1,
-    Int32 = 2,
-    Int64 = 3,
-    Double = 4,
-    Decimal = 5,
-    String = 6,
-    Document = 7,
-    Array = 8,
-    Binary = 9,
-    ObjectId = 10,
-    Guid = 11,
-    Boolean = 12,
-    DateTime = 13,
-    MaxValue = 14,
-}
-
-impl BsonType {
-    pub fn from_u8(value: u8) -> Option<Self> {
-        match value {
-            0 => Some(Self::MinValue),
-            1 => Some(Self::Null),
-            2 => Some(Self::Int32),
-            3 => Some(Self::Int64),
-            4 => Some(Self::Double),
-            5 => Some(Self::Decimal),
-            6 => Some(Self::String),
-            7 => Some(Self::Document),
-            8 => Some(Self::Array),
-            9 => Some(Self::Binary),
-            10 => Some(Self::ObjectId),
-            11 => Some(Self::Guid),
-            12 => Some(Self::Boolean),
-            13 => Some(Self::DateTime),
-            14 => Some(Self::MaxValue),
-            _ => None,
-        }
     }
 }
 
@@ -150,15 +108,15 @@ impl BufferSlice {
         std::str::from_utf8(self.read_bytes(offset, length)).map_err(Error::err)
     }
 
-    pub fn read_date_time(&self, offset: usize) -> crate::Result<CsDateTime> {
-        CsDateTime::from_ticks(self.read_u64(offset)).ok_or_else(Error::datetime_overflow)
+    pub fn read_date_time(&self, offset: usize) -> crate::Result<bson::DateTime> {
+        bson::DateTime::from_ticks(self.read_u64(offset)).ok_or_else(Error::datetime_overflow)
     }
 
     pub fn read_page_address(&self, offset: usize) -> PageAddress {
         PageAddress::new(self.read_u32(offset), self.read_byte(offset + 4))
     }
 
-    pub fn read_index_key(&self, offset: usize) -> crate::Result<bson::Bson> {
+    pub fn read_index_key(&self, offset: usize) -> crate::Result<bson::Value> {
         // extended length: use two bytes for type and length pair
         let type_byte = self.read_byte(offset);
         let length_byte = self.read_byte(offset + 1);
@@ -168,44 +126,39 @@ impl BufferSlice {
         let offset = offset + 1; // length byte might not be used
 
         let value = match type_ {
-            BsonType::MinValue => bson::Bson::MinKey,
-            BsonType::Null => bson::Bson::Null,
-            BsonType::Int32 => bson::Bson::Int32(self.read_i32(offset)),
-            BsonType::Int64 => bson::Bson::Int64(self.read_i64(offset)),
-            BsonType::Double => bson::Bson::Double(self.read_f64(offset)),
-            BsonType::Decimal => bson::Bson::Decimal128(bson::Decimal128::from_bytes(
+            BsonType::MinValue => bson::Value::MinValue,
+            BsonType::Null => bson::Value::Null,
+            BsonType::Int32 => bson::Value::Int32(self.read_i32(offset)),
+            BsonType::Int64 => bson::Value::Int64(self.read_i64(offset)),
+            BsonType::Double => bson::Value::Double(self.read_f64(offset)),
+            BsonType::Decimal => bson::Value::Decimal(bson::Decimal128::from_bytes(
                 self.read_bytes(offset, 16).try_into().unwrap(),
             )), // known to be 16 bytes
             BsonType::String => {
                 let offset = offset + 1; // using length byte
-                bson::Bson::String(self.read_string(offset, length as usize)?.to_owned())
+                bson::Value::String(self.read_string(offset, length as usize)?.to_owned())
             }
-            BsonType::Document => bson::Bson::Document(
+            BsonType::Document => bson::Value::Document(
                 BufferReader::new(self.slice(offset, self.len() - offset)).read_document()?,
             ),
-            BsonType::Array => bson::Bson::Array(
+            BsonType::Array => bson::Value::Array(
                 BufferReader::new(self.slice(offset, self.len() - offset)).read_array()?,
             ),
             BsonType::Binary => {
                 let length = length + 1; // using length byte
-                bson::Bson::Binary(bson::Binary {
-                    subtype: bson::spec::BinarySubtype::Generic,
-                    bytes: self.read_bytes(offset, length as usize).to_vec(),
-                })
+                bson::Value::Binary(bson::Binary::new(
+                    self.read_bytes(offset, length as usize).to_vec(),
+                ))
             }
-            BsonType::ObjectId => bson::Bson::ObjectId(bson::oid::ObjectId::from_bytes(
+            BsonType::ObjectId => bson::Value::ObjectId(bson::ObjectId::from_bytes(
                 self.read_bytes(offset, 16).try_into().unwrap(),
             )),
-            BsonType::Guid => bson::Bson::Binary(bson::Binary {
-                subtype: bson::spec::BinarySubtype::Uuid,
-                bytes: self.read_bytes(offset, 16).to_vec(),
-            }),
-            BsonType::Boolean => bson::Bson::Boolean(self.read_bool(offset)),
-            BsonType::DateTime => {
-                todo!("CsDateTime in BSON")
-                //bson::Bson::DateTime(self.read_date_time(offset)?.ticks())
-            }
-            BsonType::MaxValue => bson::Bson::MaxKey,
+            BsonType::Guid => bson::Value::Guid(bson::Guid::from_bytes(
+                self.read_bytes(offset, 16).try_into().unwrap(),
+            )),
+            BsonType::Boolean => bson::Value::Boolean(self.read_bool(offset)),
+            BsonType::DateTime => bson::Value::DateTime(self.read_date_time(offset)?),
+            BsonType::MaxValue => bson::Value::MaxValue,
         };
 
         Ok(value)
@@ -274,7 +227,7 @@ impl BufferSlice {
         self.write_bytes(offset, value.as_bytes());
     }
 
-    pub fn write_date_time(&mut self, offset: usize, value: CsDateTime) {
+    pub fn write_date_time(&mut self, offset: usize, value: bson::DateTime) {
         self.write_u64(offset, value.ticks());
     }
 
@@ -283,7 +236,7 @@ impl BufferSlice {
         self.write_u8(offset + 4, value.index());
     }
 
-    pub fn write_index_key(&mut self, offset: usize, value: &bson::Bson) {
+    pub fn write_index_key(&mut self, offset: usize, value: &bson::Value) {
         // TODO: check for key length
         fn make_extended_length(tag: BsonType, length: usize) -> [u8; 2] {
             assert!(length <= 1024);
@@ -296,61 +249,58 @@ impl BufferSlice {
 
         match value {
             // variable length values
-            bson::Bson::Binary(bin) => {
+            bson::Value::Binary(bin) => {
                 self.write_bytes(
                     offset,
-                    &make_extended_length(BsonType::Binary, bin.bytes.len()),
+                    &make_extended_length(BsonType::Binary, bin.bytes().len()),
                 );
-                self.write_bytes(offset + 2, &bin.bytes);
+                self.write_bytes(offset + 2, bin.bytes());
             }
-            bson::Bson::String(str) => {
+            bson::Value::String(str) => {
                 self.write_bytes(offset, &make_extended_length(BsonType::String, str.len()));
                 self.write_bytes(offset + 2, str.as_bytes());
             }
 
             // single tag values
-            bson::Bson::Null => self.write_u8(offset, BsonType::Null as u8),
-            bson::Bson::MaxKey => self.write_u8(offset, BsonType::MaxValue as u8),
-            bson::Bson::MinKey => self.write_u8(offset, BsonType::MinValue as u8),
+            bson::Value::Null => self.write_u8(offset, BsonType::Null as u8),
+            bson::Value::MaxValue => self.write_u8(offset, BsonType::MaxValue as u8),
+            bson::Value::MinValue => self.write_u8(offset, BsonType::MinValue as u8),
 
             // simple values
-            bson::Bson::Int32(v) => {
+            bson::Value::Int32(v) => {
                 self.write_u8(offset, BsonType::Int32 as u8);
                 self.write_i32(offset + 1, *v);
             }
-            bson::Bson::Int64(v) => {
+            bson::Value::Int64(v) => {
                 self.write_u8(offset, BsonType::Int64 as u8);
                 self.write_i64(offset + 1, *v);
             }
-            bson::Bson::Double(d) => {
+            bson::Value::Double(d) => {
                 self.write_u8(offset, BsonType::Double as u8);
                 self.write_f64(offset + 1, *d);
             }
-            bson::Bson::Decimal128(d) => {
+            bson::Value::Decimal(d) => {
                 self.write_u8(offset, BsonType::Decimal as u8);
                 self.write_bytes(offset + 1, &d.bytes());
             }
-            bson::Bson::Boolean(b) => {
+            bson::Value::Boolean(b) => {
                 self.write_u8(offset, BsonType::Boolean as u8);
                 self.write_bool(offset + 1, *b);
             }
-            bson::Bson::DateTime(_) => {
-                todo!("CsDateTime")
-                //self.write_u8(offset, BsonType::DateTime as u8);
-                //self.write_date_time(offset + 1, v);
+            &bson::Value::DateTime(v) => {
+                self.write_u8(offset, BsonType::DateTime as u8);
+                self.write_date_time(offset + 1, v);
             }
 
-            bson::Bson::Document(d) => {
+            bson::Value::Document(d) => {
                 self.write_u8(offset, BsonType::Document as u8);
                 BufferWriter::new(self.slice_mut(offset + 1, self.len() - offset - 1))
                     .write_document(d)
-                    .unwrap()
             }
-            bson::Bson::Array(a) => {
+            bson::Value::Array(a) => {
                 self.write_u8(offset, BsonType::Array as u8);
                 BufferWriter::new(self.slice_mut(offset + 1, self.len() - offset - 1))
                     .write_array(a)
-                //.unwrap()
             }
 
             _ => panic!("Unsupported BSON type"),
@@ -359,69 +309,6 @@ impl BufferSlice {
 
     pub(crate) fn slice_mut(&mut self, offset: usize, count: usize) -> &mut Self {
         Self::new_mut(&mut self.buffer[offset..][..count])
-    }
-}
-
-/// C# DateTime in Rust
-///
-/// This represents number of 100 nano seconds since 0001-01-01 00:00:00 UTC
-/// This can represent 0001-01-01 00:00:00 ~ 9999-12-31 23:59:59.99999999
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-pub(crate) struct CsDateTime(pub u64);
-
-impl CsDateTime {
-    const MAX_TICKS: u64 = 3155378975999999999;
-    const UNIX_EPOC_TICKS: u64 = 621355968000000000;
-
-    pub const MIN: CsDateTime = CsDateTime(0);
-    pub const MAX: CsDateTime = CsDateTime(Self::MAX_TICKS);
-
-    pub fn now() -> Self {
-        // now must not exceed MAX_TICKS / MIN_TICKS
-        Self::from_system(SystemTime::now()).unwrap()
-    }
-
-    pub fn from_system(system: SystemTime) -> Option<Self> {
-        let ticks = match system.duration_since(SystemTime::UNIX_EPOCH) {
-            Ok(duration) => {
-                let nanos = duration.as_nanos();
-
-                let after_epoc_ticks = Self::MAX_TICKS - Self::UNIX_EPOC_TICKS;
-                let after_epoc_nanos = after_epoc_ticks as u128 * 100;
-                if nanos > after_epoc_nanos {
-                    return None;
-                }
-
-                Self::UNIX_EPOC_TICKS + (nanos / 100) as u64
-            }
-            Err(e) => {
-                let duration = e.duration();
-                let nanos = duration.as_nanos();
-
-                let unix_epoc_nanos = Self::UNIX_EPOC_TICKS as u128 * 100;
-
-                if nanos > unix_epoc_nanos {
-                    return None;
-                }
-
-                Self::UNIX_EPOC_TICKS - (nanos / 100) as u64
-            }
-        };
-        Some(CsDateTime(ticks))
-    }
-
-    pub fn from_ticks(ticks: u64) -> Option<CsDateTime> {
-        if ticks > Self::MAX_TICKS {
-            None
-        } else {
-            Some(CsDateTime(ticks))
-        }
-    }
-}
-
-impl CsDateTime {
-    pub fn ticks(&self) -> u64 {
-        self.0
     }
 }
 

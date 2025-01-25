@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::bson;
 use crate::engine::PageAddress;
 use crate::utils::{BufferSlice, Order};
 use std::ops::Deref;
@@ -16,7 +17,7 @@ pub(crate) struct IndexNodeShared<S, D> {
     position: PageAddress,
     slot: u8,
     levels: u8,
-    key: bson::Bson,
+    key: bson::Value,
     data_block: PageAddress,
     next_node: PageAddress,
     prev: Vec<PageAddress>,
@@ -80,11 +81,36 @@ impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
         }
     }
 
-    pub fn get_key_length(_: &bson::Bson, _: bool) -> usize {
-        todo!("reimplement when bson is reimplemented")
+    pub fn get_key_length(v: &bson::Value, _: bool) -> usize {
+        let byte_len = match v {
+            bson::Value::MinValue => 0,
+            bson::Value::Null => 0,
+            bson::Value::MaxValue => 0,
+            bson::Value::Int32(_) => 4,
+            bson::Value::Int64(_) => 8,
+            bson::Value::Double(_) => 8,
+            bson::Value::Decimal(_) => 16,
+            bson::Value::String(s) => s.len(),
+
+            bson::Value::Binary(b) => b.bytes().len(),
+            bson::Value::ObjectId(_) => 12,
+            bson::Value::Guid(_) => 16,
+
+            bson::Value::Boolean(_) => 1,
+            bson::Value::DateTime(_) => 8,
+
+            bson::Value::Document(d) => d.get_serialized_value_len(),
+            bson::Value::Array(a) => a.get_serialized_value_len(),
+        };
+
+        let has_len_byte = matches!(v, bson::Value::String(_) | bson::Value::Binary(_));
+
+        1 // tag
+            + (if has_len_byte {1} else {0})
+            + byte_len
     }
 
-    pub fn get_node_length(level: u8, key: &bson::Bson) -> usize {
+    pub fn get_node_length(level: u8, key: &bson::Value) -> usize {
         let key_length = Self::get_key_length(key, false);
 
         INDEX_NODE_FIXED_SIZE + level as usize * PageAddress::SERIALIZED_SIZE * 2 + key_length
@@ -114,7 +140,7 @@ impl<'a> IndexNodeMut<'a> {
         segment: &'a mut BufferSlice,
         slot: u8,
         levels: u8,
-        key: bson::Bson,
+        key: bson::Value,
         data_block: PageAddress,
     ) -> Self {
         let position = PageAddress::new(page_id, index);

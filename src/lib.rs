@@ -13,6 +13,15 @@
 use crate::engine::{BasePage, PageType};
 use std::fmt::Display;
 
+macro_rules! into_ok {
+    ($expr: expr) => {
+        match $expr {
+            ::std::result::Result::Ok(ok) => ok,
+            ::std::result::Result::Err(e) => match e {},
+        }
+    };
+}
+
 pub mod bson;
 mod engine;
 mod utils;
@@ -98,22 +107,6 @@ impl Error {
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
-        Error {
-            message: err.to_string(),
-        }
-    }
-}
-
-impl From<::bson::de::Error> for Error {
-    fn from(err: ::bson::de::Error) -> Self {
-        Error {
-            message: err.to_string(),
-        }
-    }
-}
-
-impl From<::bson::ser::Error> for Error {
-    fn from(err: ::bson::ser::Error) -> Self {
         Error {
             message: err.to_string(),
         }

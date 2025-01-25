@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::bson;
 use crate::engine::page_address::PageAddress;
 use crate::utils::BufferSlice;
 
@@ -16,7 +17,9 @@ impl BufferReader<'_> {
         let length = self.slice.read_i32(self.position) as usize;
         let document_bin = self.slice.read_bytes(self.position, length);
         self.position += length;
-        Ok(bson::Document::from_reader(document_bin)?)
+        Ok(bson::Document::parse_document(&mut std::io::Cursor::new(
+            document_bin,
+        ))?)
     }
 
     pub(crate) fn read_array(&self) -> Result<bson::Array> {

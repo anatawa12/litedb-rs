@@ -1,6 +1,7 @@
-use super::{BsonWriter, Value};
+use super::{BsonReader, BsonWriter, ParseError, Value};
 use std::borrow::Borrow;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 
@@ -66,7 +67,7 @@ impl Document {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> {
-        self.inner.iter().map(|(k, v)| (&k.0, v))
+        self.inner.iter().map(|(k, v)| (k.0.as_ref(), v))
     }
 }
 
@@ -99,6 +100,40 @@ impl Document {
 
         w.write_bytes(&[0])?;
         Ok(())
+    }
+
+    /// Parses the document
+    pub fn parse_document<R: BsonReader>(r: &mut R) -> Result<Document, <R as BsonReader>::Error> {
+        let result = Self::parse_document_inner(r)?;
+        if !r.is_end() {
+            return Err(ParseError::RemainingDataInDocument.into());
+        }
+        Ok(result)
+    }
+    pub(super) fn parse_document_inner<R: BsonReader>(
+        r: &mut R,
+    ) -> Result<Document, <R as BsonReader>::Error> {
+        let mut r = super::de::limit_reader(r)?;
+
+        let mut document = Self::new();
+
+        while let Some((key, value)) = super::de::parse_element(&mut r)? {
+            //document.inner.try_insert()
+            match document.inner.entry(CaseInsensitiveString(key)) {
+                Entry::Occupied(e) => {
+                    return Err(ParseError::DuplicatedKey(e.remove_entry().0.0).into());
+                }
+                Entry::Vacant(e) => {
+                    e.insert(value);
+                }
+            }
+        }
+
+        if !r.is_end() {
+            return Err(ParseError::RemainingDataInDocument.into());
+        }
+
+        Ok(document)
     }
 }
 

@@ -1,6 +1,7 @@
+use crate::bson;
 use crate::engine::page_address::PageAddress;
 use crate::utils::BufferSlice;
-use bson::Array;
+use std::convert::Infallible;
 
 pub struct BufferWriter<'a> {
     slice: &'a mut BufferSlice,
@@ -12,16 +13,12 @@ impl BufferWriter<'_> {
         BufferWriter { slice, position: 0 }
     }
 
-    pub fn write_document(&mut self, document: &bson::Document) -> crate::Result<()> {
-        // TODO? we may just unwrap here
-        let bytes = bson::to_vec(document)?;
-        self.slice.write_bytes(self.position, &bytes);
-        self.position += bytes.len();
-        Ok(())
+    pub fn write_document(&mut self, document: &bson::Document) {
+        into_ok!(document.write_value(self));
     }
 
-    pub(crate) fn write_array(&self, _: &Array) {
-        todo!()
+    pub(crate) fn write_array(&mut self, array: &bson::Array) {
+        into_ok!(array.write_value(self));
     }
 
     pub fn skip(&mut self, bytes: usize) {
@@ -88,5 +85,18 @@ impl BufferWriter<'_> {
     pub fn write_page_address(&mut self, value: PageAddress) {
         self.write_u32(value.page_id());
         self.write_u8(value.index());
+    }
+}
+
+impl bson::BsonWriter for BufferWriter<'_> {
+    type Error = Infallible;
+
+    fn when_too_large(size: usize) -> Self::Error {
+        panic!("The content size too long ({} bytes)", size);
+    }
+
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.write_bytes(bytes);
+        Ok(())
     }
 }
