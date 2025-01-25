@@ -344,7 +344,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
 
         impl Drop for RestoreOnDrop<'_> {
             fn drop(&mut self) {
-                self.header.restore(&self.safe_point).unwrap();
+                self.header.restore(&self.safe_point);
             }
         }
 

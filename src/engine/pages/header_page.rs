@@ -158,10 +158,10 @@ impl HeaderPage {
         save_point
     }
 
-    pub fn restore(&mut self, save_point: &PageBuffer) -> Result<()> {
+    pub fn restore(&mut self, save_point: &PageBuffer) {
         *self.buffer_mut().buffer_mut() = *save_point.buffer();
-        self.load_header_page()?;
-        Ok(())
+        // The original 
+        self.load_header_page().expect("failed to load save_point page");
     }
 
     pub fn get_collection_page_id(&self, collection: &str) -> u32 {

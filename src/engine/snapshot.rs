@@ -454,9 +454,7 @@ impl<SF: StreamFactory> Snapshot<'_, SF> {
             buffer = match self.disk.get_reader().await {
                 Ok(mut r) => r.new_page(),
                 Err(e) => {
-                    self.header
-                        .restore(&save_point)
-                        .expect("restoring would not cause parse error");
+                    self.header.restore(&save_point);
                     return Err(e);
                 }
             };
