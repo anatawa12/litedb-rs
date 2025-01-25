@@ -12,6 +12,7 @@ use crate::engine::{BasePage, PageType};
 
 mod engine;
 mod utils;
+pub mod bson;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -90,16 +91,16 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<bson::de::Error> for Error {
-    fn from(err: bson::de::Error) -> Self {
+impl From<::bson::de::Error> for Error {
+    fn from(err: ::bson::de::Error) -> Self {
         Error {
             message: err.to_string(),
         }
     }
 }
 
-impl From<bson::ser::Error> for Error {
-    fn from(err: bson::ser::Error) -> Self {
+impl From<::bson::ser::Error> for Error {
+    fn from(err: ::bson::ser::Error) -> Self {
         Error {
             message: err.to_string(),
         }
