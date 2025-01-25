@@ -1,6 +1,6 @@
-use bson::Array;
 use crate::engine::page_address::PageAddress;
 use crate::utils::BufferSlice;
+use bson::Array;
 
 pub struct BufferWriter<'a> {
     slice: &'a mut BufferSlice,
@@ -14,13 +14,13 @@ impl BufferWriter<'_> {
 
     pub fn write_document(&mut self, document: &bson::Document) -> crate::Result<()> {
         // TODO? we may just unwrap here
-        let mut bytes = bson::to_vec(document)?;
+        let bytes = bson::to_vec(document)?;
         self.slice.write_bytes(self.position, &bytes);
         self.position += bytes.len();
         Ok(())
     }
 
-    pub(crate) fn write_array(&self, p0: &&Array) -> () {
+    pub(crate) fn write_array(&self, _: &Array) {
         todo!()
     }
 

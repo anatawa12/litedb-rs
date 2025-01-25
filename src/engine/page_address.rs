@@ -6,7 +6,10 @@ pub(crate) struct PageAddress {
 
 impl PageAddress {
     pub(crate) fn default() -> PageAddress {
-        PageAddress { page_id: 0, index: 0 }
+        PageAddress {
+            page_id: 0,
+            index: 0,
+        }
     }
 }
 

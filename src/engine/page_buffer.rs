@@ -1,7 +1,7 @@
-use std::fmt;
-use std::ops::{Deref, DerefMut};
 use crate::engine::*;
 use crate::utils::BufferSlice;
+use std::fmt;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FileOrigin {
@@ -98,7 +98,7 @@ impl PageBuffer {
 
     pub fn origin(&self) -> Option<FileOrigin> {
         self.origin
-    }    
+    }
 
     pub fn is_blank(&self) -> bool {
         self.buffer[..16].iter().all(|&b| b == 0)

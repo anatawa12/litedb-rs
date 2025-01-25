@@ -2,7 +2,6 @@ use crate::engine::engine_pragmas::EnginePragmas;
 
 /// Actually current vrc-get-litedb crate doesn't support multi threading so
 /// this service is almost no-op.
-
 // this class should have interior mutability
 pub(crate) struct LockService {
     pragma: EnginePragmas,
@@ -18,16 +17,14 @@ impl LockService {
         ExclusiveScope {}
     }
 
-    pub async fn enter_lock(&self, collection: &str) -> CollectionLockScope {
+    pub async fn enter_lock(&self, _: &str) -> CollectionLockScope {
         // no lock
         CollectionLockScope {}
     }
 
-    pub async fn enter_transaction(&self) {
-    }
+    pub async fn enter_transaction(&self) {}
 
-    pub fn exit_transaction(&self) {
-    }
+    pub fn exit_transaction(&self) {}
 }
 
 pub(crate) struct ExclusiveScope {}

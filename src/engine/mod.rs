@@ -1,42 +1,40 @@
-mod disk;
-mod page_buffer;
-mod constants;
-mod pages;
-mod engine_pragmas;
 mod buffer_reader;
 mod buffer_writer;
+mod collection_index;
+mod collection_service;
+mod constants;
+mod data_block;
+mod disk;
+mod engine_pragmas;
+mod index_node;
+mod index_service;
 mod lite_engine;
 mod lock_service;
-mod wal_index_service;
-mod page_position;
-mod sort_disk;
-mod collection_index;
 mod page_address;
-mod index_service;
+mod page_buffer;
+mod page_position;
+mod pages;
 mod snapshot;
-mod index_node;
-mod transaction_service;
-mod transaction_pages;
-mod collection_service;
-mod data_block;
+mod sort_disk;
 mod transaction_monitor;
+mod transaction_pages;
+mod transaction_service;
+mod wal_index_service;
 
 use futures::{AsyncRead, AsyncSeek, AsyncWrite};
 
-pub(crate) use pages::*;
-pub(crate) use page_buffer::*;
-pub(crate) use constants::*;
-pub(crate) use page_address::*;
+pub(crate) use super::Result;
 pub(crate) use buffer_reader::*;
 pub(crate) use buffer_writer::*;
-pub(crate) use super::Result;
+pub(crate) use constants::*;
+pub(crate) use page_address::*;
+pub(crate) use page_buffer::*;
+pub(crate) use pages::*;
 pub(crate) type PageBufferArray = [u8; PAGE_SIZE];
 
-pub(crate) trait Stream: AsyncRead + AsyncWrite + AsyncSeek + Unpin {
-}
+pub(crate) trait Stream: AsyncRead + AsyncWrite + AsyncSeek + Unpin {}
 
-impl<T: AsyncRead + AsyncWrite + AsyncSeek + Unpin> Stream for T {
-}
+impl<T: AsyncRead + AsyncWrite + AsyncSeek + Unpin> Stream for T {}
 
 pub(crate) trait StreamFactory {
     type Stream: Stream;

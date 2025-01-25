@@ -17,6 +17,12 @@ struct CaseInsensitiveStr(str);
 #[derive(Clone)]
 struct CaseInsensitiveString(String);
 
+impl Default for Document {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Document {
     pub fn new() -> Document {
         Self {
@@ -49,6 +55,10 @@ impl Document {
 
     pub fn remove(&mut self, key: impl AsRef<str>) -> Option<Value> {
         self.inner.remove(CaseInsensitiveStr::new(key.as_ref()))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 
     pub fn len(&self) -> usize {
@@ -128,5 +138,4 @@ impl PartialEq for CaseInsensitiveString {
     }
 }
 
-impl Eq for CaseInsensitiveString {
-}
+impl Eq for CaseInsensitiveString {}

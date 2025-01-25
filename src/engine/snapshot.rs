@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use crate::engine::collection_service::CollectionService;
 use crate::engine::disk::DiskService;
 use crate::engine::lock_service::{CollectionLockScope, LockService};
 use crate::engine::pages::HeaderPage;
@@ -6,13 +6,13 @@ use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::transaction_service::LockMode;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{
-    BasePage, CollectionPage, DataPage, FileOrigin, IndexPage, Page, PageType, StreamFactory,
-    PAGE_SIZE,
+    BasePage, CollectionPage, DataPage, FileOrigin, IndexPage, PAGE_SIZE, Page, PageType,
+    StreamFactory,
 };
 use crate::{Error, Result};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::engine::collection_service::CollectionService;
 
 pub(crate) struct Snapshot<'engine, SF: StreamFactory> {
     header: &'engine mut HeaderPage,
@@ -43,7 +43,6 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         disk: &'engine mut DiskService<SF>,
         add_if_not_exists: bool,
     ) -> Result<Self> {
-
         let lock_scope = if mode == LockMode::Write {
             Some(locker.enter_lock(collection_name).await)
         } else {
@@ -73,11 +72,18 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         // replace with owned one
         let collection_page = if let Some(collection_page) = collection_page {
             let collection_page_id = collection_page.page_id();
-            Some(*snapshot.local_pages.remove(&collection_page_id).unwrap().downcast::<CollectionPage>().ok().unwrap())
+            Some(
+                *snapshot
+                    .local_pages
+                    .remove(&collection_page_id)
+                    .unwrap()
+                    .downcast::<CollectionPage>()
+                    .ok()
+                    .unwrap(),
+            )
         } else {
             None
         };
-
 
         snapshot.collection_page = collection_page;
 
@@ -112,7 +118,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         self.collection_page.as_ref()
     }
 
-    pub fn collection_page_mut(&mut self) -> Option<&mut CollectionPage>{
+    pub fn collection_page_mut(&mut self) -> Option<&mut CollectionPage> {
         self.collection_page.as_mut()
     }
 
@@ -141,7 +147,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
                 .collection_page
                 .as_ref()
                 .take_if(|p| with_collection_page && p.is_dirty() == dirty)
-                .map(|x| -> &dyn Page { &*x });
+                .map(|x| -> &dyn Page { x });
             let collection_page = collection_page.into_iter();
 
             Some(pages.chain(collection_page))
@@ -206,7 +212,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
 }
 
 // region Page Version functions
-impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
+impl<SF: StreamFactory> Snapshot<'_, SF> {
     pub async fn get_page<T: Page>(
         &mut self,
         page_id: u32,
@@ -274,7 +280,8 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         use_latest_version: bool,
     ) -> Result<PageWithAdditionalInfo<T>> {
         // if not inside local pages can be a dirty page saved in log file
-        if let Some(wal_position) = self.trans_pages.borrow_mut().dirty_pages.get(&page_id) {
+        let wal_position = self.trans_pages.borrow().dirty_pages.get(&page_id).copied();
+        if let Some(wal_position) = wal_position {
             // read page from log file if exists
             // TODO: use read_page when read only snapshot
             let buffer = self
@@ -309,7 +316,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
                 .disk
                 .get_reader()
                 .await?
-                .read_writable_page(pos as u64, FileOrigin::Log)
+                .read_writable_page(pos, FileOrigin::Log)
                 .await?;
             let mut log_page = T::load(buffer)?;
 
@@ -319,7 +326,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
             Ok(PageWithAdditionalInfo {
                 page: log_page,
                 origin: Some(FileOrigin::Log),
-                position: pos as u64,
+                position: pos,
                 wal_version,
             })
         } else {
@@ -492,4 +499,3 @@ pub(crate) struct PageWithAdditionalInfo<T> {
     pub position: u64,
     pub wal_version: i32,
 }
-

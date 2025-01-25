@@ -1,21 +1,25 @@
 mod base_page;
 mod collection_page;
-mod header_page;
 mod data_page;
+mod header_page;
 mod index_page;
 
-use std::any::{Any, TypeId};
-use crate::engine::PageBuffer;
 use crate::Result;
-pub use base_page::*;
-pub use collection_page::*;
-pub use header_page::*;
-pub use data_page::*;
-pub use index_page::*;
+use crate::engine::PageBuffer;
+pub(crate) use base_page::*;
+pub(crate) use collection_page::*;
+pub(crate) use data_page::*;
+pub(crate) use header_page::*;
+pub(crate) use index_page::*;
+use std::any::{Any, TypeId};
 
 pub(crate) trait Page: AsRef<BasePage> + AsMut<BasePage> + Any {
-    fn load(buffer: Box<PageBuffer>) -> Result<Self> where Self : Sized;
-    fn new(buffer: Box<PageBuffer>, page_id: u32) -> Self where Self : Sized;
+    fn load(buffer: Box<PageBuffer>) -> Result<Self>
+    where
+        Self: Sized;
+    fn new(buffer: Box<PageBuffer>, page_id: u32) -> Self
+    where
+        Self: Sized;
     fn update_buffer(&mut self) -> Result<&PageBuffer>; // TODO? remove Result and just &PageBuffer
     fn into_base(self: Box<Self>) -> BasePage;
 }
@@ -55,7 +59,11 @@ impl dyn Page {
 
     #[inline]
     pub fn downcast<T: Page>(self: Box<dyn Page>) -> std::result::Result<Box<T>, Box<Self>> {
-        if self.is::<T>() { unsafe { Ok(self.downcast_unchecked::<T>()) } } else { Err(self) }
+        if self.is::<T>() {
+            unsafe { Ok(self.downcast_unchecked::<T>()) }
+        } else {
+            Err(self)
+        }
     }
 
     #[inline]

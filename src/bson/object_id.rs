@@ -1,5 +1,5 @@
-use std::fmt::{Debug, Formatter};
 use super::utils::ToHex;
+use std::fmt::{Debug, Formatter};
 
 /// Represents ObjectId
 #[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -19,8 +19,6 @@ impl ObjectId {
 
 impl Debug for ObjectId {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        f.debug_tuple("ObjectId")
-            .field(&ToHex(self.bytes))
-            .finish()
+        f.debug_tuple("ObjectId").field(&ToHex(self.bytes)).finish()
     }
 }

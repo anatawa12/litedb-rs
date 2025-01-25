@@ -9,12 +9,8 @@ pub(crate) struct CollectionService<'snapshot, 'engine, SF: StreamFactory> {
 }
 
 impl<'snapshot, 'engine, SF: StreamFactory> CollectionService<'snapshot, 'engine, SF> {
-    pub fn new(
-        snapshot: &'snapshot mut Snapshot<'engine, SF>,
-    ) -> Self {
-        Self {
-            snapshot,
-        }
+    pub fn new(snapshot: &'snapshot mut Snapshot<'engine, SF>) -> Self {
+        Self { snapshot }
     }
 
     pub fn check_name(name: &str, header: &HeaderPage) -> Result<()> {
@@ -33,7 +29,7 @@ impl<'snapshot, 'engine, SF: StreamFactory> CollectionService<'snapshot, 'engine
         fn is_word(s: &str) -> bool {
             // TODO: move to common place
             // TODO: support unicode letter?
-            if s.len() == 0 {
+            if s.is_empty() {
                 return false;
             }
 
@@ -88,14 +84,13 @@ impl<'snapshot, 'engine, SF: StreamFactory> CollectionService<'snapshot, 'engine
 
         let collation = self.snapshot.header().pragmas().collation();
         let max_items_count = self.snapshot.disk().max_items_count();
-        let mut indexer = IndexService::new(
-            self.snapshot,
-            collation,
-            max_items_count,
-        );
+        let mut indexer = IndexService::new(self.snapshot, collation, max_items_count);
 
         indexer.create_index("_id", "$._id", true).await?;
 
-        Ok(self.snapshot.get_page::<CollectionPage>(page_id, false).await?)
+        self
+            .snapshot
+            .get_page::<CollectionPage>(page_id, false)
+            .await
     }
 }

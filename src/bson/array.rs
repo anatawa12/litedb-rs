@@ -1,10 +1,16 @@
+use super::Value;
 use std::fmt::Debug;
 use std::vec;
-use super::Value;
 
 #[derive(Clone, PartialEq)]
 pub struct Array {
     data: Vec<Value>,
+}
+
+impl Default for Array {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Array {
@@ -36,6 +42,10 @@ impl Array {
         self.data.iter_mut()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
     pub fn len(&self) -> usize {
         self.data.len()
     }
@@ -53,7 +63,7 @@ impl From<Vec<Value>> for Array {
     }
 }
 
-impl <const L: usize> From<[Value; L]> for Array {
+impl<const L: usize> From<[Value; L]> for Array {
     fn from(data: [Value; L]) -> Array {
         Self::from(Vec::from(data))
     }
@@ -65,15 +75,21 @@ impl From<&[Value]> for Array {
     }
 }
 
-impl <'a, T> From<&'a [T]> for Array where Value: From<&'a T> {
+impl<'a, T> From<&'a [T]> for Array
+where
+    Value: From<&'a T>,
+{
     fn from(data: &'a [T]) -> Array {
-        Self::from(data.into_iter().map(Into::into).collect::<Vec<Value>>())
+        Self::from(data.iter().map(Into::into).collect::<Vec<Value>>())
     }
 }
 
 impl<T: Into<Value>> FromIterator<T> for Array {
-    fn from_iter<I: IntoIterator<Item=T>>(iter: I) -> Self {
-        iter.into_iter().map(Into::into).collect::<Vec<Value>>().into()
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        iter.into_iter()
+            .map(Into::into)
+            .collect::<Vec<Value>>()
+            .into()
     }
 }
 

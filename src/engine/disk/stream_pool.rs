@@ -1,4 +1,1 @@
-
-pub(crate) struct StreamPool {
-    
-}
+pub(crate) struct StreamPool {}

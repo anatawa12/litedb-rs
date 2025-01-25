@@ -1,6 +1,6 @@
 use crate::engine::*;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::ops::AsyncFnOnce;
 use std::rc::Rc;
 
@@ -115,7 +115,7 @@ impl MemoryCache {
 
                 *Rc::get_mut(o.get_mut())
                     .expect("user must ensure this page is not in use when marked as read only")
-                    .buffer_mut() = page.buffer().clone();
+                    .buffer_mut() = *page.buffer();
 
                 //self.discard_page(page); no cache reuse system
 

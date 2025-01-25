@@ -2,7 +2,7 @@ use crate::engine::buffer_reader::BufferReader;
 use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::collection_index::CollectionIndex;
 use crate::engine::pages::{BasePage, PageType};
-use crate::engine::{Page, PageBuffer, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE};
+use crate::engine::{PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer};
 use crate::{Error, Result};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
@@ -41,8 +41,8 @@ impl CollectionPage {
         let area = base.buffer().slice(P_INDEXES, P_INDEXES_COUNT);
         let mut reader = BufferReader::new(area);
 
-        for i in 0..PAGE_FREE_LIST_SLOTS {
-            free_data_page_list[i] = reader.read_u32();
+        for item in free_data_page_list.iter_mut() {
+            *item = reader.read_u32();
         }
 
         reader.skip(P_INDEXES - PAGE_HEADER_SIZE - reader.position());
@@ -123,7 +123,11 @@ impl CollectionPage {
         unique: bool,
     ) -> Result<&mut CollectionIndex> {
         let total_length = 1
-            + self.indexes.values().map(CollectionIndex::get_length).sum::<usize>()
+            + self
+                .indexes
+                .values()
+                .map(CollectionIndex::get_length)
+                .sum::<usize>()
             + CollectionIndex::get_length_static(name, expr);
 
         if self.indexes.len() == 255 || total_length >= P_INDEXES_COUNT {
@@ -150,10 +154,7 @@ impl CollectionPage {
         Ok(result)
     }
 
-    pub fn update_collection_index(
-        &mut self,
-        name: &str
-    ) -> &mut CollectionIndex {
+    pub fn update_collection_index(&mut self, name: &str) -> &mut CollectionIndex {
         self.set_dirty();
         self.indexes.get_mut(name).unwrap()
     }

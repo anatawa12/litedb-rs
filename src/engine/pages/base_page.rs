@@ -1,10 +1,11 @@
-use crate::engine::{Page, PageBuffer, PAGE_HEADER_SIZE, PAGE_SIZE};
-use crate::utils::BufferSlice;
+use std::cmp::Ordering;
 use crate::Error;
 use crate::Result;
+use crate::engine::{PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer};
+use crate::utils::BufferSlice;
 use std::fmt::Debug;
 
-/// The common variables for each page
+// The common variables for each page
 
 const SLOT_SIZE: usize = 4;
 
@@ -507,11 +508,7 @@ impl BasePage {
         self.update_with_dirty(index, length).0
     }
 
-    pub fn update_with_dirty(
-        &mut self,
-        index: u8,
-        length: usize,
-    ) -> (&mut BufferSlice, &mut bool) {
+    pub fn update_with_dirty(&mut self, index: u8, length: usize) -> (&mut BufferSlice, &mut bool) {
         // debug_assert!(this.buffer.writable)
         debug_assert!(length > 0, "length should be greater than 0");
 
@@ -529,49 +526,53 @@ impl BasePage {
         let is_last_segment = position + old_length == self.next_free_position as usize;
         self.set_dirty();
 
-        if length == old_length {
-            // length unchanged; nothing special to do
-            (self.buffer.slice_mut(position, old_length), &mut self.dirty)
-        } else if length < old_length {
-            // if the new length is smaller than the old length,
-            // we can just update the length, and increase fragmented / next free position
-
-            let diff = old_length - length;
-
-            if is_last_segment {
-                self.next_free_position -= diff as u16;
-            } else {
-                self.fragmented_bytes += diff as u16;
+        match length.cmp(&old_length) {
+            Ordering::Equal => {
+                // length unchanged; nothing special to do
+                (self.buffer.slice_mut(position, old_length), &mut self.dirty)
             }
+            Ordering::Less => {
+                // if the new length is smaller than the old length,
+                // we can just update the length, and increase fragmented / next free position
 
-            self.used_bytes -= diff as u16;
+                let diff = old_length - length;
 
-            self.buffer.write_u16(length_addr, length as u16);
+                if is_last_segment {
+                    self.next_free_position -= diff as u16;
+                } else {
+                    self.fragmented_bytes += diff as u16;
+                }
 
-            // clear fragmented bytes
-            self.buffer.clear(position + length, diff);
+                self.used_bytes -= diff as u16;
 
-            (self.buffer.slice_mut(position, length), &mut self.dirty)
-        } else {
-            // if the new length is greater than the old length,
-            // remove the old segment, and insert a new one
+                self.buffer.write_u16(length_addr, length as u16);
 
-            self.buffer.clear(position, old_length);
+                // clear fragmented bytes
+                self.buffer.clear(position + length, diff);
 
-            self.items_count -= 1;
-            self.used_bytes -= old_length as u16;
-
-            if is_last_segment {
-                self.next_free_position = position as u16;
-            } else {
-                self.fragmented_bytes += old_length as u16;
+                (self.buffer.slice_mut(position, length), &mut self.dirty)
             }
+            Ordering::Greater => {
+                // if the new length is greater than the old length,
+                // remove the old segment, and insert a new one
 
-            self.buffer.write_u16(position_addr, 0);
-            self.buffer.write_u16(length_addr, 0);
+                self.buffer.clear(position, old_length);
 
-            let (slice, _, dirty) = self.internal_insert(length, index);
-            (slice, dirty)
+                self.items_count -= 1;
+                self.used_bytes -= old_length as u16;
+
+                if is_last_segment {
+                    self.next_free_position = position as u16;
+                } else {
+                    self.fragmented_bytes += old_length as u16;
+                }
+
+                self.buffer.write_u16(position_addr, 0);
+                self.buffer.write_u16(length_addr, 0);
+
+                let (slice, _, dirty) = self.internal_insert(length, index);
+                (slice, dirty)
+            }
         }
     }
 
@@ -643,7 +644,7 @@ impl BasePage {
             }
         }
 
-        return self.highest_index + 1;
+        self.highest_index + 1
     }
 
     pub fn get_used_indices(&self) -> impl Iterator<Item = u8> {

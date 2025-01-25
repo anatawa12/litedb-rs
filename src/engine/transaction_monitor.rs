@@ -2,7 +2,7 @@ use crate::engine::disk::DiskService;
 use crate::engine::lock_service::LockService;
 use crate::engine::transaction_service::TransactionService;
 use crate::engine::wal_index_service::WalIndexService;
-use crate::engine::{HeaderPage, StreamFactory, MAX_OPEN_TRANSACTIONS};
+use crate::engine::{HeaderPage, MAX_OPEN_TRANSACTIONS, StreamFactory};
 use crate::{Error, Result};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ struct TransactionMonitor<'engine, SF: StreamFactory> {
 
 impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
     // 2nd is is_new
-    pub async fn get_or_create_transaction<'a : 'engine>(
+    pub async fn get_or_create_transaction<'a: 'engine>(
         &'a mut self,
         query_only: bool,
     ) -> Result<(&'a mut TransactionService<'engine, SF>, bool)> {
@@ -39,14 +39,14 @@ impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
         } else {
             is_new = true;
 
-            let already_lock;
+            
 
-            if (self.transactions.len() >= MAX_OPEN_TRANSACTIONS) {
+            if self.transactions.len() >= MAX_OPEN_TRANSACTIONS {
                 return Err(Error::transaction_limit());
             }
 
             let initial_size = self.get_initial_size();
-            already_lock = self
+            let already_lock = self
                 .transactions
                 .values()
                 .any(|x| x.thread_id() == std::thread::current().id());
@@ -81,9 +81,7 @@ impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
     }
 
     // 2nd is is_new
-    pub async fn get_transaction(
-        &mut self,
-    ) -> Option<&mut TransactionService<'engine, SF>> {
+    pub async fn get_transaction(&mut self) -> Option<&mut TransactionService<'engine, SF>> {
         if let Some(slot_id) = self.slot_id {
             Some(self.transactions.get_mut(&slot_id).unwrap())
         } else {
@@ -125,8 +123,7 @@ impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
         if let Some(slot_id) = self.slot_id {
             Some(self.transactions.get(&slot_id).unwrap())
         } else {
-            self
-                .transactions
+            self.transactions
                 .values()
                 .find(|x| x.thread_id() == std::thread::current().id())
         }

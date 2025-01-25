@@ -1,6 +1,6 @@
+use crate::Result;
 use crate::engine::PageAddress;
 use crate::utils::{BufferSlice, Order};
-use crate::Result;
 use std::ops::Deref;
 
 const INDEX_NODE_FIXED_SIZE: usize =
@@ -80,7 +80,7 @@ impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
         }
     }
 
-    pub fn get_key_length(key: &bson::Bson, recalc: bool) -> usize {
+    pub fn get_key_length(_: &bson::Bson, _: bool) -> usize {
         todo!("reimplement when bson is reimplemented")
     }
 

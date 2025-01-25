@@ -1,18 +1,15 @@
-use std::borrow::{Borrow, BorrowMut};
-use std::cmp::max;
-use std::collections::hash_map::Values;
-use std::io::SeekFrom;
-use std::iter::{Filter, FlatMap, Map};
-use futures::prelude::*;
 use super::memory_cache::MemoryCache;
-use crate::engine::disk::disk_reader::DiskReader;
-use crate::engine::*;
-use crate::engine::pages::HeaderPage;
-use crate::engine::snapshot::Snapshot;
 use crate::Result;
+use crate::engine::disk::disk_reader::DiskReader;
+use crate::engine::pages::HeaderPage;
+use crate::engine::*;
 use crate::utils::Collation;
+use futures::prelude::*;
+use std::borrow::Borrow;
+use std::cmp::max;
+use std::io::SeekFrom;
 
-pub(crate) struct DiskService<SF : StreamFactory> {
+pub(crate) struct DiskService<SF: StreamFactory> {
     cache: MemoryCache,
     data_stream: SF,
     log_stream: SF,
@@ -77,7 +74,11 @@ impl<SF: StreamFactory> DiskService<SF> {
     }
 
     pub async fn get_reader(&mut self) -> Result<DiskReader<SF::Stream>> {
-        Ok(DiskReader::new(&mut self.cache, self.data_stream.get_stream().await?, self.log_stream.get_stream().await?))
+        Ok(DiskReader::new(
+            &mut self.cache,
+            self.data_stream.get_stream().await?,
+            self.log_stream.get_stream().await?,
+        ))
     }
 
     pub fn max_items_count(&self) -> u32 {
@@ -103,7 +104,7 @@ impl<SF: StreamFactory> DiskService<SF> {
         // no reusing buffer in rust impl for now
         // for page in pages {
         //     let page = page.borrow();
-        // 
+        //
         //     if (self.cache.try_move_to_readable(page)) {
         //         self.cache.discard_page(page)
         //     }
@@ -119,11 +120,11 @@ impl<SF: StreamFactory> DiskService<SF> {
             self.log_length += PAGE_SIZE as i64;
             page.set_position_origin(self.log_length as u64, FileOrigin::Log);
 
-            let page  = self.cache.move_to_readable(page);
+            let page = self.cache.move_to_readable(page);
 
             stream.seek(SeekFrom::Start(page.position())).await?;
 
-            stream.write(page.buffer()).await?;
+            stream.write_all(page.buffer()).await?;
 
             count += 1;
         }
@@ -138,7 +139,10 @@ impl<SF: StreamFactory> DiskService<SF> {
         }
     }
 
-    pub fn read_full(&mut self, origin: FileOrigin) -> impl futures::Stream<Item = Result<Box<PageBuffer>>> {
+    pub fn read_full(
+        &mut self,
+        origin: FileOrigin,
+    ) -> impl futures::Stream<Item = Result<Box<PageBuffer>>> {
         futures::stream::try_unfold((self, 0, origin), async |(this, mut position, origin)| {
             let length = this.get_file_length(origin);
             let stream = this.data_stream.get_stream().await?;

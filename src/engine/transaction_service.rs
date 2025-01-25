@@ -1,20 +1,20 @@
+use crate::Result;
 use crate::engine::disk::DiskService;
 use crate::engine::lock_service::LockService;
 use crate::engine::page_position::PagePosition;
 use crate::engine::pages::HeaderPage;
 use crate::engine::snapshot::Snapshot;
+use crate::engine::transaction_monitor::TransactionMonitorShared;
 use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::wal_index_service::WalIndexService;
-use crate::engine::{BasePage, Page, PageBuffer, PageType, StreamFactory};
-use crate::Result;
+use crate::engine::{BasePage, PageBuffer, PageType, StreamFactory};
 use std::cell::RefCell;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::mem::forget;
 use std::rc::Rc;
 use std::thread::ThreadId;
 use std::time::SystemTime;
-use crate::engine::transaction_monitor::TransactionMonitorShared;
 
 pub(crate) struct TransactionService<'engine, SF: StreamFactory> {
     header: &'engine mut HeaderPage,
@@ -92,7 +92,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
         self.max_transaction_size = size;
     }
 
-    pub async fn create_snapshot<'a : 'engine>(
+    pub async fn create_snapshot<'a: 'engine>(
         &'a mut self,
         mode: LockMode,
         collection: &str,
@@ -174,7 +174,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
                 self.persist_dirty_page(false).await?;
             }
 
-            for (_, snapshot) in &mut self.snapshots {
+            for snapshot in self.snapshots.values_mut() {
                 snapshot.clear()
             }
 
@@ -207,7 +207,10 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
                 }
 
                 if self.trans_pages.borrow().last_deleted_page() == page_mut.page_id() && commit {
-                    debug_assert!(self.trans_pages.borrow().header_changed(), "header must be in lock");
+                    debug_assert!(
+                        self.trans_pages.borrow().header_changed(),
+                        "header must be in lock"
+                    );
                     debug_assert!(
                         page_mut.page_type() == PageType::Empty,
                         "must be marked as deleted page"
@@ -224,7 +227,8 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
                 let position = buffer.position();
 
                 buffers.push(page.into_base().into_buffer());
-                self.trans_pages.borrow_mut()
+                self.trans_pages
+                    .borrow_mut()
                     .dirty_pages
                     .insert(page_id, PagePosition::new(page_id, position));
             }
@@ -273,7 +277,9 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
             if count > 0 {
                 self.wal_index.confirm_transaction(
                     self.transaction_id,
-                    &self.trans_pages.borrow_mut()
+                    &self
+                        .trans_pages
+                        .borrow_mut()
                         .dirty_pages
                         .values()
                         .copied()
@@ -295,7 +301,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
         // LOG($"rollback transaction ({_transPages.TransactionSize} pages with {_transPages.NewPages.Count} returns)", "TRANSACTION");
 
         // if transaction contains new pages, must return to database in another transaction
-        if self.trans_pages.borrow().new_pages().len() > 0 {
+        if !self.trans_pages.borrow().new_pages().is_empty() {
             self.return_new_pages().await?;
         }
 
@@ -336,7 +342,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
             safe_point: Box<PageBuffer>,
         }
 
-        impl<'a> Drop for RestoreOnDrop<'a> {
+        impl Drop for RestoreOnDrop<'_> {
             fn drop(&mut self) {
                 self.header.restore(&self.safe_point).unwrap();
             }

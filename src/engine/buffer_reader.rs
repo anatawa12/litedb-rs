@@ -1,5 +1,5 @@
-use crate::engine::page_address::PageAddress;
 use crate::Result;
+use crate::engine::page_address::PageAddress;
 use crate::utils::BufferSlice;
 
 pub(crate) struct BufferReader<'a> {
@@ -33,7 +33,7 @@ impl BufferReader<'_> {
 }
 
 impl BufferReader<'_> {
-    fn read<T, const S : usize>(&mut self, f: impl Fn([u8; S]) -> T) -> T {
+    fn read<T, const S: usize>(&mut self, f: impl Fn([u8; S]) -> T) -> T {
         let array = self.slice.read_bytes(self.position, S);
         self.position += S;
         f(array.try_into().unwrap())

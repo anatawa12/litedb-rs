@@ -1,8 +1,10 @@
-use crate::engine::{BasePage, CollectionPage, Page, PageBuffer, PageType, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::Result;
-use std::ops::{Deref, DerefMut};
 use crate::engine::data_block::{DataBlock, DataBlockMut};
 use crate::engine::page_address::PageAddress;
+use crate::engine::{
+    BasePage, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer, PageType,
+};
+use std::ops::{Deref, DerefMut};
 
 pub(crate) struct DataPage {
     base: BasePage,
@@ -34,13 +36,28 @@ impl DataPage {
 
     pub fn insert_block(&mut self, length: usize, extend: bool) -> DataBlockMut {
         let page_id = self.page_id();
-        let (segment, index, dirty) = self.insert_with_dirty(length + DataBlock::DATA_BLOCK_FIXED_SIZE);
-        DataBlockMut::new(page_id, dirty, index, segment, extend, PageAddress::default())
+        let (segment, index, dirty) =
+            self.insert_with_dirty(length + DataBlock::DATA_BLOCK_FIXED_SIZE);
+        DataBlockMut::new(
+            page_id,
+            dirty,
+            index,
+            segment,
+            extend,
+            PageAddress::default(),
+        )
     }
 
-    pub fn update_block(&mut self, index: u8, extend: bool, next_block: PageAddress, length: usize) -> DataBlockMut {
+    pub fn update_block(
+        &mut self,
+        index: u8,
+        extend: bool,
+        next_block: PageAddress,
+        length: usize,
+    ) -> DataBlockMut {
         let page_id = self.page_id();
-        let (buffer, dirty) = self.update_with_dirty(index, length + DataBlock::DATA_BLOCK_FIXED_SIZE);
+        let (buffer, dirty) =
+            self.update_with_dirty(index, length + DataBlock::DATA_BLOCK_FIXED_SIZE);
 
         DataBlockMut::new(page_id, dirty, index, buffer, extend, next_block)
     }
@@ -50,12 +67,15 @@ impl DataPage {
     }
 
     pub fn get_blocks(&self) -> impl Iterator<Item = PageAddress> {
-        self.base.get_used_indices().filter(|&index| {
-            let position_addr = BasePage::calc_position_addr(index);
-            let position = self.base.buffer().read_u16(position_addr) as usize;
-            let extend = self.base.buffer().read_bool(position + DataBlock::P_EXTEND);
-            extend == false
-        }).map(|index| PageAddress::new(self.page_id(), index))
+        self.base
+            .get_used_indices()
+            .filter(|&index| {
+                let position_addr = BasePage::calc_position_addr(index);
+                let position = self.base.buffer().read_u16(position_addr) as usize;
+                let extend = self.base.buffer().read_bool(position + DataBlock::P_EXTEND);
+                !extend
+            })
+            .map(|index| PageAddress::new(self.page_id(), index))
     }
 
     const FREE_PAGE_SLOTS: [usize; 4] = [
@@ -66,7 +86,9 @@ impl DataPage {
     ];
 
     pub fn free_index_slot(free_bytes: usize) -> u8 {
-        Self::FREE_PAGE_SLOTS.iter().enumerate()
+        Self::FREE_PAGE_SLOTS
+            .iter()
+            .enumerate()
             .find(|&(_, &slot)| slot >= free_bytes)
             .map(|(index, _)| index as u8)
             .unwrap_or((PAGE_FREE_LIST_SLOTS - 1) as u8)

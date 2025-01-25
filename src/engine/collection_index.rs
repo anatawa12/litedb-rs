@@ -1,14 +1,14 @@
+use crate::Result;
 use crate::engine::buffer_reader::BufferReader;
 use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::page_address::PageAddress;
-use crate::Result;
 
 pub(crate) struct CollectionIndex {
     slot: u8,
     index_type: u8,
     name: String,
     expression: String,
-    // bson_expr: 
+    // bson_expr:
     unique: bool,
     head: PageAddress,
     tail: PageAddress,
@@ -120,10 +120,11 @@ impl CollectionIndex {
     }
 
     pub fn get_length_static(name: &str, expr: &str) -> usize {
-        1 
+        1 + 1
+            + name.len()
             + 1
-            + name.len()+ 1
-            + expr.len() + 1
+            + expr.len()
+            + 1
             + 1
             + PageAddress::SERIALIZED_SIZE
             + PageAddress::SERIALIZED_SIZE

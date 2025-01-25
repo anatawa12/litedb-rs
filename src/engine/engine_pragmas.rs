@@ -1,7 +1,7 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use crate::engine::PageBuffer;
 use crate::utils::{Collation, CompareOptions};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Duration;
 
 const P_USER_VERSION: usize = 76; // 76-79 (4 bytes)
@@ -47,7 +47,7 @@ impl Default for EnginePragmas {
 
 impl EnginePragmas {
     pub fn read(buffer: &PageBuffer) -> crate::Result<Self> {
-        let mut pragmas = EnginePragmas::default();
+        let pragmas = EnginePragmas::default();
         let mut inner = pragmas.inner.borrow_mut();
 
         inner.user_version = buffer.read_i32(P_USER_VERSION);
@@ -58,7 +58,11 @@ impl EnginePragmas {
         // TODO: -1 for unlimited?
         inner.timeout = Duration::from_secs(buffer.read_i32(P_TIMEOUT) as u64);
         let limit_size = buffer.read_i64(P_LIMIT_SIZE);
-        inner.limit_size = if limit_size == 0 { i64::MAX } else { limit_size };
+        inner.limit_size = if limit_size == 0 {
+            i64::MAX
+        } else {
+            limit_size
+        };
         inner.utc_date = buffer.read_bool(P_UTC_DATE);
         inner.checkpoint = buffer.read_i32(P_CHECKPOINT);
         inner.dirty = false;
@@ -119,7 +123,6 @@ impl EnginePragmas {
         inner.timeout = timeout;
         inner.dirty = true;
     }
-    
 
     pub fn set_limit_size(&self, limit_size: i64) {
         let mut inner = self.inner.borrow_mut();

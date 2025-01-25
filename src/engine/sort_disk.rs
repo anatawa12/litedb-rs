@@ -1,8 +1,8 @@
+use crate::Result;
+use crate::engine::{PAGE_SIZE, StreamFactory};
+use futures::prelude::*;
 use std::collections::HashSet;
 use std::io::SeekFrom;
-use futures::prelude::*;
-use crate::Result;
-use crate::engine::{StreamFactory, PAGE_SIZE};
 
 pub(crate) struct SortDisk<SF: StreamFactory> {
     temp_stream: SF,
@@ -43,8 +43,12 @@ impl<SF: StreamFactory> SortDisk<SF> {
         let writer = self.temp_stream.get_stream().await?;
 
         for i in 0..(self.container_size / PAGE_SIZE) {
-            writer.seek(SeekFrom::Start(position + i as u64 * PAGE_SIZE as u64)).await?;
-            writer.write_all(&data[i * PAGE_SIZE..][..PAGE_SIZE]).await?;
+            writer
+                .seek(SeekFrom::Start(position + i as u64 * PAGE_SIZE as u64))
+                .await?;
+            writer
+                .write_all(&data[i * PAGE_SIZE..][..PAGE_SIZE])
+                .await?;
         }
 
         Ok(())

@@ -1,5 +1,5 @@
-use std::fmt::{Debug, Formatter};
 use super::utils::ToHex;
+use std::fmt::{Debug, Formatter};
 
 /// The IEEE 754 decimal128
 ///

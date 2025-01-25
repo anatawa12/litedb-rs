@@ -1,9 +1,9 @@
+use crate::Result;
 use crate::engine::collection_index::CollectionIndex;
 use crate::engine::index_node::IndexNode;
 use crate::engine::snapshot::Snapshot;
-use crate::engine::{IndexPage, PageAddress, StreamFactory, MAX_LEVEL_LENGTH};
+use crate::engine::{IndexPage, MAX_LEVEL_LENGTH, PageAddress, StreamFactory};
 use crate::utils::Collation;
-use crate::Result;
 
 pub(crate) struct IndexService<'snapshot, 'engine, SF: StreamFactory> {
     snapshot: &'snapshot mut Snapshot<'engine, SF>,
@@ -37,7 +37,6 @@ impl<SF: StreamFactory> IndexService<'_, '_, SF> {
         unique: bool,
     ) -> Result<&mut CollectionIndex> {
         let length = IndexNode::get_node_length(MAX_LEVEL_LENGTH as u8, &bson::Bson::MinKey);
-
 
         let index = self
             .snapshot

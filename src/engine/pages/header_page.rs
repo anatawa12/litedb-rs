@@ -1,8 +1,8 @@
 use crate::engine::buffer_reader::BufferReader;
 use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::engine_pragmas::EnginePragmas;
-use crate::engine::pages::base_page::BasePage;
 use crate::engine::pages::PageType;
+use crate::engine::pages::base_page::BasePage;
 use crate::engine::{Page, PageBuffer};
 use crate::utils::CsDateTime;
 use crate::{Error, Result};
@@ -50,7 +50,7 @@ impl HeaderPage {
             collections_changed: false,
         };
 
-        let mut buffer = header.base.buffer_mut();
+        let buffer = header.base.buffer_mut();
         buffer.write_bytes(P_HEADER_INFO, HEADER_INFO);
         buffer.write_byte(P_FILE_VERSION, FILE_VERSION);
         buffer.write_date_time(P_CREATION_TIME, header.creation_time);
@@ -97,7 +97,7 @@ impl HeaderPage {
         self.free_empty_page_list = buffer.read_u32(P_FREE_EMPTY_PAGE_ID);
         self.last_page_id = buffer.read_u32(P_LAST_PAGE_ID);
 
-        self.pragmas = EnginePragmas::read(&buffer)?;
+        self.pragmas = EnginePragmas::read(buffer)?;
         let area = buffer.slice(P_COLLECTIONS, COLLECTIONS_SIZE);
         self.collections = BufferReader::new(area).read_document()?;
 
@@ -105,7 +105,7 @@ impl HeaderPage {
     }
 
     pub fn update_buffer(&mut self) -> Result<&PageBuffer> {
-        let mut buffer = self.base.buffer_mut();
+        let buffer = self.base.buffer_mut();
 
         buffer.write_u32(P_FREE_EMPTY_PAGE_ID, self.free_empty_page_list);
         buffer.write_u32(P_LAST_PAGE_ID, self.last_page_id);

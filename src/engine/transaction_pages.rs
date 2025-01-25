@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::engine::HeaderPage;
 use crate::engine::page_position::PagePosition;
+use std::collections::HashMap;
 
 pub(crate) struct TransactionPages {
     pub transaction_size: u32,
@@ -11,6 +11,7 @@ pub(crate) struct TransactionPages {
     // number of deleted pages
     deleted_pages: usize,
 
+    #[allow(clippy::type_complexity)]
     on_commit: Vec<Box<dyn Fn(&mut HeaderPage)>>,
 }
 
@@ -28,7 +29,7 @@ impl TransactionPages {
     }
 
     pub fn header_changed(&self) -> bool {
-        self.new_pages.len() > 0 || self.deleted_pages > 0 || self.on_commit.len() > 0
+        !self.new_pages.is_empty() || self.deleted_pages > 0 || !self.on_commit.is_empty()
     }
 
     pub fn on_commit(&mut self, f: impl Fn(&mut HeaderPage) + 'static) {

@@ -1,30 +1,29 @@
 //! The bson module
-//! 
+//!
 //! Bson used in litedb is a subset of that of mongodb, which is implemented in bson crate.
 //! And internal representation can be different some portions.
 //! To avoid any problem with those differences, we use custom bson structure instead of bson crate.
 
-
 mod utils;
 
-mod decimal128;
+mod array;
+mod binary;
 mod date_time;
+mod decimal128;
+mod document;
 mod guid;
 mod object_id;
-mod binary;
-mod array;
-mod document;
 
-pub use decimal128::Decimal128;
+pub use array::Array;
+pub use binary::Binary;
 pub use date_time::DateTime;
+pub use decimal128::Decimal128;
+pub use document::Document;
 pub use guid::Guid;
 pub use object_id::ObjectId;
-pub use binary::Binary;
-pub use array::Array;
-pub use document::Document;
 
 /// The type of bson [`Value`]
-/// 
+///
 /// The number representation of [`BsonType`] is used internally in litedb
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -54,7 +53,7 @@ pub enum BsonType {
 }
 
 /// The num represents one bson value.
-/// 
+///
 /// Any instance of this value can be expressed in this enum can be serialized to binary representation without any error
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {

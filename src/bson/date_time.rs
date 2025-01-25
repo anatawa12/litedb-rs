@@ -2,18 +2,18 @@ use std::fmt::{Debug, Formatter};
 use std::time::{Duration, SystemTime};
 
 /// DateTime in litedb bson
-/// 
+///
 /// This can represent same value as C# [DateTime].
 ///
 /// This represents number of 100 nano seconds since 0001-01-01 00:00:00 UTC
 /// This can represent 0001-01-01 00:00:00 ~ 9999-12-31 23:59:59.99999999
-/// 
+///
 /// [DateTime]: https://learn.microsoft.com/en-us/dotnet/api/system.datetime
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct DateTime(u64);
 
 const MAX_TICKS: u64 = 3155378975999999999;
-/// The tick represents unix epoc time. Will be used for time conversation 
+/// The tick represents unix epoc time. Will be used for time conversation
 const TICKS_UNIX_EPOC: u64 = 621355968000000000;
 const TICKS_AFTER_UNIX_EPOC: u64 = MAX_TICKS - TICKS_UNIX_EPOC;
 
@@ -44,9 +44,9 @@ impl DateTime {
     }
 
     /// Creates new DateTime represents exactly the same time as the [`SystemTime`]
-    /// 
+    ///
     /// Precision smaller than 100 nanoseconds will be discarded.
-    /// 
+    ///
     /// If the time cannot be represented with this type, like before 0001 year or after 9999 year,
     /// this function will return `None`.
     pub fn from_system(system: SystemTime) -> Option<Self> {
@@ -61,7 +61,7 @@ impl DateTime {
                 }
 
                 TICKS_UNIX_EPOC + ticks_since_epoc as u64
-            },
+            }
             Err(e) => {
                 let duration = e.duration();
 
@@ -74,13 +74,13 @@ impl DateTime {
                 }
 
                 TICKS_UNIX_EPOC - ticks_until_epoc as u64
-            },
+            }
         };
         Some(DateTime(ticks))
     }
 
     /// Create new DateTime from ticks
-    /// 
+    ///
     /// If the tick is larger than [Self::MAX], returns `None`.
     pub fn from_ticks(ticks: u64) -> Option<DateTime> {
         if ticks > MAX_TICKS {
@@ -91,14 +91,14 @@ impl DateTime {
     }
 
     /// Get the total ticks since 0001-01-01 00:00:00
-    /// 
+    ///
     /// One tick is 100 nanoseconds
     pub fn ticks(&self) -> u64 {
         self.0
     }
 
     /// Get the SystemTime that represents the same time as this `DateTime`
-    /// 
+    ///
     /// If the time cannot be represented with `SystemTime`, this will return `None`.
     pub fn to_system_time(&self) -> Option<SystemTime> {
         let ticks_since_epoc = self.ticks() as i64 - TICKS_UNIX_EPOC as i64;
@@ -141,7 +141,10 @@ impl Debug for DateTime {
         let (year, is_leap, days_in_year) = days_to_year_and_day_in_year(total_days as u32);
         let (month, day) = day_in_year_to_month_day(days_in_year, is_leap);
 
-        return write!(f, "{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{sub_ticks:07}");
+        return write!(
+            f,
+            "{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{sub_ticks:07}"
+        );
 
         fn days_to_year_and_day_in_year(days: u32) -> (u32, bool, u32) {
             let number_of_400_years = days / DAYS_PER_400_YEAR;
@@ -152,7 +155,8 @@ impl Debug for DateTime {
             if number_of_100_years == 4 {
                 number_of_100_years = 3;
             }
-            let days_in_100_year = days_in_400_years - number_of_100_years * DAYS_PER_NORMAL_100_YEAR;
+            let days_in_100_year =
+                days_in_400_years - number_of_100_years * DAYS_PER_NORMAL_100_YEAR;
 
             let number_of_4_year = days_in_100_year / DAYS_PER_4_YEAR;
             let days_in_4_year = days_in_100_year % DAYS_PER_4_YEAR;
@@ -163,9 +167,14 @@ impl Debug for DateTime {
             }
             let days_in_year = days_in_4_year - number_of_year * DAYS_PER_NORMAL_YEAR;
 
-            let year = number_of_400_years * 400 + number_of_100_years * 100 + number_of_4_year * 4 + number_of_year + 1;
+            let year = number_of_400_years * 400
+                + number_of_100_years * 100
+                + number_of_4_year * 4
+                + number_of_year
+                + 1;
             // since it's 0-indexed instead of 1-indexed, we have different repr
-            let is_leap = number_of_year == 3 && (number_of_4_year != 24 || number_of_100_years == 3);
+            let is_leap =
+                number_of_year == 3 && (number_of_4_year != 24 || number_of_100_years == 3);
 
             (year, is_leap, days_in_year)
         }
@@ -197,37 +206,94 @@ fn test_debug() {
         };
     }
 
-    assert_eq!(format!("{:?}", time!(0001-01-01 00:00:00.0000000 UTC)), "0001-01-01T00:00:00.0000000");
-    assert_eq!(format!("{:?}", time!(0001-01-01 00:00:00.0000001 UTC)), "0001-01-01T00:00:00.0000001");
+    assert_eq!(
+        format!("{:?}", time!(0001-01-01 00:00:00.0000000 UTC)),
+        "0001-01-01T00:00:00.0000000"
+    );
+    assert_eq!(
+        format!("{:?}", time!(0001-01-01 00:00:00.0000001 UTC)),
+        "0001-01-01T00:00:00.0000001"
+    );
 
     // first leap year
-    assert_eq!(format!("{:?}", time!(0004-02-28 12:34:56.7890001 UTC)), "0004-02-28T12:34:56.7890001");
-    assert_eq!(format!("{:?}", time!(0004-02-29 12:34:56.7890001 UTC)), "0004-02-29T12:34:56.7890001");
-    assert_eq!(format!("{:?}", time!(0004-03-01 12:34:56.7890001 UTC)), "0004-03-01T12:34:56.7890001");
+    assert_eq!(
+        format!("{:?}", time!(0004-02-28 12:34:56.7890001 UTC)),
+        "0004-02-28T12:34:56.7890001"
+    );
+    assert_eq!(
+        format!("{:?}", time!(0004-02-29 12:34:56.7890001 UTC)),
+        "0004-02-29T12:34:56.7890001"
+    );
+    assert_eq!(
+        format!("{:?}", time!(0004-03-01 12:34:56.7890001 UTC)),
+        "0004-03-01T12:34:56.7890001"
+    );
 
     // multiple of 100
-    assert_eq!(format!("{:?}", time!(1900-02-28 12:34:56.7890001 UTC)), "1900-02-28T12:34:56.7890001");
+    assert_eq!(
+        format!("{:?}", time!(1900-02-28 12:34:56.7890001 UTC)),
+        "1900-02-28T12:34:56.7890001"
+    );
     //assert_eq!(format!("{:?}", time!(1900-02-29 12:34:56.7890001 UTC)), "1900-02-29T12:34:56.7890001");
-    assert_eq!(format!("{:?}", time!(1900-03-01 12:34:56.7890001 UTC)), "1900-03-01T12:34:56.7890001");
+    assert_eq!(
+        format!("{:?}", time!(1900-03-01 12:34:56.7890001 UTC)),
+        "1900-03-01T12:34:56.7890001"
+    );
 
     // multiple of 400
-    assert_eq!(format!("{:?}", time!(2000-02-28 12:34:56.7890001 UTC)), "2000-02-28T12:34:56.7890001");
-    assert_eq!(format!("{:?}", time!(2000-02-29 12:34:56.7890001 UTC)), "2000-02-29T12:34:56.7890001");
-    assert_eq!(format!("{:?}", time!(2000-03-01 12:34:56.7890001 UTC)), "2000-03-01T12:34:56.7890001");
+    assert_eq!(
+        format!("{:?}", time!(2000-02-28 12:34:56.7890001 UTC)),
+        "2000-02-28T12:34:56.7890001"
+    );
+    assert_eq!(
+        format!("{:?}", time!(2000-02-29 12:34:56.7890001 UTC)),
+        "2000-02-29T12:34:56.7890001"
+    );
+    assert_eq!(
+        format!("{:?}", time!(2000-03-01 12:34:56.7890001 UTC)),
+        "2000-03-01T12:34:56.7890001"
+    );
 
     // today as of writing
-    assert_eq!(format!("{:?}", time!(2025-01-25 11:26:54.1234567 UTC)), "2025-01-25T11:26:54.1234567");
+    assert_eq!(
+        format!("{:?}", time!(2025-01-25 11:26:54.1234567 UTC)),
+        "2025-01-25T11:26:54.1234567"
+    );
 
-    assert_eq!(format!("{:?}", DateTime::MIN), "0001-01-01T00:00:00.0000000");
-    assert_eq!(format!("{:?}", DateTime::MAX), "9999-12-31T23:59:59.9999999");
+    assert_eq!(
+        format!("{:?}", DateTime::MIN),
+        "0001-01-01T00:00:00.0000000"
+    );
+    assert_eq!(
+        format!("{:?}", DateTime::MAX),
+        "9999-12-31T23:59:59.9999999"
+    );
 
     // conversation test
     // nanoseconds before Unix Epoc
-    assert_eq!(format!("{:?}", time!(0001-01-01 00:00:00.000000000 UTC)), "0001-01-01T00:00:00.0000000");
-    assert_eq!(format!("{:?}", time!(0001-01-01 00:00:00.000000100 UTC)), "0001-01-01T00:00:00.0000001");
-    assert_eq!(format!("{:?}", time!(0001-01-01 00:00:00.000000199 UTC)), "0001-01-01T00:00:00.0000001");
+    assert_eq!(
+        format!("{:?}", time!(0001-01-01 00:00:00.000000000 UTC)),
+        "0001-01-01T00:00:00.0000000"
+    );
+    assert_eq!(
+        format!("{:?}", time!(0001-01-01 00:00:00.000000100 UTC)),
+        "0001-01-01T00:00:00.0000001"
+    );
+    assert_eq!(
+        format!("{:?}", time!(0001-01-01 00:00:00.000000199 UTC)),
+        "0001-01-01T00:00:00.0000001"
+    );
     // nanoseconds after unix epoc
-    assert_eq!(format!("{:?}", time!(2000-01-01 00:00:00.000000000 UTC)), "2000-01-01T00:00:00.0000000");
-    assert_eq!(format!("{:?}", time!(2000-01-01 00:00:00.000000100 UTC)), "2000-01-01T00:00:00.0000001");
-    assert_eq!(format!("{:?}", time!(2000-01-01 00:00:00.000000199 UTC)), "2000-01-01T00:00:00.0000001");
+    assert_eq!(
+        format!("{:?}", time!(2000-01-01 00:00:00.000000000 UTC)),
+        "2000-01-01T00:00:00.0000000"
+    );
+    assert_eq!(
+        format!("{:?}", time!(2000-01-01 00:00:00.000000100 UTC)),
+        "2000-01-01T00:00:00.0000001"
+    );
+    assert_eq!(
+        format!("{:?}", time!(2000-01-01 00:00:00.000000199 UTC)),
+        "2000-01-01T00:00:00.0000001"
+    );
 }

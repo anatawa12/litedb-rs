@@ -1,12 +1,12 @@
-use std::collections::{HashMap, HashSet};
-use std::pin::pin;
-use futures::prelude::*;
+use crate::Result;
 use crate::engine::disk::DiskService;
-use crate::engine::{FileOrigin, StreamFactory, PAGE_SIZE};
 use crate::engine::lock_service::LockService;
 use crate::engine::page_position::PagePosition;
 use crate::engine::pages::{BasePage, HeaderPage, PageType};
-use crate::Result;
+use crate::engine::{FileOrigin, PAGE_SIZE, StreamFactory};
+use futures::prelude::*;
+use std::collections::{HashMap, HashSet};
+use std::pin::pin;
 
 pub(crate) struct WalIndexService {
     current_read_version: i32,
@@ -33,10 +33,7 @@ impl WalIndexService {
         self.last_transaction_id
     }
 
-    pub async fn clear(
-        &mut self,
-        disk: &mut DiskService<impl StreamFactory>
-    ) -> Result<()> {
+    pub async fn clear(&mut self, disk: &mut DiskService<impl StreamFactory>) -> Result<()> {
         self.confirm_transactions.clear();
         self.index.clear();
 
@@ -82,7 +79,11 @@ impl WalIndexService {
         self.confirm_transactions.insert(transaction_id);
     }
 
-    pub async fn restore_index(&mut self, header: &mut HeaderPage, disk: &mut DiskService<impl StreamFactory>) -> Result<()> {
+    pub async fn restore_index(
+        &mut self,
+        header: &mut HeaderPage,
+        disk: &mut DiskService<impl StreamFactory>,
+    ) -> Result<()> {
         let mut positions = HashMap::<i64, Vec<PagePosition>>::new();
         let mut current = 0;
 
@@ -109,7 +110,7 @@ impl WalIndexService {
 
                 // when a header is modified in transaction, must always be the last page inside log file (per transaction)
                 if page_type == PageType::Header as u8 {
-                    let mut header_buffer = header.buffer_mut();
+                    let header_buffer = header.buffer_mut();
 
                     *header_buffer.buffer_mut() = *buffer.buffer();
 
@@ -127,7 +128,11 @@ impl WalIndexService {
         Ok(())
     }
 
-    pub async fn checkpoint(&mut self, disk: &mut DiskService<impl StreamFactory>, locker: &LockService) -> Result<()> {
+    pub async fn checkpoint(
+        &mut self,
+        disk: &mut DiskService<impl StreamFactory>,
+        locker: &LockService,
+    ) -> Result<()> {
         if disk.get_file_length(FileOrigin::Log) == 0 || self.confirm_transactions.is_empty() {
             return Ok(());
         }
@@ -139,7 +144,10 @@ impl WalIndexService {
         Ok(())
     }
 
-    async fn checkpoint_internal(&mut self, disk: &mut DiskService<impl StreamFactory>) -> Result<usize> {
+    async fn checkpoint_internal(
+        &mut self,
+        disk: &mut DiskService<impl StreamFactory>,
+    ) -> Result<usize> {
         // LOG("Checkpointing WAL");
 
         let mut buffers = Vec::new();

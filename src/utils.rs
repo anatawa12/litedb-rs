@@ -1,6 +1,6 @@
-use std::time::SystemTime;
-use crate::engine::{BufferReader, BufferWriter, PageAddress};
 use crate::Error;
+use crate::engine::{BufferReader, BufferWriter, PageAddress};
+use std::time::SystemTime;
 
 // TODO: Implement the CompareOptions struct
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,10 +33,7 @@ impl Default for Collation {
 
 impl Collation {
     pub fn new(lcid: i32, sort_options: CompareOptions) -> Self {
-        Collation {
-            lcid,
-            sort_options
-        }
+        Collation { lcid, sort_options }
     }
 }
 
@@ -78,7 +75,7 @@ impl BsonType {
             12 => Some(Self::Boolean),
             13 => Some(Self::DateTime),
             14 => Some(Self::MaxValue),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -89,7 +86,6 @@ pub struct BufferSlice {
 }
 
 impl BufferSlice {
-    
     pub fn new(buffer: &[u8]) -> &Self {
         unsafe { &*(buffer as *const _ as *const Self) }
     }
@@ -155,7 +151,7 @@ impl BufferSlice {
     }
 
     pub fn read_date_time(&self, offset: usize) -> crate::Result<CsDateTime> {
-        CsDateTime::from_ticks(self.read_u64(offset)).ok_or_else(|| Error::datetime_overflow())
+        CsDateTime::from_ticks(self.read_u64(offset)).ok_or_else(Error::datetime_overflow)
     }
 
     pub fn read_page_address(&self, offset: usize) -> PageAddress {
@@ -167,7 +163,8 @@ impl BufferSlice {
         let type_byte = self.read_byte(offset);
         let length_byte = self.read_byte(offset + 1);
 
-        let type_ = BsonType::from_u8(type_byte & 0b0011_1111).ok_or_else(|| Error::invalid_bson())?;
+        let type_ =
+            BsonType::from_u8(type_byte & 0b0011_1111).ok_or_else(Error::invalid_bson)?;
         let length = ((length_byte as u16 & 0b1100_0000) << 2) | (length_byte as u16);
         let offset = offset + 1; // length byte might not be used
 
@@ -177,43 +174,39 @@ impl BufferSlice {
             BsonType::Int32 => bson::Bson::Int32(self.read_i32(offset)),
             BsonType::Int64 => bson::Bson::Int64(self.read_i64(offset)),
             BsonType::Double => bson::Bson::Double(self.read_f64(offset)),
-            BsonType::Decimal => bson::Bson::Decimal128(bson::Decimal128::from_bytes(self.read_bytes(offset, 16).try_into().unwrap())), // known to be 16 bytes
+            BsonType::Decimal => bson::Bson::Decimal128(bson::Decimal128::from_bytes(
+                self.read_bytes(offset, 16).try_into().unwrap(),
+            )), // known to be 16 bytes
             BsonType::String => {
                 let offset = offset + 1; // using length byte
                 bson::Bson::String(self.read_string(offset, length as usize)?.to_owned())
             }
-            BsonType::Document => {
-                bson::Bson::Document(BufferReader::new(self.slice(offset, self.len() - offset)).read_document()?)
-            }
-            BsonType::Array => {
-                bson::Bson::Array(BufferReader::new(self.slice(offset, self.len() - offset)).read_array()?)
-            }
+            BsonType::Document => bson::Bson::Document(
+                BufferReader::new(self.slice(offset, self.len() - offset)).read_document()?,
+            ),
+            BsonType::Array => bson::Bson::Array(
+                BufferReader::new(self.slice(offset, self.len() - offset)).read_array()?,
+            ),
             BsonType::Binary => {
-                let length = length+1; // using length byte
-                bson::Bson::Binary(bson::Binary{
+                let length = length + 1; // using length byte
+                bson::Bson::Binary(bson::Binary {
                     subtype: bson::spec::BinarySubtype::Generic,
-                    bytes: self.read_bytes(offset, length as usize).to_vec()
+                    bytes: self.read_bytes(offset, length as usize).to_vec(),
                 })
             }
-            BsonType::ObjectId => {
-                bson::Bson::ObjectId(bson::oid::ObjectId::from_bytes(self.read_bytes(offset, 16).try_into().unwrap()))
-            }
-            BsonType::Guid => {
-                bson::Bson::Binary(bson::Binary{
-                    subtype: bson::spec::BinarySubtype::Uuid,
-                    bytes: self.read_bytes(offset, 16).to_vec()
-                })
-            }
-            BsonType::Boolean => {
-                bson::Bson::Boolean(self.read_bool(offset))
-            }
+            BsonType::ObjectId => bson::Bson::ObjectId(bson::oid::ObjectId::from_bytes(
+                self.read_bytes(offset, 16).try_into().unwrap(),
+            )),
+            BsonType::Guid => bson::Bson::Binary(bson::Binary {
+                subtype: bson::spec::BinarySubtype::Uuid,
+                bytes: self.read_bytes(offset, 16).to_vec(),
+            }),
+            BsonType::Boolean => bson::Bson::Boolean(self.read_bool(offset)),
             BsonType::DateTime => {
                 todo!("CsDateTime in BSON")
                 //bson::Bson::DateTime(self.read_date_time(offset)?.ticks())
             }
-            BsonType::MaxValue => {
-                bson::Bson::MaxKey
-            }
+            BsonType::MaxValue => bson::Bson::MaxKey,
         };
 
         Ok(value)
@@ -305,12 +298,15 @@ impl BufferSlice {
         match value {
             // variable length values
             bson::Bson::Binary(bin) => {
-                self.write_bytes(offset, &make_extended_length(BsonType::Binary, bin.bytes.len()));
+                self.write_bytes(
+                    offset,
+                    &make_extended_length(BsonType::Binary, bin.bytes.len()),
+                );
                 self.write_bytes(offset + 2, &bin.bytes);
             }
             bson::Bson::String(str) => {
                 self.write_bytes(offset, &make_extended_length(BsonType::String, str.len()));
-                self.write_bytes(offset + 2, &str.as_bytes());
+                self.write_bytes(offset + 2, str.as_bytes());
             }
 
             // single tag values
@@ -348,14 +344,14 @@ impl BufferSlice {
             bson::Bson::Document(d) => {
                 self.write_u8(offset, BsonType::Document as u8);
                 BufferWriter::new(self.slice_mut(offset + 1, self.len() - offset - 1))
-                    .write_document(&d)
+                    .write_document(d)
                     .unwrap()
             }
             bson::Bson::Array(a) => {
                 self.write_u8(offset, BsonType::Array as u8);
                 BufferWriter::new(self.slice_mut(offset + 1, self.len() - offset - 1))
-                    .write_array(&a)
-                    //.unwrap()
+                    .write_array(a)
+                //.unwrap()
             }
 
             _ => panic!("Unsupported BSON type"),
@@ -368,7 +364,7 @@ impl BufferSlice {
 }
 
 /// C# DateTime in Rust
-/// 
+///
 /// This represents number of 100 nano seconds since 0001-01-01 00:00:00 UTC
 /// This can represent 0001-01-01 00:00:00 ~ 9999-12-31 23:59:59.99999999
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -396,9 +392,9 @@ impl CsDateTime {
                 if nanos > after_epoc_nanos {
                     return None;
                 }
-                let ticks = Self::UNIX_EPOC_TICKS + (nanos / 100) as u64;
-                ticks
-            },
+                
+                Self::UNIX_EPOC_TICKS + (nanos / 100) as u64
+            }
             Err(e) => {
                 let duration = e.duration();
                 let nanos = duration.as_nanos();
@@ -408,9 +404,9 @@ impl CsDateTime {
                 if nanos > unix_epoc_nanos {
                     return None;
                 }
-                let ticks = Self::UNIX_EPOC_TICKS - (nanos / 100) as u64;
-                ticks
-            },
+                
+                Self::UNIX_EPOC_TICKS - (nanos / 100) as u64
+            }
         };
         Some(CsDateTime(ticks))
     }

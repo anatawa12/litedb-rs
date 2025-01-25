@@ -7,12 +7,15 @@
  *! [LiteDB]: https://www.litedb.org/
  */
 
-use std::fmt::Display;
-use crate::engine::{BasePage, PageType};
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
 
+use crate::engine::{BasePage, PageType};
+use std::fmt::Display;
+
+pub mod bson;
 mod engine;
 mod utils;
-pub mod bson;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -43,7 +46,11 @@ impl Error {
     }
 
     pub(crate) fn invalid_page_type(expected: PageType, page: BasePage) -> Error {
-        Error::err(format!("Invalid page type: expected {:?}, got {:?}", expected, page.page_type()))
+        Error::err(format!(
+            "Invalid page type: expected {:?}, got {:?}",
+            expected,
+            page.page_type()
+        ))
     }
 
     pub(crate) fn collection_index_limit_reached() -> Error {
@@ -51,7 +58,10 @@ impl Error {
     }
 
     pub(crate) fn name_length_header_space(name: &str) -> Error {
-        Error::err(format!("Name length exceeds available header space: {}", name))
+        Error::err(format!(
+            "Name length exceeds available header space: {}",
+            name
+        ))
     }
 
     pub(crate) fn invalid_collection_name(name: &str) -> Error {
@@ -59,7 +69,10 @@ impl Error {
     }
 
     pub(crate) fn no_free_space_page(page_id: u32, available: usize, need: usize) -> Error {
-        Error::err(format!("No free space in page: {} (available: {}, need: {})", page_id, available, need))
+        Error::err(format!(
+            "No free space in page: {} (available: {}, need: {})",
+            page_id, available, need
+        ))
     }
 
     pub(crate) fn invalid_bson() -> Error {

@@ -1,6 +1,6 @@
-use crate::engine::index_node::{IndexNode, IndexNodeMut};
-use crate::engine::{BasePage, Page, PageAddress, PageBuffer, PageType, MAX_INDEX_LENGTH};
 use crate::Result;
+use crate::engine::index_node::{IndexNode, IndexNodeMut};
+use crate::engine::{BasePage, MAX_INDEX_LENGTH, Page, PageAddress, PageBuffer, PageType};
 use std::ops::{Deref, DerefMut};
 
 pub(crate) struct IndexPage {

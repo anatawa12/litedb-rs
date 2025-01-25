@@ -6,12 +6,12 @@ impl<const SIZE: usize> Debug for ToHex<SIZE> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut as_hex = [[0u8; 2]; SIZE];
 
-        for i in 0..16 {
+        for (i, as_hex) in as_hex.iter_mut().enumerate().take(SIZE) {
             let b = self.0[i];
             let high = (b >> 4) & 0xf;
             let low = (b & 0xf) << 4;
-            as_hex[i][0] = b"0123456789abcdef"[high as usize];
-            as_hex[i][1] = b"0123456789abcdef"[low as usize];
+            as_hex[0] = b"0123456789abcdef"[high as usize];
+            as_hex[1] = b"0123456789abcdef"[low as usize];
         }
 
         let str = unsafe {
