@@ -1,4 +1,4 @@
-use super::Value;
+use super::{BsonWriter, Value};
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
@@ -63,6 +63,38 @@ impl Document {
 
     pub fn len(&self) -> usize {
         self.inner.len()
+    }
+}
+
+impl Document {
+    /// Returns the size of serialized value.
+    ///
+    /// This doesn't include tag or name of key.
+    pub fn get_serialized_value_len(&self) -> usize {
+        4 // total bytes of the document
+            + self.inner.iter().map(|(key, value)| {
+            1 // tag byte
+                + (key.0.len() + 1) // cstring for key
+                + value.get_serialized_value_len()
+        }).sum::<usize>()
+            + 1 // trailing 0 tag
+    }
+
+    /// Writes the value to the BsonWriter
+    pub fn write_value<W: BsonWriter>(&self, w: &mut W) -> Result<(), <W as BsonWriter>::Error> {
+        let len = self.get_serialized_value_len();
+        let len = i32::try_from(len).map_err(|_| W::when_too_large(len))?;
+
+        w.write_bytes(&len.to_be_bytes())?;
+
+        for (key, value) in &self.inner {
+            w.write_bytes(&[value.ty().bson_tag()])?;
+            super::utils::write_c_string(w, &key.0)?;
+            value.write_value(w)?;
+        }
+
+        w.write_bytes(&[0])?;
+        Ok(())
     }
 }
 

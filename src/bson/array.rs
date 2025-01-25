@@ -1,4 +1,4 @@
-use super::Value;
+use super::{BsonWriter, Value};
 use std::fmt::Debug;
 use std::vec;
 
@@ -48,6 +48,38 @@ impl Array {
 
     pub fn len(&self) -> usize {
         self.data.len()
+    }
+}
+
+impl Array {
+    /// Returns the size of serialized value.
+    ///
+    /// This doesn't include tag or name of key.
+    pub fn get_serialized_value_len(&self) -> usize {
+        4 // total bytes of the document
+            + self.data.iter().enumerate().map(|(index, value)| {
+            1 // tag byte
+                + super::utils::dec_len(index)
+                + value.get_serialized_value_len()
+        }).sum::<usize>()
+            + 1 // trailing 0 tag
+    }
+
+    /// Writes the value to the BsonWriter
+    pub fn write_value<W: BsonWriter>(&self, w: &mut W) -> Result<(), W::Error> {
+        let len = self.get_serialized_value_len();
+        let len = i32::try_from(len).map_err(|_| W::when_too_large(len))?;
+
+        w.write_bytes(&len.to_be_bytes())?;
+
+        for (index, value) in self.data.iter().enumerate() {
+            w.write_bytes(&[value.ty().bson_tag()])?;
+            super::utils::write_c_string(w, &index.to_string())?;
+            value.write_value(w)?;
+        }
+
+        w.write_bytes(&[0])?;
+        Ok(())
     }
 }
 

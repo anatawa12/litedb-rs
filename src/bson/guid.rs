@@ -1,4 +1,5 @@
 use super::utils::ToHex;
+use crate::bson::BsonWriter;
 use std::fmt::{Debug, Formatter};
 
 /// Represents GUID (or UUID)
@@ -14,6 +15,31 @@ impl Guid {
 
     pub fn to_bytes(&self) -> [u8; 16] {
         self.bytes
+    }
+}
+
+impl Guid {
+    const SIZE: usize = 16 + 4 + 1;
+
+    /// Returns the size of serialized value.
+    ///
+    /// This doesn't include tag or name of key.
+    pub fn get_serialized_value_len(&self) -> usize {
+        Self::SIZE
+    }
+
+    /// Writes the value to the BsonWriter
+    pub fn write_value<W: BsonWriter>(&self, w: &mut W) -> Result<(), W::Error> {
+        let len =
+            i32::try_from(self.bytes.len()).map_err(|_| W::when_too_large(self.bytes.len()))?;
+
+        let mut buffer = [0u8; Self::SIZE];
+
+        *<&mut [u8; 4]>::try_from(&mut buffer[0..][..4]).unwrap() = len.to_be_bytes();
+        buffer[4] = 4;
+        *<&mut [u8; 16]>::try_from(&mut buffer[5..][..16]).unwrap() = self.bytes;
+
+        w.write_bytes(buffer.as_ref())
     }
 }
 

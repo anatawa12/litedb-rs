@@ -52,6 +52,36 @@ pub enum BsonType {
     MaxValue = 14,
 }
 
+impl BsonType {
+    pub(crate) fn bson_tag(self) -> u8 {
+        match self {
+            BsonType::Double => 1,
+            BsonType::String => 2,
+            BsonType::Document => 3,
+            BsonType::Array => 4,
+            BsonType::Binary => 5,
+            BsonType::Guid => 5, // GUID is a kind of binary in bson
+            // 6: undefined
+            BsonType::ObjectId => 7,
+            BsonType::Boolean => 8,
+            BsonType::DateTime => 9,
+            BsonType::Null => 10,
+            // 11: regex
+            // 12: DBPointer
+            // 13: JavaScript code
+            // 14: Symbol
+            // 15: JavaScript code with scope
+            BsonType::Int32 => 16,
+            // 17: timestamp
+            BsonType::Int64 => 18,
+            BsonType::Decimal => 19,
+
+            BsonType::MinValue => -1i8 as u8,
+            BsonType::MaxValue => 127,
+        }
+    }
+}
+
 /// The num represents one bson value.
 ///
 /// Any instance of this value can be expressed in this enum can be serialized to binary representation without any error
@@ -111,4 +141,83 @@ impl Value {
             Value::MaxValue => BsonType::MaxValue,
         }
     }
+}
+
+impl Value {
+    /// Returns the size of serialized value.
+    ///
+    /// This doesn't include tag or name of key.
+    pub fn get_serialized_value_len(&self) -> usize {
+        match self {
+            // tag only types
+            Value::MinValue => 0,
+            Value::Null => 0,
+            Value::MaxValue => 0,
+
+            // constant length types
+            Value::Int32(_) => 4,
+            Value::Int64(_) => 8,
+            Value::Double(_) => 8,
+            Value::Decimal(_) => 16,
+            Value::ObjectId(_) => 12,
+            Value::Boolean(_) => 1,
+            Value::DateTime(_) => 8, // DateTime in bson is 64bit unix milliseconds time
+
+            // binary type (len, subtype, data)
+            Value::Binary(b) => b.get_serialized_value_len(),
+            &Value::Guid(g) => g.get_serialized_value_len(),
+
+            // string type (len, data, trailing null)
+            Value::String(s) => 4 + s.len() + 1,
+
+            // complex (embedded) types
+            Value::Document(d) => d.get_serialized_value_len(),
+            Value::Array(a) => a.get_serialized_value_len(),
+        }
+    }
+
+    /// Writes the value to the BsonWriter
+    pub fn write_value<W: BsonWriter>(&self, w: &mut W) -> Result<(), W::Error> {
+        match self {
+            Value::MinValue => Ok(()),
+            Value::Null => Ok(()),
+            Value::MaxValue => Ok(()),
+
+            // constant length types
+            Value::Int32(v) => w.write_bytes(&v.to_le_bytes()),
+            Value::Int64(v) => w.write_bytes(&v.to_le_bytes()),
+            Value::Double(v) => w.write_bytes(&v.to_le_bytes()),
+            Value::Decimal(v) => w.write_bytes(&v.bytes()),
+            Value::ObjectId(v) => w.write_bytes(v.as_bytes()),
+            &Value::Boolean(v) => w.write_bytes(&[v as u8]),
+            &Value::DateTime(v) => {
+                // DateTime in bson is 64bit unix milliseconds time
+                w.write_bytes(&v.as_unix_milliseconds().to_le_bytes())
+            }
+
+            // binary type (len, subtype, data)
+            Value::Binary(b) => b.write_value(w),
+            Value::Guid(g) => g.write_value(w),
+
+            // string type (len, data, trailing null)
+            Value::String(s) => {
+                let len = s.len() + 1;
+                let len = i32::try_from(len).map_err(|_| W::when_too_large(len))?;
+                w.write_bytes(&len.to_le_bytes())?;
+                w.write_bytes(s.as_bytes())?;
+                w.write_bytes(&[0])
+            }
+
+            // complex (embedded) types
+            Value::Document(d) => d.write_value(w),
+            Value::Array(a) => a.write_value(w),
+        }
+    }
+}
+
+pub trait BsonWriter {
+    type Error;
+    /// Returns the error for the data exceeds size limit
+    fn when_too_large(size: usize) -> Self::Error;
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Self::Error>;
 }

@@ -163,8 +163,7 @@ impl BufferSlice {
         let type_byte = self.read_byte(offset);
         let length_byte = self.read_byte(offset + 1);
 
-        let type_ =
-            BsonType::from_u8(type_byte & 0b0011_1111).ok_or_else(Error::invalid_bson)?;
+        let type_ = BsonType::from_u8(type_byte & 0b0011_1111).ok_or_else(Error::invalid_bson)?;
         let length = ((length_byte as u16 & 0b1100_0000) << 2) | (length_byte as u16);
         let offset = offset + 1; // length byte might not be used
 
@@ -392,7 +391,7 @@ impl CsDateTime {
                 if nanos > after_epoc_nanos {
                     return None;
                 }
-                
+
                 Self::UNIX_EPOC_TICKS + (nanos / 100) as u64
             }
             Err(e) => {
@@ -404,7 +403,7 @@ impl CsDateTime {
                 if nanos > unix_epoc_nanos {
                     return None;
                 }
-                
+
                 Self::UNIX_EPOC_TICKS - (nanos / 100) as u64
             }
         };

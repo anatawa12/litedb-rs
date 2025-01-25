@@ -27,6 +27,7 @@ const DAYS_PER_4_YEAR: u32 = DAYS_PER_NORMAL_YEAR * 4 + 1; // there is one leap 
 const DAYS_PER_NORMAL_100_YEAR: u32 = DAYS_PER_4_YEAR * 25 - 1; // there is one missing leap year per 100 year
 const DAYS_PER_400_YEAR: u32 = DAYS_PER_NORMAL_100_YEAR * 4 + 1; // there is one extra leap year per 400 year.
 
+const TICKS_PER_MILLISECOND: u64 = 10_000;
 const TICKS_PER_SECOND: u64 = 10_000_000;
 
 impl DateTime {
@@ -118,6 +119,13 @@ impl DateTime {
             let dur_since_epoc = Duration::new(secs_since_ticks, sub_nano as u32);
             SystemTime::UNIX_EPOCH.checked_add(dur_since_epoc)
         }
+    }
+
+    pub(crate) fn as_unix_milliseconds(&self) -> i64 {
+        let millis = (self.ticks() / TICKS_PER_MILLISECOND) as i64;
+        let unix_epoc = (TICKS_UNIX_EPOC / TICKS_PER_MILLISECOND) as i64;
+
+        millis - unix_epoc
     }
 }
 
