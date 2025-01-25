@@ -12,6 +12,7 @@ use crate::engine::{
 use crate::{Error, Result};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::mem::forget;
 use std::rc::Rc;
 
 pub(crate) struct Snapshot<'engine, SF: StreamFactory> {
@@ -448,16 +449,11 @@ impl<SF: StreamFactory> Snapshot<'_, SF> {
 
             let save_point = self.header.save_point();
 
-            page_id = self.header.last_page_id() + 1;
-            self.header.set_last_page_id(page_id);
+            page_id = save_point.header.last_page_id() + 1;
+            save_point.header.set_last_page_id(page_id);
 
-            buffer = match self.disk.get_reader().await {
-                Ok(mut r) => r.new_page(),
-                Err(e) => {
-                    self.header.restore(&save_point);
-                    return Err(e);
-                }
-            };
+            buffer = self.disk.get_reader().await?.new_page();
+            forget(save_point);
         }
 
         self.trans_pages.borrow_mut().add_new_page(page_id);

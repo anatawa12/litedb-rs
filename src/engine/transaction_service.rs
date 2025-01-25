@@ -7,7 +7,7 @@ use crate::engine::snapshot::Snapshot;
 use crate::engine::transaction_monitor::TransactionMonitorShared;
 use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::wal_index_service::WalIndexService;
-use crate::engine::{BasePage, PageBuffer, PageType, StreamFactory};
+use crate::engine::{BasePage, PageType, StreamFactory};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -337,21 +337,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
         // lock on header
         let mut page_positions = HashMap::<u32, PagePosition>::new();
 
-        struct RestoreOnDrop<'a> {
-            header: &'a mut HeaderPage,
-            safe_point: Box<PageBuffer>,
-        }
-
-        impl Drop for RestoreOnDrop<'_> {
-            fn drop(&mut self) {
-                self.header.restore(&self.safe_point);
-            }
-        }
-
-        let r = RestoreOnDrop {
-            safe_point: self.header.save_point(),
-            header: self.header,
-        };
+        let r = self.header.save_point();
 
         let mut buffers = Vec::new();
         // build buffers
@@ -389,7 +375,6 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
 
         self.disk.write_log_disk(buffers).await?;
 
-        // destruct to drop changes
         forget(r);
 
         self.wal_index.confirm_transaction(

@@ -147,21 +147,24 @@ impl HeaderPage {
         self.last_page_id = page_id;
     }
 
-    // TODO: create RAII struct for save_point and resore pair
-    pub fn save_point(&mut self) -> Box<PageBuffer> {
+    pub fn save_point(&mut self) -> SavePointScope {
         self.update_buffer();
 
         let mut save_point = Box::new(PageBuffer::new(0));
 
         *save_point.buffer_mut() = *self.buffer().buffer();
 
-        save_point
+        SavePointScope {
+            header: self,
+            save_point,
+        }
     }
 
-    pub fn restore(&mut self, save_point: &PageBuffer) {
+    fn restore(&mut self, save_point: &PageBuffer) {
         *self.buffer_mut().buffer_mut() = *save_point.buffer();
-        // The original 
-        self.load_header_page().expect("failed to load save_point page");
+        // The original page must be good to parse so except here
+        self.load_header_page()
+            .expect("failed to load save_point page");
     }
 
     pub fn get_collection_page_id(&self, collection: &str) -> u32 {
@@ -200,6 +203,18 @@ impl HeaderPage {
             - 1 // for new CString ('\0')
             - 4 // for PageID (int32)
             - 8 // reserved
+    }
+}
+
+/// Drops the SavePoint when the scope exits
+pub(crate) struct SavePointScope<'a> {
+    save_point: Box<PageBuffer>,
+    pub header: &'a mut HeaderPage,
+}
+
+impl Drop for SavePointScope<'_> {
+    fn drop(&mut self) {
+        self.header.restore(&self.save_point);
     }
 }
 
