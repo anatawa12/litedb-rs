@@ -8,4 +8,4 @@ async-lock = "3.4.0"
 futures = "0.3.31"
 
 [dev-dependencies]
-time = "0.3.37"
+time = { version = "0.3.37", features = ["macros"] }
