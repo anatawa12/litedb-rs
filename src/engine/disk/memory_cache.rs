@@ -1,35 +1,35 @@
 use crate::engine::*;
+use futures::lock::Mutex;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::ops::AsyncFnOnce;
 use std::rc::Rc;
-
 // Difference between original MemoryCache.cs
 // - Reference counter is with Arc instead of ShareCounter
 // - Writable page is represented as Box<PageBuffer>
 
 // TODO: Implement FreePageCache
 pub(crate) struct MemoryCache {
-    readable: HashMap<PositionOrigin, Rc<PageBuffer>>,
+    readable: Mutex<HashMap<PositionOrigin, Rc<PageBuffer>>>,
     free_page_cache: FreePageCache,
 }
 
 impl MemoryCache {
     pub fn new() -> Self {
         MemoryCache {
-            readable: HashMap::new(),
+            readable: Mutex::new(HashMap::new()),
             free_page_cache: FreePageCache::new(),
         }
     }
 
     pub async fn get_readable_page(
-        &mut self,
+        &self,
         position: u64,
         origin: FileOrigin,
         factory: impl AsyncFnOnce(u64, &mut PageBufferArray) -> Result<()>,
     ) -> Result<Rc<PageBuffer>> {
         let key = PositionOrigin::new(position, origin);
-        let page = match self.readable.entry(key) {
+        let page = match self.readable.lock().await.entry(key) {
             Entry::Occupied(o) => o.get().clone(),
             Entry::Vacant(v) => {
                 let mut new_page = self.free_page_cache.get_free_page();
@@ -47,7 +47,7 @@ impl MemoryCache {
     }
 
     pub async fn get_writable_page(
-        &mut self,
+        &self,
         position: u64,
         origin: FileOrigin,
         factory: impl AsyncFnOnce(u64, &mut PageBufferArray) -> Result<()>,
@@ -55,7 +55,7 @@ impl MemoryCache {
         let key = PositionOrigin::new(position, origin);
         let mut new_page = self.free_page_cache.new_page(position, origin);
 
-        if let Some(readable) = self.readable.get(&key) {
+        if let Some(readable) = self.readable.lock().await.get(&key) {
             *new_page.buffer_mut() = *readable.buffer();
         } else {
             factory(position, new_page.as_mut().buffer_mut()).await?;
@@ -81,8 +81,8 @@ impl MemoryCache {
         }
     }
 
-    pub fn try_move_to_readable(
-        &mut self,
+    pub async fn try_move_to_readable(
+        &self,
         page: Box<PageBuffer>,
     ) -> std::result::Result<Rc<PageBuffer>, Box<PageBuffer>> {
         debug_assert!(page.position() != u64::MAX);
@@ -91,7 +91,7 @@ impl MemoryCache {
 
         let key = PositionOrigin::new(page.position(), page.origin().unwrap());
 
-        match self.readable.entry(key) {
+        match self.readable.lock().await.entry(key) {
             Entry::Occupied(_) => {
                 // there already is. failed to make readable
                 Err(page)
@@ -100,7 +100,7 @@ impl MemoryCache {
         }
     }
 
-    pub(crate) fn move_to_readable(&mut self, page: Box<PageBuffer>) -> Rc<PageBuffer> {
+    pub(crate) async fn move_to_readable(&self, page: Box<PageBuffer>) -> Rc<PageBuffer> {
         debug_assert!(page.position() != u64::MAX);
         // page.wriable
         debug_assert!(page.origin().is_some());
@@ -108,7 +108,7 @@ impl MemoryCache {
         let origin = page.origin().unwrap();
         let key = PositionOrigin::new(page.position(), origin);
 
-        match self.readable.entry(key) {
+        match self.readable.lock().await.entry(key) {
             Entry::Occupied(mut o) => {
                 //assert_eq!(Rc::strong_count(o.get()), 1, "user must ensure this page is not in use when marked as read only");
                 debug_assert_eq!(o.get().origin(), Some(origin), "origin must be same");
@@ -125,16 +125,18 @@ impl MemoryCache {
         }
     }
 
-    pub fn pages_in_use(&self) -> usize {
+    pub async fn pages_in_use(&self) -> usize {
         self.readable
+            .lock()
+            .await
             .values()
             .map(|x| Rc::strong_count(x) - 1)
             .sum()
     }
 
-    pub(crate) fn clear(&mut self) {
-        assert_eq!(self.pages_in_use(), 0, "all pages must be released");
-        self.readable.clear();
+    pub(crate) async fn clear(&self) {
+        assert_eq!(self.pages_in_use().await, 0, "all pages must be released");
+        self.readable.lock().await.clear();
     }
 }
 

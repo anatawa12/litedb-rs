@@ -120,7 +120,7 @@ impl<SF: StreamFactory> DiskService<SF> {
             self.log_length += PAGE_SIZE as i64;
             page.set_position_origin(self.log_length as u64, FileOrigin::Log);
 
-            let page = self.cache.move_to_readable(page);
+            let page = self.cache.move_to_readable(page).await;
 
             stream.seek(SeekFrom::Start(page.position())).await?;
 
