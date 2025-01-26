@@ -2,6 +2,7 @@ use crate::engine::disk::DiskService;
 use crate::engine::lock_service::LockService;
 use crate::engine::pages::HeaderPage;
 use crate::engine::sort_disk::SortDisk;
+use crate::engine::transaction_monitor::TransactionMonitor;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{CONTAINER_SORT_SIZE, FileOrigin, StreamFactory};
 use crate::utils::{Collation, Shared};
@@ -10,7 +11,6 @@ use futures::StreamExt;
 use std::marker::PhantomData;
 use std::pin::pin;
 use std::rc::Rc;
-use crate::engine::transaction_monitor::TransactionMonitor;
 
 pub struct LiteSettings<SF: StreamFactory> {
     pub data_stream: SF,

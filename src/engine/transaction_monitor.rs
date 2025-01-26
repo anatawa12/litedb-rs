@@ -21,8 +21,8 @@ pub(crate) struct TransactionMonitor<SF: StreamFactory> {
     wal_index: Rc<WalIndexService>,
 
     shared: Shared<TransactionMonitorShared>,
-    transactions: HashMap<u32, TransactionService<SF>>,
-    slot_id: Option<u32>, // thread local
+    transactions: HashMap<u32, Shared<TransactionService<SF>>>,
+    slot: Option<Shared<TransactionService<SF>>>, // thread local
 }
 
 impl<SF: StreamFactory> TransactionMonitor<SF> {
@@ -43,7 +43,7 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
                 initial_size: MAX_TRANSACTION_SIZE / MAX_OPEN_TRANSACTIONS as u32,
             }),
             transactions: HashMap::new(),
-            slot_id: None,
+            slot: None,
         }
     }
 
@@ -51,12 +51,12 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
     pub async fn get_or_create_transaction(
         &mut self,
         query_only: bool,
-    ) -> Result<(&mut TransactionService<SF>, bool)> {
+    ) -> Result<(Shared<TransactionService<SF>>, bool)> {
         let is_new;
-        let transaction_mut: &mut TransactionService<SF>;
-        if let Some(slot_id) = self.slot_id {
+        let transaction_shared: Shared<TransactionService<SF>>;
+        if let Some(ref slot_id) = self.slot {
             is_new = false;
-            transaction_mut = self.transactions.get_mut(&slot_id).unwrap();
+            transaction_shared = Shared::clone(slot_id);
         } else {
             is_new = true;
 
@@ -68,7 +68,7 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
             let already_lock = self
                 .transactions
                 .values()
-                .any(|x| x.thread_id() == std::thread::current().id());
+                .any(|x| x.borrow().thread_id() == std::thread::current().id());
 
             let transaction = TransactionService::new(
                 Shared::clone(&self.header),
@@ -80,11 +80,11 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
                 query_only,
             );
 
-            transaction_mut = self
-                .transactions
-                .entry(transaction.transaction_id())
-                .insert_entry(transaction)
-                .into_mut();
+            let transaction_id = transaction.transaction_id();
+            transaction_shared = Shared::new(transaction);
+
+            self.transactions
+                .insert(transaction_id, Shared::clone(&transaction_shared));
 
             if !already_lock {
                 self.locker.enter_transaction().await;
@@ -92,20 +92,16 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
             }
 
             if !query_only {
-                self.slot_id = Some(transaction_mut.transaction_id());
+                self.slot = Some(Shared::clone(&transaction_shared));
             }
         }
 
-        Ok((transaction_mut, is_new))
+        Ok((transaction_shared, is_new))
     }
 
     // 2nd is is_new
-    pub async fn get_transaction(&mut self) -> Option<&mut TransactionService<SF>> {
-        if let Some(slot_id) = self.slot_id {
-            Some(self.transactions.get_mut(&slot_id).unwrap())
-        } else {
-            None
-        }
+    pub async fn get_transaction(&self) -> Option<Shared<TransactionService<SF>>> {
+        self.slot.clone()
     }
 
     pub async fn release_transaction(&mut self, transaction_id: u32) -> Result<()> {
@@ -120,31 +116,32 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
                 .transactions
                 .remove(&transaction_id)
                 .expect("the transaction not exists");
-            shared.free_pages += transaction.max_transaction_size();
+            shared.free_pages += transaction.borrow().max_transaction_size();
             keep_locked = self
                 .transactions
                 .values()
-                .any(|x| x.thread_id() == std::thread::current().id())
+                .any(|x| x.borrow().thread_id() == std::thread::current().id())
         }
 
         if !keep_locked {
             self.locker.exit_transaction();
         }
 
-        if !transaction.query_only() {
-            self.slot_id = None;
+        if !transaction.borrow().query_only() {
+            self.slot = None;
         }
 
         Ok(())
     }
 
-    pub async fn get_thread_transaction(&self) -> Option<&TransactionService<SF>> {
-        if let Some(slot_id) = self.slot_id {
-            Some(self.transactions.get(&slot_id).unwrap())
+    pub async fn get_thread_transaction(&self) -> Option<Shared<TransactionService<SF>>> {
+        if let Some(ref slot) = self.slot {
+            Some(Shared::clone(slot))
         } else {
             self.transactions
                 .values()
-                .find(|x| x.thread_id() == std::thread::current().id())
+                .find(|x| x.borrow().thread_id() == std::thread::current().id())
+                .cloned()
         }
     }
 
@@ -159,10 +156,13 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
 
             // if there is no available pages, reduce all open transactions
             for trans in self.transactions.values_mut() {
+                let mut trans = trans.borrow_mut();
+                let trans = &mut trans;
                 //TODO(upstream): revisar estas contas, o reduce tem que fechar 1000
                 let reduce = trans.max_transaction_size() / shared.initial_size;
 
-                trans.set_max_transaction_size(trans.max_transaction_size() - reduce);
+                let max_transaction_size = trans.max_transaction_size();
+                trans.set_max_transaction_size(max_transaction_size - reduce);
 
                 sum += reduce;
             }
