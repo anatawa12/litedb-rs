@@ -5,7 +5,6 @@ use crate::engine::pages::HeaderPage;
 use crate::engine::*;
 use crate::utils::Collation;
 use futures::prelude::*;
-use std::borrow::Borrow;
 use std::cmp::max;
 use std::io::SeekFrom;
 
@@ -89,26 +88,26 @@ impl<SF: StreamFactory> DiskService<SF> {
         self.cache.new_page()
     }
 
-    pub(crate) fn discard_dirty_pages(&self, _pages: &[impl Borrow<PageBuffer>]) {
+    pub(crate) fn discard_dirty_pages(&self, pages: Vec<Box<PageBuffer>>) {
         // no reusing buffer in rust impl for now
-        // // only for ROLLBACK action
-        // for page in pages
-        // {
-        //     let page = page.borrow();
-        //     // complete discard page and content
-        //     self.cache.DiscardPage(page);
-        // }
+        // only for ROLLBACK action
+        for page in pages {
+            // complete discard page and content
+            // no page reuse
+            drop(page)
+            //self.cache.discard_page(page);
+        }
     }
 
-    pub(crate) fn discard_clean_pages(&self, _pages: &[impl Borrow<PageBuffer>]) {
+    pub(crate) async fn discard_clean_pages(&self, pages: Vec<Box<PageBuffer>>) {
         // no reusing buffer in rust impl for now
-        // for page in pages {
-        //     let page = page.borrow();
-        //
-        //     if (self.cache.try_move_to_readable(page)) {
-        //         self.cache.discard_page(page)
-        //     }
-        // }
+        for page in pages {
+            if let Ok(page) = self.cache.try_move_to_readable(page).await {
+                // no page reuse
+                drop(page)
+                // self.cache.discard_page(page)
+            }
+        }
     }
 
     pub(crate) async fn write_log_disk(&mut self, pages: Vec<Box<PageBuffer>>) -> Result<usize> {

@@ -156,21 +156,26 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         x.into_iter().flatten()
     }
 
-    pub fn into_writable_pages(
-        self,
+    pub fn writable_pages_removing(
+        &mut self,
         dirty: bool,
         with_collection_page: bool,
     ) -> impl Iterator<Item = Box<dyn Page>> {
         let x = if self.mode != LockMode::Write {
             None
         } else {
-            let pages = self
+            let page_ids = self
                 .local_pages
-                .into_values()
-                .filter(move |p| p.as_ref().as_ref().is_dirty() == dirty);
+                .iter()
+                .filter(|(_, p)| p.as_ref().as_ref().is_dirty() == dirty)
+                .map(|(&k, _)| k)
+                .collect::<Vec<_>>();
+            let pages = page_ids
+                .into_iter()
+                .map(|k| self.local_pages.remove(&k).unwrap());
             let collection_page = self
                 .collection_page
-                .filter(|p| with_collection_page && p.is_dirty() == dirty)
+                .take_if(|p| with_collection_page && p.is_dirty() == dirty)
                 .map(|x| -> Box<dyn Page> { Box::new(x) });
             let collection_page = collection_page.into_iter();
 

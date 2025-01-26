@@ -188,10 +188,11 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
 
         // build buffers
         {
-            let pages = std::mem::take(&mut self.snapshots)
-                .into_values()
+            let pages = self
+                .snapshots
+                .values_mut()
                 .filter(|x| x.mode() == LockMode::Write)
-                .flat_map(|x| x.into_writable_pages(true, commit));
+                .flat_map(|x| x.writable_pages_removing(true, commit));
             let mut pages = pages.peekable();
 
             let mark_last_as_confirmed = commit && !self.trans_pages.borrow().header_changed();
@@ -253,15 +254,16 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
 
         // now, discard all clean pages (because those pages are writable and must be readable)
         // from write snapshots
-        self.disk.discard_clean_pages(
-            &self
-                .snapshots
-                .values()
-                .filter(|x| x.mode() == LockMode::Write)
-                .flat_map(|x| x.get_writable_pages(false, commit))
-                .map(|x| x.as_ref().buffer())
-                .collect::<Vec<_>>(),
-        );
+        self.disk
+            .discard_clean_pages(
+                self.snapshots
+                    .values_mut()
+                    .filter(|x| x.mode() == LockMode::Write)
+                    .flat_map(|x| x.writable_pages_removing(false, commit))
+                    .map(|x| x.into_base().into_buffer())
+                    .collect::<Vec<_>>(),
+            )
+            .await;
 
         Ok(count)
     }
@@ -304,23 +306,25 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
             self.return_new_pages().await?;
         }
 
-        for snapshot in std::mem::take(&mut self.snapshots).into_values() {
+        for mut snapshot in std::mem::take(&mut self.snapshots).into_values() {
             if snapshot.mode() == LockMode::Write {
                 // discard all dirty pages
                 self.disk.discard_dirty_pages(
-                    &snapshot
-                        .get_writable_pages(true, true)
-                        .map(|x| x.as_ref().buffer())
+                    snapshot
+                        .writable_pages_removing(true, true)
+                        .map(|x| x.into_base().into_buffer())
                         .collect::<Vec<_>>(),
                 );
 
                 // discard all clean pages
-                self.disk.discard_clean_pages(
-                    &snapshot
-                        .get_writable_pages(false, true)
-                        .map(|x| x.as_ref().buffer())
-                        .collect::<Vec<_>>(),
-                );
+                self.disk
+                    .discard_clean_pages(
+                        snapshot
+                            .writable_pages_removing(false, true)
+                            .map(|x| x.into_base().into_buffer())
+                            .collect::<Vec<_>>(),
+                    )
+                    .await;
             }
             drop(snapshot); // release page
         }
