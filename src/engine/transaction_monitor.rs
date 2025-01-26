@@ -15,7 +15,7 @@ pub(crate) struct TransactionMonitorShared {
 pub(crate) struct TransactionMonitor<'engine, SF: StreamFactory> {
     header: &'engine mut HeaderPage,
     locker: &'engine LockService,
-    disk: &'engine mut DiskService<SF>,
+    disk: &'engine DiskService<SF>,
     // reader will be created each time
     wal_index: &'engine WalIndexService,
 
@@ -28,7 +28,7 @@ impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
     pub fn new(
         header: &'engine mut HeaderPage,
         locker: &'engine LockService,
-        disk: &'engine mut DiskService<SF>,
+        disk: &'engine DiskService<SF>,
         // reader will be created each time
         wal_index: &'engine WalIndexService,
     ) -> Self {

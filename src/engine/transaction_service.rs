@@ -18,7 +18,7 @@ use std::time::SystemTime;
 pub(crate) struct TransactionService<'engine, SF: StreamFactory> {
     header: &'engine mut HeaderPage,
     locker: &'engine LockService,
-    disk: &'engine mut DiskService<SF>,
+    disk: &'engine DiskService<SF>,
     // reader will be created each time
     wal_index: &'engine WalIndexService,
     monitor: Shared<TransactionMonitorShared>, // TransactionService will be owned by TransactionMonitor so Rc here
@@ -40,7 +40,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
     pub fn new(
         header: &'engine mut HeaderPage,
         locker: &'engine LockService,
-        disk: &'engine mut DiskService<SF>,
+        disk: &'engine DiskService<SF>,
         // reader will be created each time
         wal_index: &'engine WalIndexService,
         max_transaction_size: u32,

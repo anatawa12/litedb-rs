@@ -47,7 +47,7 @@ impl WalIndexService {
         self.last_transaction_id.load(Ordering::Relaxed) as i32
     }
 
-    pub async fn clear(&self, disk: &mut DiskService<impl StreamFactory>) -> Result<()> {
+    pub async fn clear(&self, disk: &DiskService<impl StreamFactory>) -> Result<()> {
         let mut in_lock = self.lock.write().await;
         self.confirm_transactions.borrow_mut().clear();
         in_lock.index.clear();
@@ -55,7 +55,7 @@ impl WalIndexService {
         in_lock.current_read_version = 0;
         self.last_transaction_id.store(0, Ordering::SeqCst);
 
-        disk.cache_mut().clear().await;
+        disk.cache().clear().await;
         disk.set_length(0, FileOrigin::Log).await?;
 
         Ok(())
@@ -102,7 +102,7 @@ impl WalIndexService {
     pub async fn restore_index(
         &self,
         header: &mut HeaderPage,
-        disk: &mut DiskService<impl StreamFactory>,
+        disk: &DiskService<impl StreamFactory>,
     ) -> Result<()> {
         let mut positions = HashMap::<i64, Vec<PagePosition>>::new();
         let mut current = 0;
@@ -152,7 +152,7 @@ impl WalIndexService {
 
     pub async fn checkpoint(
         &self,
-        disk: &mut DiskService<impl StreamFactory>,
+        disk: &DiskService<impl StreamFactory>,
         locker: &LockService,
     ) -> Result<()> {
         if disk.get_file_length(FileOrigin::Log) == 0
@@ -170,7 +170,7 @@ impl WalIndexService {
 
     async fn checkpoint_internal(
         &self,
-        disk: &mut DiskService<impl StreamFactory>,
+        disk: &DiskService<impl StreamFactory>,
     ) -> Result<usize> {
         // LOG("Checkpointing WAL");
 

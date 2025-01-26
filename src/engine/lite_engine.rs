@@ -28,7 +28,7 @@ impl<SF: StreamFactory> LiteEngine<SF> {
         // TODO: sequences
         // TODO: upgrade
 
-        let mut disk = DiskService::new(
+        let disk = DiskService::new(
             settings.data_stream,
             settings.log_stream,
             settings.collation,

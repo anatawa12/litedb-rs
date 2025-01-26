@@ -17,7 +17,7 @@ use std::mem::forget;
 pub(crate) struct Snapshot<'engine, SF: StreamFactory> {
     header: &'engine mut HeaderPage,
     lock_scope: Option<CollectionLockScope>,
-    disk: &'engine mut DiskService<SF>,
+    disk: &'engine DiskService<SF>,
     wal_index: &'engine WalIndexService,
 
     transaction_id: u32,
@@ -40,7 +40,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         trans_pages: Shared<TransactionPages>,
         locker: &'engine LockService,
         wal_index: &'engine WalIndexService,
-        disk: &'engine mut DiskService<SF>,
+        disk: &'engine DiskService<SF>,
         add_if_not_exists: bool,
     ) -> Result<Self> {
         let lock_scope = if mode == LockMode::Write {
@@ -98,7 +98,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         &self.trans_pages
     }
 
-    pub fn disk(&mut self) -> &mut DiskService<SF> {
+    pub fn disk(&self) -> &DiskService<SF> {
         self.disk
     }
 
