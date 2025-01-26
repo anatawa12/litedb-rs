@@ -7,3 +7,4 @@ pub(crate) const PAGE_FREE_LIST_SLOTS: usize = 5;
 pub(crate) const MAX_INDEX_LENGTH: usize = 1400;
 pub(crate) const MAX_LEVEL_LENGTH: usize = 1400;
 pub(crate) const MAX_OPEN_TRANSACTIONS: usize = 100;
+pub(crate) const MAX_TRANSACTION_SIZE: u32 = 100_000;
