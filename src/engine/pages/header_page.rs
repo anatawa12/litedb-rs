@@ -4,7 +4,7 @@ use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::engine_pragmas::EnginePragmas;
 use crate::engine::pages::PageType;
 use crate::engine::pages::base_page::BasePage;
-use crate::engine::{Page, PageBuffer};
+use crate::engine::PageBuffer;
 use crate::{Error, Result};
 use std::ops::{Deref, DerefMut};
 
@@ -244,6 +244,7 @@ impl AsMut<BasePage> for HeaderPage {
     }
 }
 
+/*
 impl Page for HeaderPage {
     fn load(buffer: Box<PageBuffer>) -> Result<Self> {
         Self::load(buffer)
@@ -261,3 +262,4 @@ impl Page for HeaderPage {
         self.base
     }
 }
+// */

@@ -239,12 +239,15 @@ impl<SF: StreamFactory> Snapshot<'_, SF> {
         // check for header page (return header single instance)
         //TODO(upstream): remove this
         if page_id == 0 {
+            panic!("Header page not supported")
+            /*
             return Ok(PageWithAdditionalInfo::<&mut T> {
                 page: (self.header as &mut dyn Page).downcast_mut().unwrap(),
                 origin: None,
                 position: 0,
                 wal_version: 0,
             });
+            // */
         }
 
         // TODO: I want to be like below but borrow checker doesn't allow us so we use double query
