@@ -4,11 +4,13 @@ use crate::engine::pages::HeaderPage;
 use crate::engine::sort_disk::SortDisk;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{CONTAINER_SORT_SIZE, FileOrigin, StreamFactory};
-use crate::utils::Collation;
+use crate::utils::{Collation, Shared};
 use crate::{Error, Result};
 use futures::StreamExt;
 use std::marker::PhantomData;
 use std::pin::pin;
+use std::rc::Rc;
+use crate::engine::transaction_monitor::TransactionMonitor;
 
 pub struct LiteSettings<SF: StreamFactory> {
     pub data_stream: SF,
@@ -70,10 +72,21 @@ impl<SF: StreamFactory> LiteEngine<SF> {
 
         let sort_disk = SortDisk::new(settings.temp_stream, CONTAINER_SORT_SIZE);
 
+        let header = Shared::new(header);
+        let locker = Rc::new(locker);
+        let disk = Rc::new(disk);
+        let wal_index = Rc::new(wal_index);
+        let monitor = TransactionMonitor::new(
+            Shared::clone(&header),
+            Rc::clone(&locker),
+            Rc::clone(&disk),
+            Rc::clone(&wal_index),
+        );
+
         // TODO: consider not using RefCell<HeaderPage>
 
-        drop(locker);
         drop(sort_disk);
+        drop(monitor);
 
         todo!();
     }
