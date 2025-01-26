@@ -4,41 +4,56 @@ use crate::engine::lock_service::LockService;
 use crate::engine::page_position::PagePosition;
 use crate::engine::pages::{BasePage, HeaderPage, PageType};
 use crate::engine::{FileOrigin, PAGE_SIZE, StreamFactory};
+use async_lock::RwLock;
 use futures::prelude::*;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::ops::DerefMut;
 use std::pin::pin;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 pub(crate) struct WalIndexService {
+    last_transaction_id: AtomicU32,
+    lock: RwLock<InLock>,
+    // This variable is loked by either
+    // - Transaction (Read) Lock and RwLock above (Write)
+    // - Transaction Exclusive (Wrote) Lock
+    confirm_transactions: RefCell<HashSet<u32>>,
+}
+
+struct InLock {
     current_read_version: i32,
-    last_transaction_id: i32,
     index: HashMap<u32, Vec<(i32, u64)>>,
-    confirm_transactions: HashSet<u32>,
 }
 
 impl WalIndexService {
     pub(crate) fn new() -> Self {
         Self {
-            current_read_version: 0,
-            last_transaction_id: 0,
-            index: HashMap::new(),
-            confirm_transactions: HashSet::new(),
+            last_transaction_id: AtomicU32::new(0),
+            lock: RwLock::new(InLock {
+                current_read_version: 0,
+                index: HashMap::new(),
+            }),
+            confirm_transactions: RefCell::new(HashSet::new()),
         }
     }
 
-    pub fn current_read_version(&self) -> i32 {
-        self.current_read_version
+    // async for lock
+    pub async fn current_read_version(&self) -> i32 {
+        self.lock.read().await.current_read_version
     }
 
     pub fn last_transaction_id(&self) -> i32 {
-        self.last_transaction_id
+        self.last_transaction_id.load(Ordering::Relaxed) as i32
     }
 
-    pub async fn clear(&mut self, disk: &mut DiskService<impl StreamFactory>) -> Result<()> {
-        self.confirm_transactions.clear();
-        self.index.clear();
+    pub async fn clear(&self, disk: &mut DiskService<impl StreamFactory>) -> Result<()> {
+        let mut in_lock = self.lock.write().await;
+        self.confirm_transactions.borrow_mut().clear();
+        in_lock.index.clear();
 
-        self.current_read_version = 0;
-        self.last_transaction_id = 0;
+        in_lock.current_read_version = 0;
+        self.last_transaction_id.store(0, Ordering::SeqCst);
 
         disk.cache_mut().clear();
         disk.set_length(0, FileOrigin::Log).await?;
@@ -46,17 +61,18 @@ impl WalIndexService {
         Ok(())
     }
 
-    pub fn next_transaction_id(&mut self) -> u32 {
-        self.last_transaction_id += 1;
-        self.last_transaction_id as u32
+    pub fn next_transaction_id(&self) -> u32 {
+        self.last_transaction_id.fetch_add(1, Ordering::SeqCst) + 1
     }
 
-    pub fn get_page_index(&mut self, page_id: u32, version: i32) -> (i32, u64) {
+    pub async fn get_page_index(&self, page_id: u32, version: i32) -> (i32, u64) {
         if version == 0 {
             return (0, u64::MAX);
         }
 
-        if let Some(index) = self.index.get(&page_id) {
+        let in_lock = self.lock.read().await;
+
+        if let Some(index) = in_lock.index.get(&page_id) {
             for (wal_version, position) in index.iter().rev() {
                 if *wal_version <= version {
                     return (*wal_version, *position);
@@ -68,19 +84,23 @@ impl WalIndexService {
         (i32::MAX, u64::MAX)
     }
 
-    pub fn confirm_transaction(&mut self, transaction_id: u32, positions: &[PagePosition]) {
-        self.current_read_version += 1;
+    pub async fn confirm_transaction(&self, transaction_id: u32, positions: &[PagePosition]) {
+        let mut in_lock = self.lock.write().await;
+        let in_lock = in_lock.deref_mut();
+        in_lock.current_read_version += 1;
 
         for pos in positions {
-            let slot = self.index.entry(pos.page_id()).or_default();
-            slot.push((self.current_read_version, pos.position()));
+            let slot = in_lock.index.entry(pos.page_id()).or_default();
+            slot.push((in_lock.current_read_version, pos.position()));
         }
 
-        self.confirm_transactions.insert(transaction_id);
+        self.confirm_transactions
+            .borrow_mut()
+            .insert(transaction_id);
     }
 
     pub async fn restore_index(
-        &mut self,
+        &self,
         header: &mut HeaderPage,
         disk: &mut DiskService<impl StreamFactory>,
     ) -> Result<()> {
@@ -104,7 +124,8 @@ impl WalIndexService {
             positions_for_transaction.push(position);
 
             if is_confirmed {
-                self.confirm_transaction(transaction_id, positions_for_transaction);
+                self.confirm_transaction(transaction_id, positions_for_transaction)
+                    .await;
 
                 let page_type = buffer.read_byte(BasePage::P_PAGE_TYPE);
 
@@ -121,7 +142,8 @@ impl WalIndexService {
                 }
             }
 
-            self.last_transaction_id = transaction_id as i32;
+            self.last_transaction_id
+                .store(transaction_id, Ordering::SeqCst);
             current += PAGE_SIZE;
         }
 
@@ -129,11 +151,13 @@ impl WalIndexService {
     }
 
     pub async fn checkpoint(
-        &mut self,
+        &self,
         disk: &mut DiskService<impl StreamFactory>,
         locker: &LockService,
     ) -> Result<()> {
-        if disk.get_file_length(FileOrigin::Log) == 0 || self.confirm_transactions.is_empty() {
+        if disk.get_file_length(FileOrigin::Log) == 0
+            || self.confirm_transactions.borrow().is_empty()
+        {
             return Ok(());
         }
 
@@ -145,7 +169,7 @@ impl WalIndexService {
     }
 
     async fn checkpoint_internal(
-        &mut self,
+        &self,
         disk: &mut DiskService<impl StreamFactory>,
     ) -> Result<usize> {
         // LOG("Checkpointing WAL");
@@ -161,7 +185,7 @@ impl WalIndexService {
 
                 let transaction_id = buffer.read_u32(BasePage::P_TRANSACTION_ID);
 
-                if self.confirm_transactions.contains(&transaction_id) {
+                if self.confirm_transactions.borrow().contains(&transaction_id) {
                     let page_id = buffer.read_u32(BasePage::P_PAGE_ID);
 
                     buffer.write_u32(BasePage::P_TRANSACTION_ID, u32::MAX);

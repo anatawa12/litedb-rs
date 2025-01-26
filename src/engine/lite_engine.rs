@@ -62,7 +62,7 @@ impl<SF: StreamFactory> LiteEngine<SF> {
         let locker = LockService::new(header.pragmas().clone());
 
         // no services are passed; they are passed when needed
-        let mut wal_index = WalIndexService::new();
+        let wal_index = WalIndexService::new();
 
         if disk.get_file_length(FileOrigin::Log) > 0 {
             wal_index.restore_index(&mut header, &mut disk).await?;

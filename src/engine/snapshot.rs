@@ -18,7 +18,7 @@ pub(crate) struct Snapshot<'engine, SF: StreamFactory> {
     header: &'engine mut HeaderPage,
     lock_scope: Option<CollectionLockScope>,
     disk: &'engine mut DiskService<SF>,
-    wal_index: &'engine mut WalIndexService,
+    wal_index: &'engine WalIndexService,
 
     transaction_id: u32,
     trans_pages: Shared<TransactionPages>,
@@ -39,7 +39,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         transaction_id: u32,
         trans_pages: Shared<TransactionPages>,
         locker: &'engine LockService,
-        wal_index: &'engine mut WalIndexService,
+        wal_index: &'engine WalIndexService,
         disk: &'engine mut DiskService<SF>,
         add_if_not_exists: bool,
     ) -> Result<Self> {
@@ -49,7 +49,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
             None
         };
 
-        let read_version = wal_index.current_read_version();
+        let read_version = wal_index.current_read_version().await;
 
         let mut snapshot = Self {
             header,
@@ -102,7 +102,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         self.disk
     }
 
-    pub fn wal_index(&mut self) -> &mut WalIndexService {
+    pub fn wal_index(&mut self) -> &WalIndexService {
         self.wal_index
     }
 
@@ -301,14 +301,17 @@ impl<SF: StreamFactory> Snapshot<'_, SF> {
         }
 
         // now, look inside wal-index
-        let (wal_version, pos) = self.wal_index.get_page_index(
-            page_id,
-            if use_latest_version {
-                i32::MAX
-            } else {
-                self.read_version
-            },
-        );
+        let (wal_version, pos) = self
+            .wal_index
+            .get_page_index(
+                page_id,
+                if use_latest_version {
+                    i32::MAX
+                } else {
+                    self.read_version
+                },
+            )
+            .await;
 
         if pos != u64::MAX {
             // TODO: use read_page when read only snapshot

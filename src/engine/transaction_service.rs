@@ -20,7 +20,7 @@ pub(crate) struct TransactionService<'engine, SF: StreamFactory> {
     locker: &'engine LockService,
     disk: &'engine mut DiskService<SF>,
     // reader will be created each time
-    wal_index: &'engine mut WalIndexService,
+    wal_index: &'engine WalIndexService,
     monitor: Shared<TransactionMonitorShared>, // TransactionService will be owned by TransactionMonitor so Rc here
     snapshots: HashMap<String, Snapshot<'engine, SF>>,
     trans_pages: Shared<TransactionPages>, // Fn TransactionPages will be shared with SnapShot so Rc
@@ -42,7 +42,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
         locker: &'engine LockService,
         disk: &'engine mut DiskService<SF>,
         // reader will be created each time
-        wal_index: &'engine mut WalIndexService,
+        wal_index: &'engine WalIndexService,
         max_transaction_size: u32,
         monitor: Shared<TransactionMonitorShared>,
         query_only: bool,
@@ -274,16 +274,16 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
             // lock on header
             let count = self.persist_dirty_page(true).await?;
             if count > 0 {
-                self.wal_index.confirm_transaction(
-                    self.transaction_id,
-                    &self
-                        .trans_pages
-                        .borrow_mut()
-                        .dirty_pages
-                        .values()
-                        .copied()
-                        .collect::<Vec<_>>(),
-                );
+                let dirty_pages = self
+                    .trans_pages
+                    .borrow_mut()
+                    .dirty_pages
+                    .values()
+                    .copied()
+                    .collect::<Vec<_>>();
+                self.wal_index
+                    .confirm_transaction(self.transaction_id, &dirty_pages)
+                    .await;
             }
         }
 
@@ -376,10 +376,12 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
 
         forget(r);
 
-        self.wal_index.confirm_transaction(
-            self.transaction_id,
-            &page_positions.values().copied().collect::<Vec<_>>(),
-        );
+        self.wal_index
+            .confirm_transaction(
+                self.transaction_id,
+                &page_positions.values().copied().collect::<Vec<_>>(),
+            )
+            .await;
 
         Ok(())
     }
