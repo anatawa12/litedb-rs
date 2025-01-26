@@ -9,11 +9,10 @@ use crate::engine::{
     BasePage, CollectionPage, DataPage, FileOrigin, IndexPage, PAGE_SIZE, Page, PageType,
     StreamFactory,
 };
+use crate::utils::Shared;
 use crate::{Error, Result};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::forget;
-use std::rc::Rc;
 
 pub(crate) struct Snapshot<'engine, SF: StreamFactory> {
     header: &'engine mut HeaderPage,
@@ -22,7 +21,7 @@ pub(crate) struct Snapshot<'engine, SF: StreamFactory> {
     wal_index: &'engine mut WalIndexService,
 
     transaction_id: u32,
-    trans_pages: Rc<RefCell<TransactionPages>>,
+    trans_pages: Shared<TransactionPages>,
 
     read_version: i32,
     mode: LockMode,
@@ -38,7 +37,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         collection_name: &str,
         header: &'engine mut HeaderPage,
         transaction_id: u32,
-        trans_pages: Rc<RefCell<TransactionPages>>,
+        trans_pages: Shared<TransactionPages>,
         locker: &'engine LockService,
         wal_index: &'engine mut WalIndexService,
         disk: &'engine mut DiskService<SF>,
@@ -95,7 +94,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         self.header
     }
 
-    pub fn trans_pages(&self) -> &RefCell<TransactionPages> {
+    pub fn trans_pages(&self) -> &Shared<TransactionPages> {
         &self.trans_pages
     }
 

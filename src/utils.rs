@@ -2,6 +2,9 @@ use crate::Error;
 use crate::bson;
 use crate::engine::{BufferReader, BufferWriter, PageAddress};
 use bson::BsonType;
+use std::cell::{Ref, RefCell, RefMut};
+use std::fmt::Debug;
+use std::rc::Rc;
 
 // TODO: Implement the CompareOptions struct
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -315,4 +318,35 @@ impl BufferSlice {
 pub(crate) enum Order {
     Ascending = 1,
     Descending = 2,
+}
+
+/// The wrapper struct for Rc<RefCell<T>>
+///
+/// We may extend to Arc<Mutex<T>> in the future
+pub(crate) struct Shared<T> {
+    inner: Rc<RefCell<T>>,
+}
+
+impl<T> Shared<T> {
+    pub fn new(inner: T) -> Self {
+        Self {
+            inner: Rc::new(RefCell::new(inner)),
+        }
+    }
+
+    pub fn borrow(&self) -> Ref<T> {
+        self.inner.borrow()
+    }
+
+    pub fn borrow_mut(&self) -> RefMut<T> {
+        self.inner.borrow_mut()
+    }
+}
+
+impl<T> Clone for Shared<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
 }

@@ -2,11 +2,10 @@ use crate::engine::disk::DiskService;
 use crate::engine::lock_service::LockService;
 use crate::engine::transaction_service::TransactionService;
 use crate::engine::wal_index_service::WalIndexService;
-use crate::engine::{HeaderPage, MAX_OPEN_TRANSACTIONS, StreamFactory, MAX_TRANSACTION_SIZE};
+use crate::engine::{HeaderPage, MAX_OPEN_TRANSACTIONS, MAX_TRANSACTION_SIZE, StreamFactory};
+use crate::utils::Shared;
 use crate::{Error, Result};
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 pub(crate) struct TransactionMonitorShared {
     pub free_pages: u32,
@@ -20,7 +19,7 @@ pub(crate) struct TransactionMonitor<'engine, SF: StreamFactory> {
     // reader will be created each time
     wal_index: &'engine mut WalIndexService,
 
-    shared: Rc<RefCell<TransactionMonitorShared>>,
+    shared: Shared<TransactionMonitorShared>,
     transactions: HashMap<u32, TransactionService<'engine, SF>>,
     slot_id: Option<u32>, // thread local
 }
@@ -38,10 +37,10 @@ impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
             locker,
             disk,
             wal_index,
-            shared: Rc::new(RefCell::new(TransactionMonitorShared {
+            shared: Shared::new(TransactionMonitorShared {
                 free_pages: MAX_TRANSACTION_SIZE,
-                initial_size: MAX_TRANSACTION_SIZE / MAX_OPEN_TRANSACTIONS as u32;
-            })),
+                initial_size: MAX_TRANSACTION_SIZE / MAX_OPEN_TRANSACTIONS as u32,
+            }),
             transactions: HashMap::new(),
             slot_id: None,
         }

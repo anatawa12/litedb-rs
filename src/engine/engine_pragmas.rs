@@ -1,7 +1,5 @@
 use crate::engine::PageBuffer;
-use crate::utils::{Collation, CompareOptions};
-use std::cell::RefCell;
-use std::rc::Rc;
+use crate::utils::{Collation, CompareOptions, Shared};
 use std::time::Duration;
 
 const P_USER_VERSION: usize = 76; // 76-79 (4 bytes)
@@ -16,7 +14,7 @@ const P_LIMIT_SIZE: usize = 101; // 101-108 (8 bytes)
 /// Clone this class will share the same inner object
 #[derive(Clone)]
 pub(crate) struct EnginePragmas {
-    inner: Rc<RefCell<EnginePragmasInner>>,
+    inner: Shared<EnginePragmasInner>,
 }
 
 struct EnginePragmasInner {
@@ -32,7 +30,7 @@ struct EnginePragmasInner {
 impl Default for EnginePragmas {
     fn default() -> Self {
         EnginePragmas {
-            inner: Rc::new(RefCell::new(EnginePragmasInner {
+            inner: Shared::new(EnginePragmasInner {
                 user_version: 0,
                 collation: Collation::default(),
                 timeout: Duration::from_secs(60),
@@ -40,7 +38,7 @@ impl Default for EnginePragmas {
                 utc_date: false,
                 checkpoint: 1000,
                 dirty: false,
-            })),
+            }),
         }
     }
 }

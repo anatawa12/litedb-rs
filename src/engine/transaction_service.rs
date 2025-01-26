@@ -8,11 +8,10 @@ use crate::engine::transaction_monitor::TransactionMonitorShared;
 use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{BasePage, PageType, StreamFactory};
-use std::cell::RefCell;
+use crate::utils::Shared;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::mem::forget;
-use std::rc::Rc;
 use std::thread::ThreadId;
 use std::time::SystemTime;
 
@@ -22,9 +21,9 @@ pub(crate) struct TransactionService<'engine, SF: StreamFactory> {
     disk: &'engine mut DiskService<SF>,
     // reader will be created each time
     wal_index: &'engine mut WalIndexService,
-    monitor: Rc<RefCell<TransactionMonitorShared>>, // TransactionService will be owned by TransactionMonitor so Rc here
+    monitor: Shared<TransactionMonitorShared>, // TransactionService will be owned by TransactionMonitor so Rc here
     snapshots: HashMap<String, Snapshot<'engine, SF>>,
-    trans_pages: Rc<RefCell<TransactionPages>>, // Fn TransactionPages will be shared with SnapShot so Rc
+    trans_pages: Shared<TransactionPages>, // Fn TransactionPages will be shared with SnapShot so Rc
 
     transaction_id: u32,
     start_time: SystemTime, // TODO: which DateTime type to use?
@@ -45,7 +44,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
         // reader will be created each time
         wal_index: &'engine mut WalIndexService,
         max_transaction_size: u32,
-        monitor: Rc<RefCell<TransactionMonitorShared>>,
+        monitor: Shared<TransactionMonitorShared>,
         query_only: bool,
     ) -> Self {
         Self {
@@ -63,7 +62,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
             mode: LockMode::Read,
             start_time: SystemTime::now(),
             thread_id: std::thread::current().id(),
-            trans_pages: Rc::new(RefCell::new(TransactionPages::new())),
+            trans_pages: Shared::new(TransactionPages::new()),
             state: TransactionState::Active,
         }
     }
