@@ -11,15 +11,15 @@ use crate::engine::{
 };
 use crate::utils::Shared;
 use crate::{Error, Result};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::forget;
+use std::rc::Rc;
 
-pub(crate) struct Snapshot<'engine, SF: StreamFactory> {
-    header: &'engine RefCell<HeaderPage>,
+pub(crate) struct Snapshot<SF: StreamFactory> {
+    header: Shared<HeaderPage>,
     lock_scope: Option<CollectionLockScope>,
-    disk: &'engine DiskService<SF>,
-    wal_index: &'engine WalIndexService,
+    disk: Rc<DiskService<SF>>,
+    wal_index: Rc<WalIndexService>,
 
     transaction_id: u32,
     trans_pages: Shared<TransactionPages>,
@@ -32,16 +32,16 @@ pub(crate) struct Snapshot<'engine, SF: StreamFactory> {
     local_pages: HashMap<u32, Box<dyn Page>>,
 }
 
-impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
+impl<SF: StreamFactory> Snapshot<SF> {
     pub async fn new(
         mode: LockMode,
         collection_name: &str,
-        header: &'engine RefCell<HeaderPage>,
+        header: Shared<HeaderPage>,
         transaction_id: u32,
         trans_pages: Shared<TransactionPages>,
-        locker: &'engine LockService,
-        wal_index: &'engine WalIndexService,
-        disk: &'engine DiskService<SF>,
+        locker: Rc<LockService>,
+        wal_index: Rc<WalIndexService>,
+        disk: Rc<DiskService<SF>>,
         add_if_not_exists: bool,
     ) -> Result<Self> {
         let lock_scope = if mode == LockMode::Write {
@@ -91,20 +91,20 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         Ok(snapshot)
     }
 
-    pub fn header(&mut self) -> &RefCell<HeaderPage> {
-        self.header
+    pub fn header(&mut self) -> &Shared<HeaderPage> {
+        &self.header
     }
 
     pub fn trans_pages(&self) -> &Shared<TransactionPages> {
         &self.trans_pages
     }
 
-    pub fn disk(&self) -> &DiskService<SF> {
-        self.disk
+    pub fn disk(&self) -> &Rc<DiskService<SF>> {
+        &self.disk
     }
 
-    pub fn wal_index(&mut self) -> &WalIndexService {
-        self.wal_index
+    pub fn wal_index(&self) -> &Rc<WalIndexService> {
+        &self.wal_index
     }
 
     pub fn mode(&self) -> LockMode {
@@ -218,7 +218,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
 }
 
 // region Page Version functions
-impl<SF: StreamFactory> Snapshot<'_, SF> {
+impl<SF: StreamFactory> Snapshot<SF> {
     pub async fn get_page<T: Page>(
         &mut self,
         page_id: u32,

@@ -6,15 +6,15 @@ use crate::engine::snapshot::Snapshot;
 use crate::engine::{IndexPage, MAX_LEVEL_LENGTH, PageAddress, StreamFactory};
 use crate::utils::Collation;
 
-pub(crate) struct IndexService<'snapshot, 'engine, SF: StreamFactory> {
-    snapshot: &'snapshot mut Snapshot<'engine, SF>,
+pub(crate) struct IndexService<'snapshot, SF: StreamFactory> {
+    snapshot: &'snapshot mut Snapshot<SF>,
     collation: Collation,
     max_item_count: u32,
 }
 
-impl<'snapshot, 'engine, SF: StreamFactory> IndexService<'snapshot, 'engine, SF> {
+impl<'snapshot, SF: StreamFactory> IndexService<'snapshot, SF> {
     pub fn new(
-        snapshot: &'snapshot mut Snapshot<'engine, SF>,
+        snapshot: &'snapshot mut Snapshot<SF>,
         collation: Collation,
         max_item_count: u32,
     ) -> Self {
@@ -26,7 +26,7 @@ impl<'snapshot, 'engine, SF: StreamFactory> IndexService<'snapshot, 'engine, SF>
     }
 }
 
-impl<SF: StreamFactory> IndexService<'_, '_, SF> {
+impl<SF: StreamFactory> IndexService<'_, SF> {
     pub fn collation(&self) -> &Collation {
         &self.collation
     }

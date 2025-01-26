@@ -5,33 +5,33 @@ use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{HeaderPage, MAX_OPEN_TRANSACTIONS, MAX_TRANSACTION_SIZE, StreamFactory};
 use crate::utils::Shared;
 use crate::{Error, Result};
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 pub(crate) struct TransactionMonitorShared {
     pub free_pages: u32,
     pub initial_size: u32,
 }
 
-pub(crate) struct TransactionMonitor<'engine, SF: StreamFactory> {
-    header: &'engine RefCell<HeaderPage>,
-    locker: &'engine LockService,
-    disk: &'engine DiskService<SF>,
+pub(crate) struct TransactionMonitor<SF: StreamFactory> {
+    header: Shared<HeaderPage>,
+    locker: Rc<LockService>,
+    disk: Rc<DiskService<SF>>,
     // reader will be created each time
-    wal_index: &'engine WalIndexService,
+    wal_index: Rc<WalIndexService>,
 
     shared: Shared<TransactionMonitorShared>,
-    transactions: HashMap<u32, TransactionService<'engine, SF>>,
+    transactions: HashMap<u32, TransactionService<SF>>,
     slot_id: Option<u32>, // thread local
 }
 
-impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
+impl<SF: StreamFactory> TransactionMonitor<SF> {
     pub fn new(
-        header: &'engine RefCell<HeaderPage>,
-        locker: &'engine LockService,
-        disk: &'engine DiskService<SF>,
+        header: Shared<HeaderPage>,
+        locker: Rc<LockService>,
+        disk: Rc<DiskService<SF>>,
         // reader will be created each time
-        wal_index: &'engine WalIndexService,
+        wal_index: Rc<WalIndexService>,
     ) -> Self {
         Self {
             header,
@@ -48,12 +48,12 @@ impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
     }
 
     // 2nd is is_new
-    pub async fn get_or_create_transaction<'a: 'engine>(
-        &'a mut self,
+    pub async fn get_or_create_transaction(
+        &mut self,
         query_only: bool,
-    ) -> Result<(&'a mut TransactionService<'engine, SF>, bool)> {
+    ) -> Result<(&mut TransactionService<SF>, bool)> {
         let is_new;
-        let transaction_mut: &'a mut TransactionService<'engine, SF>;
+        let transaction_mut: &mut TransactionService<SF>;
         if let Some(slot_id) = self.slot_id {
             is_new = false;
             transaction_mut = self.transactions.get_mut(&slot_id).unwrap();
@@ -71,12 +71,12 @@ impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
                 .any(|x| x.thread_id() == std::thread::current().id());
 
             let transaction = TransactionService::new(
-                self.header,
-                self.locker,
-                self.disk,
-                self.wal_index,
+                Shared::clone(&self.header),
+                Rc::clone(&self.locker),
+                Rc::clone(&self.disk),
+                Rc::clone(&self.wal_index),
                 initial_size,
-                self.shared.clone(),
+                Shared::clone(&self.shared),
                 query_only,
             );
 
@@ -100,7 +100,7 @@ impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
     }
 
     // 2nd is is_new
-    pub async fn get_transaction(&mut self) -> Option<&mut TransactionService<'engine, SF>> {
+    pub async fn get_transaction(&mut self) -> Option<&mut TransactionService<SF>> {
         if let Some(slot_id) = self.slot_id {
             Some(self.transactions.get_mut(&slot_id).unwrap())
         } else {
@@ -138,7 +138,7 @@ impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
         Ok(())
     }
 
-    pub async fn get_thread_transaction(&self) -> Option<&TransactionService<'engine, SF>> {
+    pub async fn get_thread_transaction(&self) -> Option<&TransactionService<SF>> {
         if let Some(slot_id) = self.slot_id {
             Some(self.transactions.get(&slot_id).unwrap())
         } else {

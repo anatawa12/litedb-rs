@@ -4,12 +4,12 @@ use crate::engine::snapshot::Snapshot;
 use crate::engine::{CollectionPage, StreamFactory};
 use crate::{Error, Result};
 
-pub(crate) struct CollectionService<'snapshot, 'engine, SF: StreamFactory> {
-    snapshot: &'snapshot mut Snapshot<'engine, SF>,
+pub(crate) struct CollectionService<'snapshot, SF: StreamFactory> {
+    snapshot: &'snapshot mut Snapshot<SF>,
 }
 
-impl<'snapshot, 'engine, SF: StreamFactory> CollectionService<'snapshot, 'engine, SF> {
-    pub fn new(snapshot: &'snapshot mut Snapshot<'engine, SF>) -> Self {
+impl<'snapshot, SF: StreamFactory> CollectionService<'snapshot, SF> {
+    pub fn new(snapshot: &'snapshot mut Snapshot<SF>) -> Self {
         Self { snapshot }
     }
 

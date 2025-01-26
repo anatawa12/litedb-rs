@@ -9,21 +9,21 @@ use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{BasePage, PageType, StreamFactory};
 use crate::utils::Shared;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::mem::forget;
+use std::rc::Rc;
 use std::thread::ThreadId;
 use std::time::SystemTime;
 
-pub(crate) struct TransactionService<'engine, SF: StreamFactory> {
-    header: &'engine RefCell<HeaderPage>,
-    locker: &'engine LockService,
-    disk: &'engine DiskService<SF>,
+pub(crate) struct TransactionService<SF: StreamFactory> {
+    header: Shared<HeaderPage>,
+    locker: Rc<LockService>,
+    disk: Rc<DiskService<SF>>,
     // reader will be created each time
-    wal_index: &'engine WalIndexService,
+    wal_index: Rc<WalIndexService>,
     monitor: Shared<TransactionMonitorShared>, // TransactionService will be owned by TransactionMonitor so Rc here
-    snapshots: HashMap<String, Snapshot<'engine, SF>>,
+    snapshots: HashMap<String, Snapshot<SF>>,
     trans_pages: Shared<TransactionPages>, // Fn TransactionPages will be shared with SnapShot so Rc
 
     transaction_id: u32,
@@ -37,13 +37,13 @@ pub(crate) struct TransactionService<'engine, SF: StreamFactory> {
     max_transaction_size: u32,
 }
 
-impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
+impl<SF: StreamFactory> TransactionService<SF> {
     pub fn new(
-        header: &'engine RefCell<HeaderPage>,
-        locker: &'engine LockService,
-        disk: &'engine DiskService<SF>,
+        header: Shared<HeaderPage>,
+        locker: Rc<LockService>,
+        disk: Rc<DiskService<SF>>,
         // reader will be created each time
-        wal_index: &'engine WalIndexService,
+        wal_index: Rc<WalIndexService>,
         max_transaction_size: u32,
         monitor: Shared<TransactionMonitorShared>,
         query_only: bool,
@@ -92,12 +92,12 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
         self.max_transaction_size = size;
     }
 
-    pub async fn create_snapshot<'a: 'engine>(
+    pub async fn create_snapshot<'a>(
         &'a mut self,
         mode: LockMode,
         collection: &str,
         add_if_not_exists: bool,
-    ) -> Result<&'a mut Snapshot<'engine, SF>> {
+    ) -> Result<&'a mut Snapshot<SF>> {
         debug_assert_eq!(self.state, TransactionState::Active);
 
         match self.snapshots.entry(collection.to_string()) {
@@ -109,12 +109,12 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
                     let new = Snapshot::new(
                         mode,
                         collection,
-                        self.header,
+                        Shared::clone(&self.header),
                         self.transaction_id,
                         self.trans_pages.clone(),
-                        self.locker,
-                        self.wal_index,
-                        self.disk,
+                        Rc::clone(&self.locker),
+                        Rc::clone(&self.wal_index),
+                        Rc::clone(&self.disk),
                         add_if_not_exists,
                     )
                     .await?;
@@ -125,15 +125,15 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
                 Ok(o.into_mut())
             }
             Entry::Vacant(v) => {
-                let new = Snapshot::<'engine, SF>::new(
+                let new = Snapshot::<SF>::new(
                     mode,
                     collection,
-                    self.header,
+                    Shared::clone(&self.header),
                     self.transaction_id,
                     self.trans_pages.clone(),
-                    self.locker,
-                    self.wal_index,
-                    self.disk,
+                    Rc::clone(&self.locker),
+                    Rc::clone(&self.wal_index),
+                    Rc::clone(&self.disk),
                     add_if_not_exists,
                 )
                 .await?;
