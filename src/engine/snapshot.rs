@@ -11,11 +11,12 @@ use crate::engine::{
 };
 use crate::utils::Shared;
 use crate::{Error, Result};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::forget;
 
 pub(crate) struct Snapshot<'engine, SF: StreamFactory> {
-    header: &'engine mut HeaderPage,
+    header: &'engine RefCell<HeaderPage>,
     lock_scope: Option<CollectionLockScope>,
     disk: &'engine DiskService<SF>,
     wal_index: &'engine WalIndexService,
@@ -35,7 +36,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
     pub async fn new(
         mode: LockMode,
         collection_name: &str,
-        header: &'engine mut HeaderPage,
+        header: &'engine RefCell<HeaderPage>,
         transaction_id: u32,
         trans_pages: Shared<TransactionPages>,
         locker: &'engine LockService,
@@ -90,7 +91,7 @@ impl<'engine, SF: StreamFactory> Snapshot<'engine, SF> {
         Ok(snapshot)
     }
 
-    pub fn header(&mut self) -> &mut HeaderPage {
+    pub fn header(&mut self) -> &RefCell<HeaderPage> {
         self.header
     }
 
@@ -234,7 +235,7 @@ impl<SF: StreamFactory> Snapshot<'_, SF> {
         page_id: u32,
         use_latest_version: bool,
     ) -> Result<PageWithAdditionalInfo<&mut T>> {
-        assert!(page_id != u32::MAX && page_id < self.header.last_page_id());
+        assert!(page_id != u32::MAX && page_id < self.header.borrow().last_page_id());
 
         // check for header page (return header single instance)
         //TODO(upstream): remove this
@@ -411,6 +412,7 @@ impl<SF: StreamFactory> Snapshot<'_, SF> {
         Ok(page)
     }
 
+    #[allow(clippy::await_holding_refcell_ref)]
     pub async fn new_page<T: Page>(&mut self) -> Result<&mut T> {
         if self.collection_page.is_none() {
             debug_assert_eq!(
@@ -427,9 +429,10 @@ impl<SF: StreamFactory> Snapshot<'_, SF> {
 
         // no locks
 
-        if self.header.free_empty_page_list() != u32::MAX {
+        let free_empty_page_list = self.header.borrow().free_empty_page_list();
+        if free_empty_page_list != u32::MAX {
             let free = self
-                .get_page::<BasePage>(self.header.free_empty_page_list(), true)
+                .get_page::<BasePage>(free_empty_page_list, true)
                 .await?;
             page_id = free.page_id();
             let free = self.local_pages.remove(&page_id).unwrap();
@@ -445,19 +448,22 @@ impl<SF: StreamFactory> Snapshot<'_, SF> {
                 "empty page must be defined as empty type"
             );
 
-            self.header.set_free_empty_page_list(free.next_page_id());
+            self.header
+                .borrow_mut()
+                .set_free_empty_page_list(free.next_page_id());
 
             free.set_next_page_id(u32::MAX);
 
             //page_id = free.page_id(); //assigned above
             buffer = free.into_buffer();
         } else {
-            let new_length = (self.header.last_page_id() as usize + 1) * PAGE_SIZE;
-            if new_length > self.header.pragmas().limit_size() as usize {
+            let mut header = self.header.borrow_mut();
+            let new_length = (header.last_page_id() as usize + 1) * PAGE_SIZE;
+            if new_length > header.pragmas().limit_size() as usize {
                 return Err(Error::size_limit_reached());
             }
 
-            let save_point = self.header.save_point();
+            let save_point = header.save_point();
 
             page_id = save_point.header.last_page_id() + 1;
             save_point.header.set_last_page_id(page_id);

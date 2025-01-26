@@ -5,6 +5,7 @@ use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{HeaderPage, MAX_OPEN_TRANSACTIONS, MAX_TRANSACTION_SIZE, StreamFactory};
 use crate::utils::Shared;
 use crate::{Error, Result};
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 pub(crate) struct TransactionMonitorShared {
@@ -13,7 +14,7 @@ pub(crate) struct TransactionMonitorShared {
 }
 
 pub(crate) struct TransactionMonitor<'engine, SF: StreamFactory> {
-    header: &'engine mut HeaderPage,
+    header: &'engine RefCell<HeaderPage>,
     locker: &'engine LockService,
     disk: &'engine DiskService<SF>,
     // reader will be created each time
@@ -26,7 +27,7 @@ pub(crate) struct TransactionMonitor<'engine, SF: StreamFactory> {
 
 impl<'engine, SF: StreamFactory> TransactionMonitor<'engine, SF> {
     pub fn new(
-        header: &'engine mut HeaderPage,
+        header: &'engine RefCell<HeaderPage>,
         locker: &'engine LockService,
         disk: &'engine DiskService<SF>,
         // reader will be created each time

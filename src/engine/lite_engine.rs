@@ -65,10 +65,12 @@ impl<SF: StreamFactory> LiteEngine<SF> {
         let wal_index = WalIndexService::new();
 
         if disk.get_file_length(FileOrigin::Log) > 0 {
-            wal_index.restore_index(&mut header, &mut disk).await?;
+            wal_index.restore_index(&mut header, &disk).await?;
         }
 
         let sort_disk = SortDisk::new(settings.temp_stream, CONTAINER_SORT_SIZE);
+
+        // TODO: consider not using RefCell<HeaderPage>
 
         drop(locker);
         drop(sort_disk);

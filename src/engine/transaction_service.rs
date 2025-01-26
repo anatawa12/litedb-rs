@@ -9,6 +9,7 @@ use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{BasePage, PageType, StreamFactory};
 use crate::utils::Shared;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::mem::forget;
@@ -16,7 +17,7 @@ use std::thread::ThreadId;
 use std::time::SystemTime;
 
 pub(crate) struct TransactionService<'engine, SF: StreamFactory> {
-    header: &'engine mut HeaderPage,
+    header: &'engine RefCell<HeaderPage>,
     locker: &'engine LockService,
     disk: &'engine DiskService<SF>,
     // reader will be created each time
@@ -38,7 +39,7 @@ pub(crate) struct TransactionService<'engine, SF: StreamFactory> {
 
 impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
     pub fn new(
-        header: &'engine mut HeaderPage,
+        header: &'engine RefCell<HeaderPage>,
         locker: &'engine LockService,
         disk: &'engine DiskService<SF>,
         // reader will be created each time
@@ -188,6 +189,11 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
 
         // build buffers
         {
+            let mut header_if_commit = if commit {
+                Some(self.header.borrow_mut())
+            } else {
+                None
+            };
             let pages = self
                 .snapshots
                 .values_mut()
@@ -206,19 +212,23 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
                     page_mut.set_confirmed(mark_last_as_confirmed);
                 }
 
-                if self.trans_pages.borrow().last_deleted_page() == page_mut.page_id() && commit {
-                    debug_assert!(
-                        self.trans_pages.borrow().header_changed(),
-                        "header must be in lock"
-                    );
-                    debug_assert!(
-                        page_mut.page_type() == PageType::Empty,
-                        "must be marked as deleted page"
-                    );
+                //if self.trans_pages.borrow().last_deleted_page() == page_mut.page_id() && commit {
+                if let Some(ref mut header) = header_if_commit {
+                    if self.trans_pages.borrow().last_deleted_page() == page_mut.page_id() {
+                        debug_assert!(
+                            self.trans_pages.borrow().header_changed(),
+                            "header must be in lock"
+                        );
+                        debug_assert!(
+                            page_mut.page_type() == PageType::Empty,
+                            "must be marked as deleted page"
+                        );
 
-                    page_mut.set_next_page_id(self.header.free_empty_page_list());
-                    self.header
-                        .set_free_empty_page_list(self.trans_pages.borrow().first_deleted_page());
+                        page_mut.set_next_page_id(header.free_empty_page_list());
+                        header.set_free_empty_page_list(
+                            self.trans_pages.borrow().first_deleted_page(),
+                        );
+                    }
                 }
 
                 let page_id = page_mut.page_id();
@@ -233,18 +243,21 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
                     .insert(page_id, PagePosition::new(page_id, position));
             }
 
-            if commit && self.trans_pages.borrow().header_changed() {
-                self.header.set_transaction_id(self.transaction_id);
-                self.header.set_confirmed(true);
+            //if commit && self.trans_pages.borrow().header_changed() {
+            if let Some(ref mut header) = header_if_commit {
+                if self.trans_pages.borrow().header_changed() {
+                    header.set_transaction_id(self.transaction_id);
+                    header.set_confirmed(true);
 
-                self.trans_pages.borrow_mut().call_on_commit(self.header);
+                    self.trans_pages.borrow_mut().call_on_commit(header);
 
-                let buffer = self.header.update_buffer();
-                let mut new = self.disk.new_page();
+                    let buffer = header.update_buffer();
+                    let mut new = self.disk.new_page();
 
-                *new.buffer_mut() = *buffer.buffer();
+                    *new.buffer_mut() = *buffer.buffer();
 
-                buffers.push(new);
+                    buffers.push(new);
+                }
             }
         }
 
@@ -334,13 +347,16 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
         Ok(())
     }
 
+    #[allow(clippy::await_holding_refcell_ref)]
     async fn return_new_pages(&mut self) -> Result<()> {
         let transaction_id = self.wal_index.next_transaction_id();
 
         // lock on header
         let mut page_positions = HashMap::<u32, PagePosition>::new();
 
-        let r = self.header.save_point();
+        #[allow(clippy::await_holding_refcell_ref)]
+        let mut header = self.header.borrow_mut();
+        let r = header.save_point();
 
         let mut buffers = Vec::new();
         // build buffers
@@ -379,6 +395,7 @@ impl<'engine, SF: StreamFactory> TransactionService<'engine, SF> {
         self.disk.write_log_disk(buffers).await?;
 
         forget(r);
+        drop(header);
 
         self.wal_index
             .confirm_transaction(

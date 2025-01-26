@@ -168,10 +168,7 @@ impl WalIndexService {
         Ok(())
     }
 
-    async fn checkpoint_internal(
-        &self,
-        disk: &DiskService<impl StreamFactory>,
-    ) -> Result<usize> {
+    async fn checkpoint_internal(&self, disk: &DiskService<impl StreamFactory>) -> Result<usize> {
         // LOG("Checkpointing WAL");
 
         let mut buffers = Vec::new();
