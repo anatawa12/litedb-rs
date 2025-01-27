@@ -6,6 +6,7 @@ use crate::engine::{HeaderPage, MAX_OPEN_TRANSACTIONS, MAX_TRANSACTION_SIZE, Str
 use crate::utils::Shared;
 use crate::{Error, Result};
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::AtomicU32;
@@ -29,9 +30,10 @@ pub(crate) struct TransactionMonitor<SF: StreamFactory> {
 }
 
 struct InTransactionsLock<SF: StreamFactory> {
-    transactions: HashMap<u32, Shared<TransactionService<SF>>>,
+    transaction_max_transaction_sizes: HashMap<u32, Rc<AtomicU32>>,
     pub free_pages: u32,
     pub initial_size: u32,
+    _phantom: PhantomData<SF>,
 }
 
 impl<SF: StreamFactory> TransactionMonitor<SF> {
@@ -48,9 +50,10 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
             disk,
             wal_index,
             transactions: Rc::new(StdMutex::new(InTransactionsLock {
-                transactions: HashMap::new(),
+                transaction_max_transaction_sizes: HashMap::new(),
                 free_pages: MAX_TRANSACTION_SIZE,
                 initial_size: MAX_TRANSACTION_SIZE / MAX_OPEN_TRANSACTIONS as u32,
+                _phantom: PhantomData,
             })),
             // RustChange: No ThreadLocal Slot
             //slot: None,
@@ -62,9 +65,9 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
     pub async fn create_transaction(
         &mut self,
         query_only: bool,
-    ) -> Result<(Shared<TransactionService<SF>>, bool)> {
+    ) -> Result<(TransactionService<SF>, bool)> {
         let is_new;
-        let transaction_shared: Shared<TransactionService<SF>>;
+        let transaction;
         // RustChange: No ThreadLocal Slot
         //if let Some(ref slot_id) = self.slot {
         //    is_new = false;
@@ -74,7 +77,7 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
             is_new = true;
             {
                 let mut lock = self.transactions.lock().unwrap();
-                if lock.transactions.len() >= MAX_OPEN_TRANSACTIONS {
+                if lock.transaction_max_transaction_sizes.len() >= MAX_OPEN_TRANSACTIONS {
                     return Err(Error::transaction_limit());
                 }
 
@@ -83,13 +86,14 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
                 //    .transactions
                 //    .values()
                 //    .any(|x| x.borrow().thread_id() == std::thread::current().id());
+                let max_transaction_size_rc = Rc::new(AtomicU32::new(initial_size));
 
-                let transaction = TransactionService::new(
+                transaction = TransactionService::new(
                     Shared::clone(&self.header),
                     Rc::clone(&self.locker),
                     Rc::clone(&self.disk),
                     Rc::clone(&self.wal_index),
-                    initial_size,
+                    max_transaction_size_rc.clone(),
                     TransactionMonitorShared {
                         inner: self.transactions.clone(),
                     },
@@ -97,10 +101,9 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
                 );
 
                 let transaction_id = transaction.transaction_id();
-                transaction_shared = Shared::new(transaction);
 
-                lock.transactions
-                    .insert(transaction_id, Shared::clone(&transaction_shared));
+                lock.transaction_max_transaction_sizes
+                    .insert(transaction_id, max_transaction_size_rc);
             }
 
             self.locker.enter_transaction().await;
@@ -115,7 +118,7 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
             }
         }
 
-        Ok((transaction_shared, is_new))
+        Ok((transaction, is_new))
     }
 
     // 2nd is is_new
@@ -124,19 +127,17 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
     //    self.slot.clone()
     //}
 
-    pub async fn release_transaction(&mut self, transaction_id: u32) -> Result<()> {
+    pub async fn release_transaction(&mut self, transaction: TransactionService<SF>) -> Result<()> {
         // remove Result?
         //let keep_locked;
-        let transaction;
+        //let transaction;
 
         // no lock
         {
             let mut lock = self.transactions.lock().unwrap();
-            transaction = lock
-                .transactions
-                .remove(&transaction_id)
-                .expect("the transaction not exists");
-            lock.free_pages += transaction.borrow().max_transaction_size().load(Relaxed);
+            lock.transaction_max_transaction_sizes
+                .remove(&transaction.transaction_id());
+            lock.free_pages += transaction.max_transaction_size().load(Relaxed);
             //keep_locked = lock
             //    .transactions
             //    .values()
@@ -149,10 +150,10 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
         //    self.locker.exit_transaction();
         //}
 
-        if !transaction.borrow().query_only() {
-            // RustChange: No ThreadLocal Slot
-            //self.slot = None;
-        }
+        //if !transaction.borrow().query_only() {
+        //    // RustChange: No ThreadLocal Slot
+        //    //self.slot = None;
+        //}
 
         Ok(())
     }
@@ -182,10 +183,7 @@ impl<SF: StreamFactory> InTransactionsLock<SF> {
             let mut sum = 0;
 
             // if there is no available pages, reduce all open transactions
-            for trans in self.transactions.values_mut() {
-                let trans = trans.borrow();
-                let max_transaction_size = trans.max_transaction_size();
-
+            for max_transaction_size in self.transaction_max_transaction_sizes.values() {
                 //TODO(upstream): revisar estas contas, o reduce tem que fechar 1000
                 let reduce = max_transaction_size.load(Relaxed) / self.initial_size;
 

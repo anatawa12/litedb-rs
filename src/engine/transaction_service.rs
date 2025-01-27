@@ -35,7 +35,7 @@ pub(crate) struct TransactionService<SF: StreamFactory> {
     state: TransactionState,
 
     thread_id: ThreadId,
-    max_transaction_size: AtomicU32,
+    max_transaction_size: Rc<AtomicU32>,
 }
 
 impl<SF: StreamFactory> TransactionService<SF> {
@@ -45,7 +45,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
         disk: Rc<DiskService<SF>>,
         // reader will be created each time
         wal_index: Rc<WalIndexService>,
-        max_transaction_size: u32,
+        max_transaction_size: Rc<AtomicU32>,
         monitor: TransactionMonitorShared<SF>,
         query_only: bool,
     ) -> Self {
@@ -56,7 +56,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
             locker,
             disk,
             wal_index,
-            max_transaction_size: AtomicU32::new(max_transaction_size),
+            max_transaction_size,
             monitor,
             snapshots: HashMap::new(),
             query_only,
