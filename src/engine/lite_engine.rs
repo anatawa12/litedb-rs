@@ -5,10 +5,11 @@ use crate::engine::sort_disk::SortDisk;
 use crate::engine::transaction_monitor::TransactionMonitor;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{CONTAINER_SORT_SIZE, FileOrigin, StreamFactory};
-use crate::utils::{Collation, Shared};
+use crate::utils::{CaseInsensitiveString, Collation, Shared};
 use crate::{Error, Result};
+use async_lock::Mutex;
 use futures::StreamExt;
-use std::marker::PhantomData;
+use std::collections::HashMap;
 use std::pin::pin;
 use std::rc::Rc;
 
@@ -21,13 +22,22 @@ pub struct LiteSettings<SF: StreamFactory> {
 }
 
 pub struct LiteEngine<SF: StreamFactory> {
-    _unused: PhantomData<SF>,
+    locker: Rc<LockService>,
+    disk: Rc<DiskService<SF>>,
+    wal_index: Rc<WalIndexService>,
+    header: Shared<HeaderPage>,
+    monitor: Rc<TransactionMonitor<SF>>,
+    sort_disk: Rc<SortDisk<SF>>,
+    // state,
+    // settings,
+    // system_collections, // we use match
+    sequences: Mutex<HashMap<CaseInsensitiveString, i64>>,
 }
 
 impl<SF: StreamFactory> LiteEngine<SF> {
     pub async fn new(settings: LiteSettings<SF>) -> Result<Self> {
-        // TODO: SystemCollection
-        // TODO: sequences
+        // SystemCollection
+        // sequences
         // TODO: upgrade
 
         let disk = DiskService::new(
@@ -71,6 +81,7 @@ impl<SF: StreamFactory> LiteEngine<SF> {
         }
 
         let sort_disk = SortDisk::new(settings.temp_stream, CONTAINER_SORT_SIZE);
+        let sort_disk = Rc::new(sort_disk);
 
         let header = Shared::new(header);
         let locker = Rc::new(locker);
@@ -82,12 +93,22 @@ impl<SF: StreamFactory> LiteEngine<SF> {
             Rc::clone(&disk),
             Rc::clone(&wal_index),
         );
+        let monitor = Rc::new(monitor);
 
         // TODO: consider not using RefCell<HeaderPage>
 
-        drop(sort_disk);
-        drop(monitor);
+        // system collections
 
-        todo!();
+        // LOG("initialization completed", "ENGINE");
+
+        Ok(Self {
+            locker,
+            disk,
+            wal_index,
+            header,
+            monitor,
+            sort_disk,
+            sequences: Mutex::new(HashMap::new()),
+        })
     }
 }
