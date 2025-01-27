@@ -18,6 +18,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::thread::ThreadId;
 use std::time::SystemTime;
 
+into_non_drop! {
 pub(crate) struct TransactionService<SF: StreamFactory> {
     header: Shared<HeaderPage>,
     locker: Rc<LockService>,
@@ -33,11 +34,11 @@ pub(crate) struct TransactionService<SF: StreamFactory> {
     query_only: bool,
 
     mode: LockMode,
-    state: TransactionState,
 
     thread_id: ThreadId,
     max_transaction_size: Rc<AtomicU32>,
     trans_lock_scope: Option<TransactionScope>,
+}
 }
 
 impl<SF: StreamFactory> TransactionService<SF> {
@@ -67,7 +68,6 @@ impl<SF: StreamFactory> TransactionService<SF> {
             start_time: SystemTime::now(),
             thread_id: std::thread::current().id(),
             trans_pages: Shared::new(TransactionPages::new()),
-            state: TransactionState::Active,
             trans_lock_scope: None,
         }
     }
@@ -106,7 +106,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
         collection: &str,
         add_if_not_exists: bool,
     ) -> Result<&'a mut Snapshot<SF>> {
-        debug_assert_eq!(self.state, TransactionState::Active);
+        //debug_assert_eq!(self.state, TransactionState::Active);
 
         match self.snapshots.entry(collection.to_string()) {
             Entry::Occupied(mut o) => {
@@ -152,7 +152,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
     }
 
     pub async fn safe_point(&mut self) -> Result<()> {
-        debug_assert_eq!(self.state, TransactionState::Active);
+        //debug_assert_eq!(self.state, TransactionState::Active);
 
         let transaction_size = self.trans_pages.borrow().transaction_size;
         if self
@@ -271,7 +271,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
     }
 
     pub async fn commit(mut self) -> Result<()> {
-        debug_assert_eq!(self.state, TransactionState::Active);
+        //debug_assert_eq!(self.state, TransactionState::Active);
         // LOG($"commit transaction ({_transPages.TransactionSize} pages)", "TRANSACTION");
 
         if self.mode == LockMode::Write || self.trans_pages.borrow().header_changed() {
@@ -293,13 +293,18 @@ impl<SF: StreamFactory> TransactionService<SF> {
 
         self.snapshots.clear();
 
-        self.state = TransactionState::Committed;
+        let mut destruct = self.into_destruct();
+
+        destruct.monitor.release_transaction(
+            destruct.transaction_id,
+            destruct.max_transaction_size.load(Relaxed),
+        );
 
         Ok(())
     }
 
     pub async fn rollback(mut self) -> Result<()> {
-        debug_assert_eq!(self.state, TransactionState::Active);
+        //debug_assert_eq!(self.state, TransactionState::Active);
 
         // LOG($"rollback transaction ({_transPages.TransactionSize} pages with {_transPages.NewPages.Count} returns)", "TRANSACTION");
 
@@ -308,10 +313,12 @@ impl<SF: StreamFactory> TransactionService<SF> {
             self.return_new_pages().await?;
         }
 
-        for mut snapshot in std::mem::take(&mut self.snapshots).into_values() {
+        let mut destruct = self.into_destruct();
+
+        for mut snapshot in destruct.snapshots.into_values() {
             if snapshot.mode() == LockMode::Write {
                 // discard all dirty pages
-                self.disk.discard_dirty_pages(
+                destruct.disk.discard_dirty_pages(
                     snapshot
                         .writable_pages_removing(true, true)
                         .map(|x| x.into_base().into_buffer())
@@ -319,7 +326,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
                 );
 
                 // discard all clean pages
-                self.disk.discard_clean_pages(
+                destruct.disk.discard_clean_pages(
                     snapshot
                         .writable_pages_removing(false, true)
                         .map(|x| x.into_base().into_buffer())
@@ -329,7 +336,10 @@ impl<SF: StreamFactory> TransactionService<SF> {
             drop(snapshot); // release page
         }
 
-        self.state = TransactionState::Aborted;
+        destruct.monitor.release_transaction(
+            destruct.transaction_id,
+            destruct.max_transaction_size.load(Relaxed),
+        );
 
         Ok(())
     }
@@ -397,7 +407,8 @@ impl<SF: StreamFactory> TransactionService<SF> {
 
 impl<SF: StreamFactory> Drop for TransactionService<SF> {
     fn drop(&mut self) {
-        if self.state == TransactionState::Active && !self.snapshots.is_empty() {
+        //if self.state == TransactionState::Active && !self.snapshots.is_empty() {
+        if !self.snapshots.is_empty() {
             for mut snapshot in std::mem::take(&mut self.snapshots).into_values() {
                 if snapshot.mode() == LockMode::Write {
                     // discard all dirty pages
@@ -425,12 +436,13 @@ impl<SF: StreamFactory> Drop for TransactionService<SF> {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum TransactionState {
-    Active,
-    Committed,
-    Aborted,
-}
+// TransactionState is now handled by lifetime
+// #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+// enum TransactionState {
+//     Active,
+//     Committed,
+//     Aborted,
+// }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(crate) enum LockMode {
