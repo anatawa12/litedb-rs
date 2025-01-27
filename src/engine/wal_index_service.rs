@@ -55,7 +55,7 @@ impl WalIndexService {
         in_lock.current_read_version = 0;
         self.last_transaction_id.store(0, Ordering::SeqCst);
 
-        disk.cache().clear().await;
+        disk.cache().clear();
         disk.set_length(0, FileOrigin::Log).await?;
 
         Ok(())

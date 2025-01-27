@@ -107,10 +107,10 @@ impl<SF: StreamFactory> DiskService<SF> {
         }
     }
 
-    pub(crate) async fn discard_clean_pages(&self, pages: Vec<Box<PageBuffer>>) {
+    pub(crate) fn discard_clean_pages(&self, pages: Vec<Box<PageBuffer>>) {
         // no reusing buffer in rust impl for now
         for page in pages {
-            if let Ok(page) = self.cache.try_move_to_readable(page).await {
+            if let Ok(page) = self.cache.try_move_to_readable(page) {
                 // no page reuse
                 drop(page)
                 // self.cache.discard_page(page)
@@ -129,7 +129,7 @@ impl<SF: StreamFactory> DiskService<SF> {
                 self.log_length.fetch_add(PAGE_SIZE as i64, Relaxed) + PAGE_SIZE as i64;
             page.set_position_origin(new_length as u64, FileOrigin::Log);
 
-            let page = self.cache.move_to_readable(page).await;
+            let page = self.cache.move_to_readable(page);
 
             stream.seek(SeekFrom::Start(page.position())).await?;
 

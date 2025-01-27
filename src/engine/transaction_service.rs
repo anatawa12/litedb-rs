@@ -267,16 +267,14 @@ impl<SF: StreamFactory> TransactionService<SF> {
 
         // now, discard all clean pages (because those pages are writable and must be readable)
         // from write snapshots
-        self.disk
-            .discard_clean_pages(
-                self.snapshots
-                    .values_mut()
-                    .filter(|x| x.mode() == LockMode::Write)
-                    .flat_map(|x| x.writable_pages_removing(false, commit))
-                    .map(|x| x.into_base().into_buffer())
-                    .collect::<Vec<_>>(),
-            )
-            .await;
+        self.disk.discard_clean_pages(
+            self.snapshots
+                .values_mut()
+                .filter(|x| x.mode() == LockMode::Write)
+                .flat_map(|x| x.writable_pages_removing(false, commit))
+                .map(|x| x.into_base().into_buffer())
+                .collect::<Vec<_>>(),
+        );
 
         Ok(count)
     }
@@ -330,14 +328,12 @@ impl<SF: StreamFactory> TransactionService<SF> {
                 );
 
                 // discard all clean pages
-                self.disk
-                    .discard_clean_pages(
-                        snapshot
-                            .writable_pages_removing(false, true)
-                            .map(|x| x.into_base().into_buffer())
-                            .collect::<Vec<_>>(),
-                    )
-                    .await;
+                self.disk.discard_clean_pages(
+                    snapshot
+                        .writable_pages_removing(false, true)
+                        .map(|x| x.into_base().into_buffer())
+                        .collect::<Vec<_>>(),
+                );
             }
             drop(snapshot); // release page
         }
