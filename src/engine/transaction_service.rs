@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::mem::forget;
 use std::rc::Rc;
+use std::sync::atomic::AtomicU32;
 use std::thread::ThreadId;
 use std::time::SystemTime;
 
@@ -22,7 +23,7 @@ pub(crate) struct TransactionService<SF: StreamFactory> {
     disk: Rc<DiskService<SF>>,
     // reader will be created each time
     wal_index: Rc<WalIndexService>,
-    monitor: Shared<TransactionMonitorShared>, // TransactionService will be owned by TransactionMonitor so Rc here
+    monitor: TransactionMonitorShared<SF>, // TransactionService will be owned by TransactionMonitor so Rc here
     snapshots: HashMap<String, Snapshot<SF>>,
     trans_pages: Shared<TransactionPages>, // Fn TransactionPages will be shared with SnapShot so Rc
 
@@ -34,7 +35,7 @@ pub(crate) struct TransactionService<SF: StreamFactory> {
     state: TransactionState,
 
     thread_id: ThreadId,
-    max_transaction_size: u32,
+    max_transaction_size: AtomicU32,
 }
 
 impl<SF: StreamFactory> TransactionService<SF> {
@@ -45,7 +46,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
         // reader will be created each time
         wal_index: Rc<WalIndexService>,
         max_transaction_size: u32,
-        monitor: Shared<TransactionMonitorShared>,
+        monitor: TransactionMonitorShared<SF>,
         query_only: bool,
     ) -> Self {
         Self {
@@ -55,7 +56,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
             locker,
             disk,
             wal_index,
-            max_transaction_size,
+            max_transaction_size: AtomicU32::new(max_transaction_size),
             monitor,
             snapshots: HashMap::new(),
             query_only,
@@ -84,12 +85,12 @@ impl<SF: StreamFactory> TransactionService<SF> {
         self.query_only
     }
 
-    pub fn max_transaction_size(&self) -> u32 {
-        self.max_transaction_size
+    pub fn max_transaction_size(&self) -> &AtomicU32 {
+        &self.max_transaction_size
     }
 
-    pub fn set_max_transaction_size(&mut self, size: u32) {
-        self.max_transaction_size = size;
+    pub fn pages(&self) -> &Shared<TransactionPages> {
+        &self.trans_pages
     }
 
     pub async fn create_snapshot<'a>(
@@ -143,31 +144,14 @@ impl<SF: StreamFactory> TransactionService<SF> {
         }
     }
 
-    // Originally in TransactionMonitor (TryExtend)
-    fn try_extend_max_transaction_size(&mut self) -> bool {
-        let mut monitor = self.monitor.borrow_mut();
-
-        if monitor.free_pages >= monitor.initial_size {
-            self.max_transaction_size += monitor.initial_size;
-            monitor.free_pages -= monitor.initial_size;
-            true
-        } else {
-            false
-        }
-    }
-
-    // Originally in TransactionMonitor (CheckSafePoint)
-    fn check_safe_point(&mut self) -> bool {
-        if self.trans_pages.borrow().transaction_size >= self.max_transaction_size {
-            return true;
-        }
-        !self.try_extend_max_transaction_size()
-    }
-
     pub async fn safe_point(&mut self) -> Result<()> {
         debug_assert_eq!(self.state, TransactionState::Active);
 
-        if self.check_safe_point() {
+        let transaction_size = self.trans_pages.borrow().transaction_size;
+        if self
+            .monitor
+            .check_safe_point(transaction_size, &self.max_transaction_size)
+        {
             // LOG($"safepoint flushing transaction pages: {_transPages.TransactionSize}", "TRANSACTION");
 
             if self.mode == LockMode::Write {
@@ -404,7 +388,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
     }
 }
 
-impl<SF : StreamFactory> Drop for TransactionService<SF> {
+impl<SF: StreamFactory> Drop for TransactionService<SF> {
     fn drop(&mut self) {
         if self.state == TransactionState::Active && !self.snapshots.is_empty() {
             for mut snapshot in std::mem::take(&mut self.snapshots).into_values() {
