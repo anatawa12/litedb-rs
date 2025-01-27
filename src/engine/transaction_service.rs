@@ -270,7 +270,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
         Ok(count)
     }
 
-    pub async fn commit(&mut self) -> Result<()> {
+    pub async fn commit(mut self) -> Result<()> {
         debug_assert_eq!(self.state, TransactionState::Active);
         // LOG($"commit transaction ({_transPages.TransactionSize} pages)", "TRANSACTION");
 
@@ -298,7 +298,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
         Ok(())
     }
 
-    pub async fn rollback(&mut self) -> Result<()> {
+    pub async fn rollback(mut self) -> Result<()> {
         debug_assert_eq!(self.state, TransactionState::Active);
 
         // LOG($"rollback transaction ({_transPages.TransactionSize} pages with {_transPages.NewPages.Count} returns)", "TRANSACTION");
