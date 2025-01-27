@@ -13,15 +13,6 @@
 use crate::engine::{BasePage, PageType};
 use std::fmt::Display;
 
-macro_rules! into_ok {
-    ($expr: expr) => {
-        match $expr {
-            ::std::result::Result::Ok(ok) => ok,
-            ::std::result::Result::Err(e) => match e {},
-        }
-    };
-}
-
 pub mod bson;
 mod engine;
 mod utils;

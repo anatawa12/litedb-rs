@@ -1,3 +1,6 @@
+#[macro_use]
+mod macros;
+
 mod buffer_reader;
 mod buffer_writer;
 mod collection_index;
