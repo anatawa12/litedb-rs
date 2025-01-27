@@ -404,6 +404,33 @@ impl<SF: StreamFactory> TransactionService<SF> {
     }
 }
 
+impl<SF : StreamFactory> Drop for TransactionService<SF> {
+    fn drop(&mut self) {
+        if self.state == TransactionState::Active && !self.snapshots.is_empty() {
+            for mut snapshot in std::mem::take(&mut self.snapshots).into_values() {
+                if snapshot.mode() == LockMode::Write {
+                    // discard all dirty pages
+                    self.disk.discard_dirty_pages(
+                        snapshot
+                            .writable_pages_removing(true, true)
+                            .map(|x| x.into_base().into_buffer())
+                            .collect::<Vec<_>>(),
+                    );
+
+                    // discard all clean pages
+                    self.disk.discard_clean_pages(
+                        snapshot
+                            .writable_pages_removing(false, true)
+                            .map(|x| x.into_base().into_buffer())
+                            .collect::<Vec<_>>(),
+                    );
+                }
+                drop(snapshot); // release page
+            }
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum TransactionState {
     Active,
