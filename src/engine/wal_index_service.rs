@@ -168,6 +168,24 @@ impl WalIndexService {
         Ok(())
     }
 
+    pub async fn try_checkpoint(
+        &self,
+        disk: &DiskService<impl StreamFactory>,
+        locker: &LockService,
+    ) -> Result<usize> {
+        if disk.get_file_length(FileOrigin::Log) == 0
+            || self.confirm_transactions.borrow().is_empty()
+        {
+            return Ok(0);
+        }
+
+        let Some(_scope) = locker.try_enter_exclusive().await else {
+            return Ok(0);
+        };
+
+        self.checkpoint_internal(disk).await
+    }
+
     async fn checkpoint_internal(&self, disk: &DiskService<impl StreamFactory>) -> Result<usize> {
         // LOG("Checkpointing WAL");
 

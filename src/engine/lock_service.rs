@@ -17,6 +17,11 @@ impl LockService {
         ExclusiveScope {}
     }
 
+    pub async fn try_enter_exclusive(&self) -> Option<ExclusiveScope> {
+        // no lock
+        Some(ExclusiveScope {})
+    }
+
     pub async fn enter_lock(&self, _: &str) -> CollectionLockScope {
         // no lock
         CollectionLockScope {}

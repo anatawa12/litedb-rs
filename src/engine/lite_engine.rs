@@ -111,4 +111,13 @@ impl<SF: StreamFactory> LiteEngine<SF> {
             sequences: Mutex::new(HashMap::new()),
         })
     }
+
+    pub async fn soft_close(&mut self) -> Result<()> {
+        // TODO: close other services
+        self.wal_index
+            .try_checkpoint(&self.disk, &self.locker)
+            .await?;
+
+        Ok(())
+    }
 }
