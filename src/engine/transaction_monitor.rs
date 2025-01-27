@@ -24,7 +24,8 @@ pub(crate) struct TransactionMonitor<SF: StreamFactory> {
 
     // each operation(s) in this mutex is small so using StdMutex instead of async one
     transactions: Rc<StdMutex<InTransactionsLock<SF>>>,
-    slot: Option<Shared<TransactionService<SF>>>, // thread local
+    // RustChange: No ThreadLocal Slot because API in rust won't need that I feel
+    //slot: Option<Shared<TransactionService<SF>>>, // thread local
 }
 
 struct InTransactionsLock<SF: StreamFactory> {
@@ -51,21 +52,25 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
                 free_pages: MAX_TRANSACTION_SIZE,
                 initial_size: MAX_TRANSACTION_SIZE / MAX_OPEN_TRANSACTIONS as u32,
             })),
-            slot: None,
+            // RustChange: No ThreadLocal Slot
+            //slot: None,
         }
     }
 
     // 2nd is is_new
-    pub async fn get_or_create_transaction(
+    // pub async fn get_or_create_transaction(
+    pub async fn create_transaction(
         &mut self,
         query_only: bool,
     ) -> Result<(Shared<TransactionService<SF>>, bool)> {
         let is_new;
         let transaction_shared: Shared<TransactionService<SF>>;
-        if let Some(ref slot_id) = self.slot {
-            is_new = false;
-            transaction_shared = Shared::clone(slot_id);
-        } else {
+        // RustChange: No ThreadLocal Slot
+        //if let Some(ref slot_id) = self.slot {
+        //    is_new = false;
+        //    transaction_shared = Shared::clone(slot_id);
+        //} else
+        {
             is_new = true;
             {
                 let mut lock = self.transactions.lock().unwrap();
@@ -105,7 +110,8 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
             //}
 
             if !query_only {
-                self.slot = Some(Shared::clone(&transaction_shared));
+                // RustChange: No ThreadLocal Slot
+                //self.slot = Some(Shared::clone(&transaction_shared));
             }
         }
 
@@ -113,9 +119,10 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
     }
 
     // 2nd is is_new
-    pub async fn get_transaction(&self) -> Option<Shared<TransactionService<SF>>> {
-        self.slot.clone()
-    }
+    // RustChange: No ThreadLocal Slot
+    //pub async fn get_transaction(&self) -> Option<Shared<TransactionService<SF>>> {
+    //    self.slot.clone()
+    //}
 
     pub async fn release_transaction(&mut self, transaction_id: u32) -> Result<()> {
         // remove Result?
@@ -143,25 +150,27 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
         //}
 
         if !transaction.borrow().query_only() {
-            self.slot = None;
+            // RustChange: No ThreadLocal Slot
+            //self.slot = None;
         }
 
         Ok(())
     }
 
-    pub async fn get_thread_transaction(&self) -> Option<Shared<TransactionService<SF>>> {
-        if let Some(ref slot) = self.slot {
-            Some(Shared::clone(slot))
-        } else {
-            self.transactions
-                .lock()
-                .unwrap()
-                .transactions
-                .values()
-                .find(|x| x.borrow().thread_id() == std::thread::current().id())
-                .cloned()
-        }
-    }
+    // RustChange: No ThreadLocal Slot
+    //pub async fn get_thread_transaction(&self) -> Option<Shared<TransactionService<SF>>> {
+    //    if let Some(ref slot) = self.slot {
+    //        Some(Shared::clone(slot))
+    //    } else {
+    //        self.transactions
+    //            .lock()
+    //            .unwrap()
+    //            .transactions
+    //            .values()
+    //            .find(|x| x.borrow().thread_id() == std::thread::current().id())
+    //            .cloned()
+    //    }
+    //}
 }
 
 impl<SF: StreamFactory> InTransactionsLock<SF> {
