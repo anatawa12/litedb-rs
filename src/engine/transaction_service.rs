@@ -14,6 +14,7 @@ use std::collections::hash_map::Entry;
 use std::mem::forget;
 use std::rc::Rc;
 use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering::Relaxed;
 use std::thread::ThreadId;
 use std::time::SystemTime;
 
@@ -418,6 +419,9 @@ impl<SF: StreamFactory> Drop for TransactionService<SF> {
                 drop(snapshot); // release page
             }
         }
+
+        self.monitor
+            .release_transaction(self.transaction_id, self.max_transaction_size.load(Relaxed));
     }
 }
 

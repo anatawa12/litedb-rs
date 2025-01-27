@@ -128,38 +128,6 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
     //    self.slot.clone()
     //}
 
-    pub async fn release_transaction(&mut self, transaction: TransactionService<SF>) -> Result<()> {
-        // remove Result?
-        //let keep_locked;
-        //let transaction;
-
-        // no lock
-        {
-            let mut lock = self.transactions.lock().unwrap();
-            lock.transaction_max_transaction_sizes
-                .remove(&transaction.transaction_id());
-            lock.free_pages += transaction.max_transaction_size().load(Relaxed);
-            //keep_locked = lock
-            //    .transactions
-            //    .values()
-            //    .any(|x| x.borrow().thread_id() == std::thread::current().id())
-        }
-
-        // RustChange: always enter / exit transaction
-        // RustChange: RAII Transaction Lock
-        //self.locker.exit_transaction();
-        //if !keep_locked {
-        //    self.locker.exit_transaction();
-        //}
-
-        //if !transaction.borrow().query_only() {
-        //    // RustChange: No ThreadLocal Slot
-        //    //self.slot = None;
-        //}
-
-        Ok(())
-    }
-
     // RustChange: No ThreadLocal Slot
     //pub async fn get_thread_transaction(&self) -> Option<Shared<TransactionService<SF>>> {
     //    if let Some(ref slot) = self.slot {
@@ -221,5 +189,35 @@ impl<SF: StreamFactory> TransactionMonitorShared<SF> {
     ) -> bool {
         (transaction_size >= max_transaction_size.load(Relaxed))
             && !self.try_extend_max_transaction_size(max_transaction_size)
+    }
+
+    pub(crate) fn release_transaction(&mut self, transaction_id: u32, max_transaction_size: u32) {
+        // remove Result?
+        //let keep_locked;
+        //let transaction;
+
+        // no lock
+        {
+            let mut lock = self.inner.lock().unwrap();
+            lock.transaction_max_transaction_sizes
+                .remove(&transaction_id);
+            lock.free_pages += max_transaction_size;
+            //keep_locked = lock
+            //    .transactions
+            //    .values()
+            //    .any(|x| x.borrow().thread_id() == std::thread::current().id())
+        }
+
+        // RustChange: always enter / exit transaction
+        // RustChange: RAII Transaction Lock
+        //self.locker.exit_transaction();
+        //if !keep_locked {
+        //    self.locker.exit_transaction();
+        //}
+
+        //if !transaction.borrow().query_only() {
+        //    // RustChange: No ThreadLocal Slot
+        //    //self.slot = None;
+        //}
     }
 }
