@@ -63,7 +63,7 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
     // 2nd is is_new
     // pub async fn get_or_create_transaction(
     pub async fn create_transaction(
-        &mut self,
+        &self,
         query_only: bool,
     ) -> Result<(TransactionService<SF>, bool)> {
         let is_new;
@@ -191,7 +191,7 @@ impl<SF: StreamFactory> TransactionMonitorShared<SF> {
             && !self.try_extend_max_transaction_size(max_transaction_size)
     }
 
-    pub(crate) fn release_transaction(&mut self, transaction_id: u32, max_transaction_size: u32) {
+    pub(crate) fn release_transaction(&self, transaction_id: u32, max_transaction_size: u32) {
         // remove Result?
         //let keep_locked;
         //let transaction;

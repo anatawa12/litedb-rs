@@ -293,7 +293,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
 
         self.snapshots.clear();
 
-        let mut destruct = self.into_destruct();
+        let destruct = self.into_destruct();
 
         destruct.monitor.release_transaction(
             destruct.transaction_id,
@@ -313,7 +313,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
             self.return_new_pages().await?;
         }
 
-        let mut destruct = self.into_destruct();
+        let destruct = self.into_destruct();
 
         for mut snapshot in destruct.snapshots.into_values() {
             if snapshot.mode() == LockMode::Write {
