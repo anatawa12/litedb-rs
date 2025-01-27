@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::engine::disk::DiskService;
-use crate::engine::lock_service::LockService;
+use crate::engine::lock_service::{LockService, TransactionScope};
 use crate::engine::page_position::PagePosition;
 use crate::engine::pages::HeaderPage;
 use crate::engine::snapshot::Snapshot;
@@ -36,6 +36,7 @@ pub(crate) struct TransactionService<SF: StreamFactory> {
 
     thread_id: ThreadId,
     max_transaction_size: Rc<AtomicU32>,
+    trans_lock_scope: Option<TransactionScope>,
 }
 
 impl<SF: StreamFactory> TransactionService<SF> {
@@ -66,7 +67,12 @@ impl<SF: StreamFactory> TransactionService<SF> {
             thread_id: std::thread::current().id(),
             trans_pages: Shared::new(TransactionPages::new()),
             state: TransactionState::Active,
+            trans_lock_scope: None,
         }
+    }
+
+    pub(crate) fn set_lock_scope(&mut self, trans_lock_scope: TransactionScope) {
+        self.trans_lock_scope = Some(trans_lock_scope);
     }
 
     pub fn transaction_id(&self) -> u32 {

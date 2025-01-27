@@ -22,11 +22,14 @@ impl LockService {
         CollectionLockScope {}
     }
 
-    pub async fn enter_transaction(&self) {}
-
-    pub fn exit_transaction(&self) {}
+    pub async fn enter_transaction(&self) -> TransactionScope {
+        TransactionScope {}
+    }
 }
 
 pub(crate) struct ExclusiveScope {}
 
 pub(crate) struct CollectionLockScope {}
+
+#[must_use]
+pub(crate) struct TransactionScope {}

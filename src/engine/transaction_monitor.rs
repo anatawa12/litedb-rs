@@ -67,7 +67,7 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
         query_only: bool,
     ) -> Result<(TransactionService<SF>, bool)> {
         let is_new;
-        let transaction;
+        let mut transaction;
         // RustChange: No ThreadLocal Slot
         //if let Some(ref slot_id) = self.slot {
         //    is_new = false;
@@ -106,7 +106,8 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
                     .insert(transaction_id, max_transaction_size_rc);
             }
 
-            self.locker.enter_transaction().await;
+            let lock_scope = self.locker.enter_transaction().await;
+            transaction.set_lock_scope(lock_scope);
             // RustChange: always enter / exit transaction
             // if !already_lock {
             //    // return page when error occurs
@@ -145,7 +146,8 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
         }
 
         // RustChange: always enter / exit transaction
-        self.locker.exit_transaction();
+        // RustChange: RAII Transaction Lock
+        //self.locker.exit_transaction();
         //if !keep_locked {
         //    self.locker.exit_transaction();
         //}
