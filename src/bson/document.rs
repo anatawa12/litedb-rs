@@ -1,9 +1,8 @@
 use super::{BsonReader, BsonWriter, ParseError, Value};
-use std::borrow::Borrow;
+use crate::utils::{CaseInsensitiveStr, CaseInsensitiveString};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::{Debug, Formatter};
-use std::hash::{Hash, Hasher};
 
 /// The bson document.
 ///
@@ -12,11 +11,6 @@ use std::hash::{Hash, Hasher};
 pub struct Document {
     inner: HashMap<CaseInsensitiveString, Value>,
 }
-
-#[repr(transparent)]
-struct CaseInsensitiveStr(str);
-#[derive(Clone)]
-struct CaseInsensitiveString(String);
 
 impl Default for Document {
     fn default() -> Self {
@@ -37,7 +31,7 @@ impl Document {
     /// This function will panic if the key contains null char (`'\0'`)
     pub fn insert(&mut self, key: String, value: impl Into<Value>) {
         check_key(&key);
-        self.inner.insert(CaseInsensitiveString(key), value.into());
+        self.inner.insert(key.into(), value.into());
     }
 
     /// Gets the value with `key`.
@@ -67,7 +61,7 @@ impl Document {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> {
-        self.inner.iter().map(|(k, v)| (k.0.as_ref(), v))
+        self.inner.iter().map(|(k, v)| (k.as_str(), v))
     }
 }
 
@@ -79,7 +73,7 @@ impl Document {
         4 // total bytes of the document
             + self.inner.iter().map(|(key, value)| {
             1 // tag byte
-                + (key.0.len() + 1) // cstring for key
+                + (key.len() + 1) // cstring for key
                 + value.get_serialized_value_len()
         }).sum::<usize>()
             + 1 // trailing 0 tag
@@ -94,7 +88,7 @@ impl Document {
 
         for (key, value) in &self.inner {
             w.write_bytes(&[value.ty().bson_tag() as u8])?;
-            super::utils::write_c_string(w, &key.0)?;
+            super::utils::write_c_string(w, key.as_str())?;
             value.write_value(w)?;
         }
 
@@ -119,9 +113,9 @@ impl Document {
 
         while let Some((key, value)) = super::de::parse_element(&mut r)? {
             //document.inner.try_insert()
-            match document.inner.entry(CaseInsensitiveString(key)) {
+            match document.inner.entry(key.into()) {
                 Entry::Occupied(e) => {
-                    return Err(ParseError::DuplicatedKey(e.remove_entry().0.0).into());
+                    return Err(ParseError::DuplicatedKey(e.remove_entry().0.into()).into());
                 }
                 Entry::Vacant(e) => {
                     e.insert(value);
@@ -150,63 +144,3 @@ impl Debug for Document {
         Debug::fmt(&self.inner, f)
     }
 }
-
-impl Debug for CaseInsensitiveString {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&self.0, f)
-    }
-}
-
-impl CaseInsensitiveStr {
-    fn new(s: &str) -> &CaseInsensitiveStr {
-        // SAFETY: CaseInsensitiveStr is transparent to str
-        unsafe { &*(s as *const str as *const CaseInsensitiveStr) }
-    }
-}
-
-impl Hash for CaseInsensitiveStr {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        for c in self.0.chars() {
-            for c in c.to_uppercase() {
-                state.write_u32(c as u32);
-            }
-        }
-    }
-}
-
-impl PartialEq for CaseInsensitiveStr {
-    fn eq(&self, other: &Self) -> bool {
-        let this = self.0.chars().flat_map(char::to_uppercase);
-        let other = other.0.chars().flat_map(char::to_uppercase);
-        this.eq(other)
-    }
-}
-
-impl Eq for CaseInsensitiveStr {}
-
-// basically string implementation is based on CaseInsensitiveStr
-impl Borrow<CaseInsensitiveStr> for CaseInsensitiveString {
-    fn borrow(&self) -> &CaseInsensitiveStr {
-        self.as_ref()
-    }
-}
-
-impl AsRef<CaseInsensitiveStr> for CaseInsensitiveString {
-    fn as_ref(&self) -> &CaseInsensitiveStr {
-        CaseInsensitiveStr::new(&self.0)
-    }
-}
-
-impl Hash for CaseInsensitiveString {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.as_ref().hash(state)
-    }
-}
-
-impl PartialEq for CaseInsensitiveString {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_ref().eq(other.as_ref())
-    }
-}
-
-impl Eq for CaseInsensitiveString {}

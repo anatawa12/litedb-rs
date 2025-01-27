@@ -3,7 +3,9 @@ use crate::bson;
 use crate::engine::{BufferReader, BufferWriter, PageAddress};
 use bson::BsonType;
 use std::cell::{Ref, RefCell, RefMut};
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 use std::rc::Rc;
 
 // TODO: Implement the CompareOptions struct
@@ -348,5 +350,98 @@ impl<T> Clone for Shared<T> {
         Self {
             inner: self.inner.clone(),
         }
+    }
+}
+
+#[repr(transparent)]
+pub(crate) struct CaseInsensitiveStr(str);
+#[derive(Clone)]
+pub(crate) struct CaseInsensitiveString(String);
+
+impl Debug for CaseInsensitiveString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self.0, f)
+    }
+}
+
+impl CaseInsensitiveStr {
+    pub(crate) fn new(s: &str) -> &CaseInsensitiveStr {
+        // SAFETY: CaseInsensitiveStr is transparent to str
+        unsafe { &*(s as *const str as *const CaseInsensitiveStr) }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl Hash for CaseInsensitiveStr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for c in self.0.chars() {
+            for c in c.to_uppercase() {
+                state.write_u32(c as u32);
+            }
+        }
+    }
+}
+
+impl PartialEq for CaseInsensitiveStr {
+    fn eq(&self, other: &Self) -> bool {
+        let this = self.0.chars().flat_map(char::to_uppercase);
+        let other = other.0.chars().flat_map(char::to_uppercase);
+        this.eq(other)
+    }
+}
+
+impl Eq for CaseInsensitiveStr {}
+
+// basically string implementation is based on CaseInsensitiveStr
+impl std::borrow::Borrow<CaseInsensitiveStr> for CaseInsensitiveString {
+    fn borrow(&self) -> &CaseInsensitiveStr {
+        self.as_ref()
+    }
+}
+
+impl AsRef<CaseInsensitiveStr> for CaseInsensitiveString {
+    fn as_ref(&self) -> &CaseInsensitiveStr {
+        CaseInsensitiveStr::new(&self.0)
+    }
+}
+
+impl Hash for CaseInsensitiveString {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_ref().hash(state)
+    }
+}
+
+impl PartialEq for CaseInsensitiveString {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref().eq(other.as_ref())
+    }
+}
+
+impl Eq for CaseInsensitiveString {}
+
+impl Deref for CaseInsensitiveString {
+    type Target = CaseInsensitiveStr;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
+}
+
+impl From<String> for CaseInsensitiveString {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<CaseInsensitiveString> for String {
+    fn from(value: CaseInsensitiveString) -> Self {
+        value.0
     }
 }
