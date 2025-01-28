@@ -54,13 +54,13 @@ impl BasePage {
     pub const P_TRANSACTION_ID: usize = P_TRANSACTION_ID;
     pub const SLOT_SIZE: usize = SLOT_SIZE;
 
-    pub fn new(buffer: Box<PageBuffer>, page_id: u32, page_type: PageType) -> Self {
-        let mut base = BasePage {
+    fn instance(buffer: Box<PageBuffer>) -> Self {
+        BasePage {
             buffer,
 
             // page info
-            page_id,
-            page_type,
+            page_id: 0,
+            page_type: PageType::Empty,
             prev_page_id: u32::MAX,
             next_page_id: u32::MAX,
             page_list_slot: u8::MAX,
@@ -78,8 +78,14 @@ impl BasePage {
 
             dirty: false,
             start_index: 0,
-        };
+        }
+    }
 
+    pub fn new(buffer: Box<PageBuffer>, page_id: u32, page_type: PageType) -> Self {
+        let mut base = Self::instance(buffer);
+
+        base.page_id = page_id;
+        base.page_type = page_type;
         base.buffer.write_u32(P_PAGE_ID, base.page_id);
         base.buffer.write_byte(P_PAGE_TYPE, page_type as u8);
 
@@ -87,7 +93,7 @@ impl BasePage {
     }
 
     pub fn load(buffer: Box<PageBuffer>) -> Result<Self> {
-        let mut new = Self::new(buffer, 0, PageType::Empty);
+        let mut new = Self::instance(buffer);
         new.reload_fully()?;
 
         Ok(new)
@@ -298,7 +304,7 @@ impl BasePage {
             "should have at least 1 index in this page"
         );
         assert!(
-            index < self.highest_index,
+            index <= self.highest_index,
             "get only index below highest index"
         );
 
@@ -328,7 +334,7 @@ impl BasePage {
             "should have at least 1 index in this page"
         );
         assert!(
-            index < self.highest_index,
+            index <= self.highest_index,
             "get only index below highest index"
         );
 
@@ -384,21 +390,21 @@ impl BasePage {
         //    ));
         //}
 
-        let continuous_blocks = self.free_bytes()
-            - self.fragmented_bytes as usize
-            - (if is_new { SLOT_SIZE } else { 0 });
+        let continuous_blocks = self.free_bytes() as isize
+            - self.fragmented_bytes as isize
+            - (if is_new { SLOT_SIZE as isize } else { 0 });
 
         // PAGE_SIZE - this.NextFreePosition - this.FooterSize - (isNewInsert ? SLOT_SIZE : 0)
         debug_assert_eq!(
             continuous_blocks,
-            PAGE_SIZE
-                - self.next_free_position as usize
-                - self.footer_size()
-                - (if is_new { SLOT_SIZE } else { 0 }),
+            PAGE_SIZE as isize
+                - self.next_free_position as isize
+                - self.footer_size() as isize
+                - (if is_new { SLOT_SIZE as isize } else { 0 }),
             "continuousBlock must be same as from NextFreePosition"
         );
 
-        if length > continuous_blocks {
+        if length as isize > continuous_blocks {
             self.defrag();
         }
 
@@ -456,7 +462,7 @@ impl BasePage {
 
         assert!(
             self.valid_position(position, length),
-            "invalid position or length"
+            "invalid position or length: {position}, {length}"
         );
 
         self.buffer.write_u16(position_addr, 0);
@@ -591,7 +597,7 @@ impl BasePage {
 
         let mut segments = Vec::with_capacity(self.highest_index as usize);
 
-        for index in 0..self.highest_index {
+        for index in 0..=self.highest_index {
             let position_addr = Self::calc_position_addr(index);
             let position = self.buffer.read_u16(position_addr) as usize;
 
@@ -672,11 +678,11 @@ impl BasePage {
     }
 
     pub fn calc_position_addr(index: u8) -> usize {
-        PAGE_HEADER_SIZE + index as usize * SLOT_SIZE + 2
+        PAGE_SIZE - (index + 1) as usize * SLOT_SIZE + 2
     }
 
     pub fn calc_length_addr(index: u8) -> usize {
-        PAGE_HEADER_SIZE + index as usize * SLOT_SIZE
+        PAGE_SIZE - (index + 1) as usize * SLOT_SIZE
     }
 }
 
@@ -731,5 +737,292 @@ impl TryFrom<u8> for PageType {
             4 => Ok(PageType::Data),
             _ => Err(Error::invalid_page()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // BasePage_Tests.BasePage_Insert
+    #[test]
+    fn base_page_insert() {
+        let buffer = Box::new(PageBuffer::new(1));
+        let mut page = BasePage::new(buffer, 1, PageType::Empty);
+
+        let (data_0, index0) = page.insert(10);
+        data_0.as_bytes_mut().fill(1);
+        let (data_1, index1) = page.insert(20);
+        data_1.as_bytes_mut().fill(2);
+        let (data_2, index2) = page.insert(30);
+        data_2.as_bytes_mut().fill(3);
+        let (data_3, index3) = page.insert(40);
+        data_3.as_bytes_mut().fill(4);
+
+        assert_eq!(page.fragmented_bytes, 0);
+        assert_eq!(page.used_bytes, 100);
+        assert_eq!(page.next_free_position, 32 + 100);
+        assert_eq!(page.footer_size(), 4*4);
+        assert_eq!(page.free_bytes(), 8192 - 32 - 100 - (4 * 4));
+
+        assert_eq!(page.get(index0).as_bytes(), &[1; 10]);
+        assert_eq!(page.get(index1).as_bytes(), &[2; 20]);
+        assert_eq!(page.get(index2).as_bytes(), &[3; 30]);
+        assert_eq!(page.get(index3).as_bytes(), &[4; 40]);
+
+        page.update_buffer();
+
+        let page2 = BasePage::load(page.into_buffer()).unwrap();
+
+        assert_eq!(page2.page_id, 1);
+        assert_eq!(page2.page_type, PageType::Empty);
+
+        assert_eq!(page2.get(index0).as_bytes(), &[1; 10]);
+        assert_eq!(page2.get(index1).as_bytes(), &[2; 20]);
+        assert_eq!(page2.get(index2).as_bytes(), &[3; 30]);
+        assert_eq!(page2.get(index3).as_bytes(), &[4; 40]);
+    }
+
+/*
+Process other functions in the similar way.
+
+Please note the following things:
+- you don't need to assign share counter since PageBuffer doesn't have share counter in Rust.
+- You don't need to pass vec or buffer when you create PageBuffer. Please use `PageBuffer::new(3rd param)`
+- You have to box PageBuffer to pass BasePage.
+- You don't need to break down how changed.
+ */
+
+    // BasePage_Tests.BasePage_Insert_Full_Bytes_Page
+    #[test]
+    fn base_page_insert_full_bytes_page() {
+        // Create a new memory area
+        let buffer = Box::new(PageBuffer::new(1));
+
+        // Create a new base page
+        let mut page = BasePage::new(buffer, 1, PageType::Empty);
+
+        // Calculate the maximum free bytes minus the slot size
+        let full = page.free_bytes() - BasePage::SLOT_SIZE;
+
+        // Insert a segment of the calculated size and fill it
+        let (data, _) = page.insert(full);
+        data.as_bytes_mut().fill(1);
+
+        assert_eq!(page.items_count(), 1);
+        assert_eq!(page.used_bytes as usize, full);
+        assert_eq!(page.free_bytes(), 0);
+        assert_eq!(page.next_free_position as usize, 32 + full);
+    }
+
+    // BasePage_Insert_Full_Items_Page
+    #[test]
+    fn base_page_insert_full_items_page() {
+        // Create a new memory area
+        let buffer = Box::new(PageBuffer::new(1));
+
+        // Create a new base page
+        let mut page = BasePage::new(buffer, 1, PageType::Empty);
+
+        // Create 255 page segments
+        for i in 0..u8::MAX {
+            let (data, _index) = page.insert(10);
+            data.as_bytes_mut().fill(i);
+        }
+
+        assert_eq!(page.items_count(), 255);
+        assert_eq!(page.used_bytes(), 2550);
+        assert_eq!(page.free_bytes(), 0);
+        assert_eq!(page.next_free_position(), 32 + 2550);
+    }
+
+    // BasePage_Delete
+    #[test]
+    fn base_page_delete() {
+        let buffer = Box::new(PageBuffer::new(1));
+
+        // Create a new base page
+        let mut page = BasePage::new(buffer, 1, PageType::Empty);
+
+        let (_seg0, index0) = page.insert(100);
+        let (_seg1, index1) = page.insert(200);
+        let (_seg2, index2) = page.insert(300);
+
+        assert_eq!(page.highest_index(), 2);
+        assert_eq!(page.items_count(), 3);
+        assert_eq!(page.used_bytes(), 600);
+        assert_eq!(page.next_free_position(), 32 + 600);
+        assert_eq!(page.free_bytes(), 8192 - 32 - 12 - 600);
+        assert_eq!(page.fragmented_bytes(), 0);
+
+        // Delete 300 bytes (end of page)
+        page.delete(index2);
+
+        assert_eq!(page.highest_index(), 1);
+        assert_eq!(page.items_count(), 2);
+        assert_eq!(page.used_bytes(), 300);
+        assert_eq!(page.next_free_position(), 32 + 300);
+        assert_eq!(page.free_bytes(), 8192 - 32 - 8 - 300);
+        assert_eq!(page.fragmented_bytes(), 0);
+
+        // Delete 100 bytes (middle of page) - creates data fragment
+        page.delete(index0);
+
+        assert_eq!(page.highest_index(), 1);
+        assert_eq!(page.items_count(), 1);
+        assert_eq!(page.used_bytes(), 200);
+        assert_eq!(page.next_free_position(), 32 + 300);
+        assert_eq!(page.free_bytes(), 8192 - 32 - 8 - 200);
+        assert_eq!(page.fragmented_bytes(), 100);
+
+        // Delete 200 bytes - last item (defrags the page)
+        page.delete(index1);
+
+        assert_eq!(page.highest_index(), u8::MAX);
+        assert_eq!(page.items_count(), 0);
+        assert_eq!(page.used_bytes(), 0);
+        assert_eq!(page.next_free_position(), 32);
+        assert_eq!(page.free_bytes(), 8192 - 32);
+        assert_eq!(page.fragmented_bytes(), 0);
+    }
+
+    // BasePage_Delete_Full
+    #[test]
+    fn base_page_delete_full() {
+        let buffer = Box::new(PageBuffer::new(1));
+
+        // Create a new base page
+        let mut page = BasePage::new(buffer, 1, PageType::Empty);
+
+        let (_seg0, index0) = page.insert(100);
+        let (_seg1, index1) = page.insert(200);
+        let (_seg2, index2) = page.insert(8192 - 32 - (100 + 200 + 8) - 4);
+
+        page.get_mut(index0).as_bytes_mut().fill(10);
+        page.get_mut(index1).as_bytes_mut().fill(11);
+        page.get_mut(index2).as_bytes_mut().fill(12);
+
+        assert_eq!(page.highest_index(), 2);
+        assert_eq!(page.items_count(), 3);
+        assert_eq!(page.used_bytes(), 8148);
+        assert_eq!(page.next_free_position(), 8180);
+        assert_eq!(page.free_bytes(), 0);
+        assert_eq!(page.fragmented_bytes(), 0);
+
+        // Delete 200 bytes (end of page)
+        page.delete(index1);
+
+        assert_eq!(page.highest_index(), 2);
+        assert_eq!(page.items_count(), 2);
+        assert_eq!(page.used_bytes(), 8148 - 200);
+        assert_eq!(page.next_free_position(), 8180);
+        assert_eq!(page.free_bytes(), 200);
+        assert_eq!(page.fragmented_bytes(), 200);
+
+        page.delete(index0);
+
+        assert_eq!(page.highest_index(), 2);
+        assert_eq!(page.items_count(), 1);
+        assert_eq!(page.used_bytes(), 8148 - 200 - 100);
+        assert_eq!(page.next_free_position(), 8180);
+        assert_eq!(page.free_bytes(), 300);
+        assert_eq!(page.fragmented_bytes(), 300);
+
+        let (data, _index3) = page.insert(250);
+        data.as_bytes_mut().fill(13);
+
+        assert_eq!(page.highest_index(), 2);
+        assert_eq!(page.items_count(), 2);
+        assert_eq!(page.used_bytes(), 8148 - 200 - 100 + 250);
+        assert_eq!(page.next_free_position(), 8180 - 50);
+        assert_eq!(page.free_bytes(), 50);
+        assert_eq!(page.fragmented_bytes(), 0);
+
+        assert_eq!(page.get(_index3).as_bytes(), &[13; 250]);
+    }
+
+    // BasePage_Defrag
+    #[test]
+    fn base_page_defrag() {
+        let buffer = Box::new(PageBuffer::new(1));
+
+        // Create a new base page
+        let mut page = BasePage::new(buffer, 1, PageType::Empty);
+
+        let (slice, _index0) = page.insert(100);
+        slice.as_bytes_mut().fill(101);
+        let (slice, _index1) = page.insert(200);
+        slice.as_bytes_mut().fill(102);
+        let (slice, index2) = page.insert(300);
+        slice.as_bytes_mut().fill(103);
+        let (slice, index3) = page.insert(400);
+        slice.as_bytes_mut().fill(104);
+
+        assert_eq!(page.fragmented_bytes(), 0);
+        assert_eq!(page.used_bytes(), 1000);
+        assert_eq!(page.next_free_position(), 32 + 1000);
+
+        page.delete(0);
+        page.delete(1);
+
+        assert_eq!(page.fragmented_bytes(), 300);
+        assert_eq!(page.used_bytes(), 700);
+        assert_eq!(page.next_free_position(), 32 + 1000);
+
+        // Fill all page
+        let (slice, index4) = page.insert(7440);
+        slice.as_bytes_mut().fill(105);
+
+        assert_eq!(page.fragmented_bytes(), 0);
+        assert_eq!(page.used_bytes(), 8140);
+        assert_eq!(page.next_free_position(), 8172);
+
+        assert_eq!(page.get(index2).as_bytes(), &[103; 300]);
+        assert_eq!(page.get(index3).as_bytes(), &[104; 400]);
+        assert_eq!(page.get(index4).as_bytes(), &[105; 7440]);
+
+        assert_eq!(page.get_used_indices().collect::<Vec<_>>(), vec![0, 2, 3]);
+    }
+
+    // BasePage_Update
+    #[test]
+    fn base_page_update() {
+        let buffer = Box::new(PageBuffer::new(1));
+
+        // Create a new base page
+        let mut page = BasePage::new(buffer, 1, PageType::Empty);
+
+        page.insert(100).0.as_bytes_mut().fill(101);
+        page.insert(200).0.as_bytes_mut().fill(102);
+        page.insert(300).0.as_bytes_mut().fill(103);
+        page.insert(400).0.as_bytes_mut().fill(104);
+
+        assert_eq!(page.fragmented_bytes(), 0);
+        assert_eq!(page.used_bytes(), 1000);
+        assert_eq!(page.next_free_position(), 32 + 1000);
+
+        // Update same segment length
+        page.update(0, 100).as_bytes_mut().fill(201);
+
+        assert_eq!(page.get(0).as_bytes(), &[201; 100]);
+        assert_eq!(page.fragmented_bytes(), 0);
+        assert_eq!(page.used_bytes(), 1000);
+        assert_eq!(page.next_free_position(), 32 + 1000);
+
+        // Update to less bytes (middle of page)
+        page.update(1, 150).as_bytes_mut().fill(202);
+
+        assert_eq!(page.get(1).as_bytes(), &[202; 150]);
+        assert_eq!(page.fragmented_bytes(), 50);
+        assert_eq!(page.used_bytes(), 950);
+        assert_eq!(page.next_free_position(), 32 + 1000);
+
+        // Update to more bytes (end of page)
+        page.update(3, 550).as_bytes_mut().fill(214);
+
+        assert_eq!(page.get(3).as_bytes(), &[214; 550]);
+        assert_eq!(page.fragmented_bytes(), 50);
+        assert_eq!(page.used_bytes(), 1100);
+        assert_eq!(page.next_free_position(), 32 + 1150);
     }
 }

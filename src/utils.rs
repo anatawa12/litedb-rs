@@ -315,6 +315,10 @@ impl BufferSlice {
     pub(crate) fn slice_mut(&mut self, offset: usize, count: usize) -> &mut Self {
         Self::new_mut(&mut self.buffer[offset..][..count])
     }
+
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.buffer
+    }
 }
 
 pub(crate) enum Order {
