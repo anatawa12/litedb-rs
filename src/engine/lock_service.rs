@@ -1,40 +1,66 @@
 use crate::engine::engine_pragmas::EnginePragmas;
+use async_lock::{Mutex, MutexGuardArc, RwLock, RwLockReadGuardArc, RwLockWriteGuardArc};
+use std::collections::HashMap;
+use std::sync::Arc;
 
-/// Actually current vrc-get-litedb crate doesn't support multi threading so
-/// this service is almost no-op.
 // this class should have interior mutability
 pub(crate) struct LockService {
     pragma: EnginePragmas,
+    transaction: Arc<RwLock<()>>,
+    collections: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl LockService {
     pub fn new(pragma: EnginePragmas) -> Self {
-        LockService { pragma }
+        LockService {
+            pragma,
+            transaction: Arc::new(RwLock::new(())),
+            collections: Mutex::new(HashMap::new()),
+        }
     }
 
     pub async fn enter_exclusive(&self) -> ExclusiveScope {
-        // no lock
-        ExclusiveScope {}
+        // TODO: timeout
+        let lock = self.transaction.write_arc().await;
+        ExclusiveScope { lock }
     }
 
     pub async fn try_enter_exclusive(&self) -> Option<ExclusiveScope> {
-        // no lock
-        Some(ExclusiveScope {})
+        self.transaction
+            .try_write_arc()
+            .map(|lock| ExclusiveScope { lock })
     }
 
-    pub async fn enter_lock(&self, _: &str) -> CollectionLockScope {
+    pub async fn enter_lock(&self, collection: &str) -> CollectionLockScope {
         // no lock
-        CollectionLockScope {}
+        let lock = self
+            .collections
+            .lock()
+            .await
+            .entry(collection.to_string())
+            .or_default()
+            .clone()
+            .lock_arc()
+            .await;
+        CollectionLockScope { lock }
     }
 
     pub async fn enter_transaction(&self) -> TransactionScope {
-        TransactionScope {}
+        // TODO: timeout
+        let lock = self.transaction.read_arc().await;
+        TransactionScope { lock }
     }
 }
 
-pub(crate) struct ExclusiveScope {}
+pub(crate) struct ExclusiveScope {
+    lock: RwLockWriteGuardArc<()>,
+}
 
-pub(crate) struct CollectionLockScope {}
+pub(crate) struct CollectionLockScope {
+    lock: MutexGuardArc<()>,
+}
 
 #[must_use]
-pub(crate) struct TransactionScope {}
+pub(crate) struct TransactionScope {
+    lock: RwLockReadGuardArc<()>,
+}
