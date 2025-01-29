@@ -195,7 +195,7 @@ pub(super) fn parse_element<R: BsonReader>(
 
             r.read_fully(&mut buffer)?;
 
-            if buffer[buffer.len() - 1] != 0 {
+            if buffer.pop() != Some(0) {
                 return Err(ParseError::NoTrailingZero.into());
             }
 

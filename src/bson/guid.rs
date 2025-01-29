@@ -35,7 +35,7 @@ impl Guid {
 
         let mut buffer = [0u8; Self::SIZE];
 
-        *<&mut [u8; 4]>::try_from(&mut buffer[0..][..4]).unwrap() = len.to_be_bytes();
+        *<&mut [u8; 4]>::try_from(&mut buffer[0..][..4]).unwrap() = len.to_le_bytes();
         buffer[4] = 4;
         *<&mut [u8; 16]>::try_from(&mut buffer[5..][..16]).unwrap() = self.bytes;
 

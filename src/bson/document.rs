@@ -84,7 +84,7 @@ impl Document {
         let len = self.get_serialized_value_len();
         let len = i32::try_from(len).map_err(|_| W::when_too_large(len))?;
 
-        w.write_bytes(&len.to_be_bytes())?;
+        w.write_bytes(&len.to_le_bytes())?;
 
         for (key, value) in &self.inner {
             w.write_bytes(&[value.ty().bson_tag() as u8])?;

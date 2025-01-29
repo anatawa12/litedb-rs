@@ -59,7 +59,7 @@ impl Array {
         4 // total bytes of the document
             + self.data.iter().enumerate().map(|(index, value)| {
             1 // tag byte
-                + super::utils::dec_len(index)
+                + (super::utils::dec_len(index) + 1)
                 + value.get_serialized_value_len()
         }).sum::<usize>()
             + 1 // trailing 0 tag
@@ -70,7 +70,7 @@ impl Array {
         let len = self.get_serialized_value_len();
         let len = i32::try_from(len).map_err(|_| W::when_too_large(len))?;
 
-        w.write_bytes(&len.to_be_bytes())?;
+        w.write_bytes(&len.to_le_bytes())?;
 
         for (index, value) in self.data.iter().enumerate() {
             w.write_bytes(&[value.ty().bson_tag() as u8])?;

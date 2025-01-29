@@ -124,6 +124,7 @@ impl DateTime {
     pub(crate) fn from_unix_milliseconds(unix_milliseconds: i64) -> Option<DateTime> {
         let total_ticks = unix_milliseconds.checked_mul(TICKS_PER_MILLISECOND as i64)?;
         let total_ticks = u64::try_from(total_ticks).ok()?;
+        let total_ticks = total_ticks.checked_add(TICKS_UNIX_EPOC)?;
         DateTime::from_ticks(total_ticks)
     }
 
