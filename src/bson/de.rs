@@ -88,7 +88,9 @@ pub(super) fn read_len<R: BsonReader>(reader: &mut R) -> Result<usize, R::Error>
     Ok(len_to_usize(len)?)
 }
 
-pub(super) fn limit_reader<R: BsonReader>(reader: &mut R) -> Result<LimitReader<R>, R::Error> {
+pub(super) fn limit_reader<'b, 'a, R: BsonReader>(
+    reader: &'b mut LimitReader<'a, R>,
+) -> Result<LimitReaderScope<'b, 'a, R>, R::Error> {
     let offset = 4;
     let len = i32::from_le_bytes(reader.read_fully_fixed()?);
     let len = len_to_usize(len)?;
@@ -96,28 +98,65 @@ pub(super) fn limit_reader<R: BsonReader>(reader: &mut R) -> Result<LimitReader<
         return Err(ParseError::SizeExceeded.into());
     }
     let remaining = len - offset;
-    Ok(LimitReader { reader, remaining })
+    let remaining_on_drop = reader.remaining - remaining;
+    reader.remaining = remaining;
+    Ok(LimitReaderScope {
+        reader,
+        remaining_on_drop,
+    })
+}
+
+pub(super) struct LimitReaderScope<'b, 'a, R: BsonReader> {
+    pub(super) reader: &'b mut LimitReader<'a, R>,
+    remaining_on_drop: usize,
+}
+
+impl<R: BsonReader> Drop for LimitReaderScope<'_, '_, R> {
+    fn drop(&mut self) {
+        self.reader.remaining = self.remaining_on_drop;
+    }
 }
 
 pub(super) struct LimitReader<'a, R: BsonReader> {
-    reader: &'a R,
+    reader: &'a mut R,
     remaining: usize,
+}
+
+impl<'a, R: BsonReader> LimitReader<'a, R> {
+    pub fn new(reader: &'a mut R) -> Self {
+        Self {
+            reader,
+            remaining: usize::MAX,
+        }
+    }
+
+    pub fn with_remaining(reader: &'a mut R, remaining: usize) -> Self {
+        Self { reader, remaining }
+    }
 }
 
 impl<R: BsonReader> BsonReader for LimitReader<'_, R> {
     type Error = R::Error;
 
     fn read_fully(&mut self, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        if self.remaining < bytes.len() {
-            return Err(Self::Error::from(ParseError::SizeExceeded));
+        if self.remaining != usize::MAX {
+            if self.remaining < bytes.len() {
+                return Err(Self::Error::from(ParseError::SizeExceeded));
+            }
+            self.reader.read_fully(bytes)?;
+            self.remaining -= bytes.len();
+        } else {
+            self.reader.read_fully(bytes)?;
         }
-        self.read_fully(bytes)?;
-        self.remaining -= bytes.len();
         Ok(())
     }
 
     fn is_end(&self) -> bool {
-        self.remaining == 0
+        if self.remaining == usize::MAX {
+            self.reader.is_end()
+        } else {
+            self.remaining == 0
+        }
     }
 }
 
@@ -184,7 +223,7 @@ pub(super) fn parse_element<R: BsonReader>(
             }
         }
         BsonTag::Document => Value::Document(Document::parse_document_inner(r)?),
-        BsonTag::Array => Value::Array(Array::parse_array(r)?),
+        BsonTag::Array => Value::Array(Array::parse_array_inner(r)?),
     };
 
     Ok(Some((key, value)))

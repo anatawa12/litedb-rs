@@ -84,18 +84,21 @@ impl Array {
 
     /// Parses the array
     pub fn parse_array<R: BsonReader>(r: &mut R) -> Result<Self, R::Error> {
-        let result = Self::parse_array_inner(r)?;
+        let result = Self::parse_array_inner(&mut super::de::LimitReader::new(r))?;
         if !r.is_end() {
             return Err(ParseError::RemainingDataInDocument.into());
         }
         Ok(result)
     }
-    fn parse_array_inner<R: BsonReader>(r: &mut R) -> Result<Self, R::Error> {
-        let mut r = super::de::limit_reader(r)?;
+
+    pub(super) fn parse_array_inner<R: BsonReader>(
+        r: &mut super::de::LimitReader<R>,
+    ) -> Result<Self, R::Error> {
+        let r = super::de::limit_reader(r)?;
 
         let mut array = Self::new();
 
-        while let Some((key, value)) = super::de::parse_element(&mut r)? {
+        while let Some((key, value)) = super::de::parse_element(r.reader)? {
             let index = array.len();
             let index_str = index.to_string();
             if key != index_str {
@@ -109,7 +112,7 @@ impl Array {
             array.push(value);
         }
 
-        if !r.is_end() {
+        if !r.reader.is_end() {
             return Err(ParseError::RemainingDataInDocument.into());
         }
 

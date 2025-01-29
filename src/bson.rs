@@ -520,6 +520,7 @@ impl Value {
     }
 }
 
+#[allow(unused)]
 macro_rules! document {
     {$($k:expr => $v:expr),* $(,)?} => {{
         #[allow(unused_mut)]
@@ -529,6 +530,7 @@ macro_rules! document {
     }}
 }
 
+#[allow(unused)]
 macro_rules! array {
     [$($element:expr),* $(,)?] => {{
         #[allow(unused_mut)]
@@ -538,6 +540,7 @@ macro_rules! array {
     }};
 }
 
+#[allow(unused)]
 macro_rules! date {
     [
         $year:tt-$month:tt-$day:tt

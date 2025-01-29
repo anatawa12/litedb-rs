@@ -98,20 +98,21 @@ impl Document {
 
     /// Parses the document
     pub fn parse_document<R: BsonReader>(r: &mut R) -> Result<Document, <R as BsonReader>::Error> {
-        let result = Self::parse_document_inner(r)?;
+        let result = Self::parse_document_inner(&mut super::de::LimitReader::new(r))?;
         if !r.is_end() {
             return Err(ParseError::RemainingDataInDocument.into());
         }
         Ok(result)
     }
+
     pub(super) fn parse_document_inner<R: BsonReader>(
-        r: &mut R,
+        r: &mut super::de::LimitReader<R>,
     ) -> Result<Document, <R as BsonReader>::Error> {
-        let mut r = super::de::limit_reader(r)?;
+        let r = super::de::limit_reader(r)?;
 
         let mut document = Self::new();
 
-        while let Some((key, value)) = super::de::parse_element(&mut r)? {
+        while let Some((key, value)) = super::de::parse_element(r.reader)? {
             //document.inner.try_insert()
             match document.inner.entry(key.into()) {
                 Entry::Occupied(e) => {
@@ -123,7 +124,7 @@ impl Document {
             }
         }
 
-        if !r.is_end() {
+        if !r.reader.is_end() {
             return Err(ParseError::RemainingDataInDocument.into());
         }
 
