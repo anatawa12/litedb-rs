@@ -13,6 +13,7 @@
 use crate::engine::{BasePage, PageType};
 use std::fmt::Display;
 
+#[macro_use]
 pub mod bson;
 mod engine;
 mod utils;

@@ -83,7 +83,7 @@ impl DateTime {
     /// Create new DateTime from ticks
     ///
     /// If the tick is larger than [Self::MAX], returns `None`.
-    pub fn from_ticks(ticks: u64) -> Option<DateTime> {
+    pub const fn from_ticks(ticks: u64) -> Option<DateTime> {
         if ticks > MAX_TICKS {
             None
         } else {
@@ -132,6 +132,147 @@ impl DateTime {
         let unix_epoc = (TICKS_UNIX_EPOC / TICKS_PER_MILLISECOND) as i64;
 
         millis - unix_epoc
+    }
+
+    pub const fn parse_rfc3339(s: &str) -> Option<DateTime> {
+        let bytes = s.as_bytes();
+        if bytes.len() < 19 {
+            return None;
+        }
+
+        macro_rules! slice {
+            ($bytes: ident, $start: literal, $end: literal) => {{
+                const LEN: usize = $end - $start + 1;
+                let mut result = [0u8; LEN];
+                let mut i = 0;
+                while i < LEN {
+                    result[i] = $bytes[$start + i];
+                    i += 1;
+                }
+                result
+            }};
+        }
+
+        let year_part = slice!(bytes, 0, 3);
+        let hyphen0 = bytes[4];
+        let month_part = slice!(bytes, 5, 6);
+        let hyphen1 = bytes[7];
+        let day_part = slice!(bytes, 8, 9);
+        let t = bytes[10];
+        let hour_part = slice!(bytes, 11, 12);
+        let colon0 = bytes[13];
+        let minute_part = slice!(bytes, 14, 15);
+        let colon1 = bytes[16];
+        let second_part = slice!(bytes, 17, 18);
+
+        if hyphen0 != b'-' || hyphen1 != b'-' || t != b'T' || colon0 != b':' || colon1 != b':' {
+            return None;
+        }
+
+        macro_rules! parse_u64 {
+            ($bytes: expr) => {{
+                let Ok(s) = std::str::from_utf8($bytes) else {
+                    return None;
+                };
+                let Ok(d) = u64::from_str_radix(s, 10) else {
+                    return None;
+                };
+                d
+            }};
+        }
+
+        let year = parse_u64!(&year_part);
+        let month = parse_u64!(&month_part);
+        let day = parse_u64!(&day_part);
+        let hour = parse_u64!(&hour_part);
+        let minute = parse_u64!(&minute_part);
+        let second = parse_u64!(&second_part);
+
+        if year < 1 || year > 9999 {
+            return None;
+        }
+        if month < 1 || month > 12 {
+            return None;
+        }
+
+        let is_leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+        let max_days = if is_leap {
+            [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        } else {
+            [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        };
+        if day < 1 || day > max_days[(month - 1) as usize] {
+            return None;
+        }
+
+        if hour > 23 {
+            return None;
+        }
+        if minute > 59 {
+            return None;
+        }
+        if second > 59 {
+            return None;
+        }
+
+        let ticks = if bytes.len() == 19 {
+            0
+        } else {
+            // .XXXXX
+            if bytes.len() < 21 {
+                return None;
+            }
+            if bytes[19] != b'.' {
+                return None;
+            }
+            //let subsec_part = &bytes[21..];
+            let (_, subsec_part) = bytes.split_at(20);
+            let mut number_part = *b"0000000";
+            if subsec_part.len() > number_part.len() {
+                return None; // we cannot expres the time
+            }
+
+            //number_part[..subsec_part.len()].copy_from_slice(subsec_part);
+            let mut i = 0;
+            while i < subsec_part.len() {
+                number_part[i] = subsec_part[i];
+                i += 1;
+            }
+
+            let subsec = parse_u64!(&subsec_part);
+            debug_assert!(subsec < TICKS_PER_SECOND);
+            subsec
+        };
+
+        let in_day_seconds = hour * (60 * 60) + minute * 60 + second;
+        let in_day_ticks = in_day_seconds * TICKS_PER_SECOND;
+
+        let days = {
+            // leap years are last of 400/100/4 year0
+            let year0 = year - 1;
+            let number_of_400_years = year0 / 400;
+            let years_in_400_years = year0 % 400;
+            let number_of_100_years = years_in_400_years / 100;
+            let years_in_100_years = years_in_400_years % 100;
+            let number_of_4_years = years_in_100_years / 4;
+            let years_in_4_years = years_in_100_years % 4;
+
+            let year_days = number_of_400_years * DAYS_PER_400_YEAR as u64
+                + number_of_100_years * DAYS_PER_NORMAL_100_YEAR as u64
+                + number_of_4_years * DAYS_PER_4_YEAR as u64
+                + years_in_4_years * DAYS_PER_NORMAL_YEAR as u64;
+
+            let month_start = if is_leap {
+                &[0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
+            } else {
+                &[0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+            };
+
+            year_days + month_start[(month - 1) as usize] + (day - 1)
+        };
+        let day_ticks = days * (24 * 60 * 60 * TICKS_PER_SECOND);
+
+        DateTime::from_ticks(day_ticks + in_day_ticks + ticks)
     }
 }
 
@@ -309,5 +450,22 @@ fn test_debug() {
     assert_eq!(
         format!("{:?}", time!(2000-01-01 00:00:00.000000199 UTC)),
         "2000-01-01T00:00:00.0000001"
+    );
+}
+
+#[test]
+fn test_parse() {
+    //const { panic!(concat!("test", stringify!(010))) };
+    assert_eq!(
+        DateTime::parse_rfc3339("2020-05-06T09:29:10.8350000")
+            .unwrap()
+            .ticks(),
+        637243541508350000
+    );
+    assert_eq!(
+        DateTime::parse_rfc3339("1999-05-06T09:29:10.8350000")
+            .unwrap()
+            .ticks(),
+        630615797508350000
     );
 }

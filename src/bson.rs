@@ -287,6 +287,7 @@ pub trait BsonWriter {
 
 mod from_impls {
     use super::*;
+    use std::convert::Infallible;
 
     impl From<i32> for Value {
         fn from(v: i32) -> Value {
@@ -315,6 +316,12 @@ mod from_impls {
     impl From<String> for Value {
         fn from(v: String) -> Value {
             Value::String(v)
+        }
+    }
+
+    impl From<&str> for Value {
+        fn from(v: &str) -> Value {
+            Value::String(v.into())
         }
     }
 
@@ -375,6 +382,12 @@ mod from_impls {
     impl From<&[Value]> for Value {
         fn from(v: &[Value]) -> Value {
             Value::Array(v.into())
+        }
+    }
+
+    impl From<Option<Infallible>> for Value {
+        fn from(_: Option<Infallible>) -> Value {
+            Value::Null
         }
     }
 }
@@ -505,4 +518,38 @@ impl Value {
             _ => None,
         }
     }
+}
+
+macro_rules! document {
+    {$($k:expr => $v:expr),* $(,)?} => {{
+        #[allow(unused_mut)]
+        let mut doc = $crate::bson::Document::new();
+        $(doc.insert($k.into(), $v);)*
+        doc
+    }}
+}
+
+macro_rules! array {
+    [$($element:expr),* $(,)?] => {{
+        #[allow(unused_mut)]
+        let mut arr = $crate::bson::Array::new();
+        $(arr.push($element);)*
+        arr
+    }};
+}
+
+macro_rules! date {
+    [
+        $year:tt-$month:tt-$day:tt
+        $hour:tt:$minute:tt:$second:tt
+    ] => {
+        const {
+            match $crate::bson::DateTime::parse_rfc3339(::core::concat!(core::stringify!($year), '-', core::stringify!($month), '-', core::stringify!($day), 'T', core::stringify!($hour), ':', core::stringify!($minute), ':', core::stringify!($second))) {
+                Some(v) => v,
+                None => {
+                    ::core::panic!(::core::concat!("bad date:", core::stringify!($year), '-', core::stringify!($month), '-', core::stringify!($day), 'T', core::stringify!($hour), ':', core::stringify!($minute), ':', core::stringify!($second)))
+                }
+            }
+        }
+    };
 }
