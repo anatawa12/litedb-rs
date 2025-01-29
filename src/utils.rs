@@ -144,10 +144,10 @@ impl BufferSlice {
                 bson::Value::String(self.read_string(offset, length as usize)?.to_owned())
             }
             BsonType::Document => bson::Value::Document(
-                BufferReader::new(self.slice(offset, self.len() - offset)).read_document()?,
+                BufferReader::single(self.slice(offset, self.len() - offset)).read_document()?,
             ),
             BsonType::Array => bson::Value::Array(
-                BufferReader::new(self.slice(offset, self.len() - offset)).read_array()?,
+                BufferReader::single(self.slice(offset, self.len() - offset)).read_array()?,
             ),
             BsonType::Binary => {
                 let length = length + 1; // using length byte
@@ -299,12 +299,12 @@ impl BufferSlice {
 
             bson::Value::Document(d) => {
                 self.write_u8(offset, BsonType::Document as u8);
-                BufferWriter::new(self.slice_mut(offset + 1, self.len() - offset - 1))
+                BufferWriter::single(self.slice_mut(offset + 1, self.len() - offset - 1))
                     .write_document(d)
             }
             bson::Value::Array(a) => {
                 self.write_u8(offset, BsonType::Array as u8);
-                BufferWriter::new(self.slice_mut(offset + 1, self.len() - offset - 1))
+                BufferWriter::single(self.slice_mut(offset + 1, self.len() - offset - 1))
                     .write_array(a)
             }
 

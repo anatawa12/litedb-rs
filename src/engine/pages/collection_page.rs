@@ -39,7 +39,7 @@ impl CollectionPage {
         }
 
         let area = base.buffer().slice(P_INDEXES, P_INDEXES_COUNT);
-        let mut reader = BufferReader::new(area);
+        let mut reader = BufferReader::single(area);
 
         for item in free_data_page_list.iter_mut() {
             *item = reader.read_u32();
@@ -66,7 +66,7 @@ impl CollectionPage {
             return self.base.update_buffer();
         }
         let buffer = self.base.buffer_mut();
-        let mut writer = BufferWriter::new(buffer);
+        let mut writer = BufferWriter::single(buffer);
 
         for i in 0..PAGE_FREE_LIST_SLOTS {
             writer.write_u32(self.free_data_page_list[i]);

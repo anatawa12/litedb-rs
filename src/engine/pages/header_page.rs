@@ -99,7 +99,7 @@ impl HeaderPage {
 
         self.pragmas = EnginePragmas::read(buffer)?;
         let area = buffer.slice(P_COLLECTIONS, COLLECTIONS_SIZE);
-        self.collections = BufferReader::new(area).read_document()?;
+        self.collections = BufferReader::single(area).read_document()?;
 
         Ok(())
     }
@@ -114,7 +114,7 @@ impl HeaderPage {
         if self.collections_changed {
             let area = buffer.slice_mut(P_COLLECTIONS, COLLECTIONS_SIZE);
 
-            let mut writer = BufferWriter::new(area);
+            let mut writer = BufferWriter::single(area);
             writer.write_document(&self.collections);
 
             self.collections_changed = false;

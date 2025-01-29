@@ -4,13 +4,24 @@ use crate::utils::BufferSlice;
 use std::convert::Infallible;
 
 pub struct BufferWriter<'a> {
-    slice: &'a mut BufferSlice,
-    position: usize,
+    slices: Box<[&'a mut BufferSlice]>,
+    slice_index: usize,
+    position_in_slice: usize,
+    global_position: usize,
 }
 
-impl BufferWriter<'_> {
-    pub fn new(slice: &mut BufferSlice) -> BufferWriter {
-        BufferWriter { slice, position: 0 }
+impl<'a> BufferWriter<'a> {
+    pub fn single(slice: &'a mut BufferSlice) -> Self {
+        Self::fragmented([slice])
+    }
+
+    pub fn fragmented(slices: impl Into<Box<[&'a mut BufferSlice]>>) -> Self {
+        Self {
+            slices: slices.into(),
+            slice_index: 0,
+            position_in_slice: 0,
+            global_position: 0,
+        }
     }
 
     pub fn write_document(&mut self, document: &bson::Document) {
@@ -21,19 +32,54 @@ impl BufferWriter<'_> {
         into_ok!(array.write_value(self));
     }
 
-    pub fn skip(&mut self, bytes: usize) {
-        self.position += bytes;
+    pub fn skip(&mut self, mut bytes: usize) {
+        while bytes > 0 {
+            assert!(self.slice_index < self.slices.len(), "End of Stream");
+            let current = &mut self.slices[self.slice_index];
+            let current_remaining = current.len() - self.position_in_slice;
+            if bytes < current_remaining {
+                // we can consume bytes from current slice
+                self.position_in_slice += bytes;
+                self.global_position += bytes;
+                assert!(self.position_in_slice > 0 && self.position_in_slice <= current.len());
+            } else {
+                // use current slice fully
+                self.global_position += current_remaining;
+                bytes -= current_remaining;
+                self.slice_index += 1;
+                self.position_in_slice = 0;
+            }
+        }
     }
 
     pub fn position(&self) -> usize {
-        self.position
+        self.global_position
     }
 }
 
 impl BufferWriter<'_> {
-    fn write(&mut self, data: &[u8]) {
-        self.slice.write_bytes(self.position, data);
-        self.position += data.len();
+    fn write(&mut self, mut data: &[u8]) {
+        while !data.is_empty() {
+            assert!(self.slice_index < self.slices.len(), "End of Stream");
+            let current = &mut self.slices[self.slice_index];
+            let current_remaining = current.len() - self.position_in_slice;
+            if data.len() < current_remaining {
+                // we can write data in current slice
+                current.write_bytes(self.position_in_slice, data);
+                self.position_in_slice += data.len();
+                self.global_position += data.len();
+                assert!(self.position_in_slice > 0 && self.position_in_slice <= current.len());
+                data = &[];
+            } else {
+                // we use current slice fully
+                let (to_current, next) = data.split_at(current_remaining);
+                current.write_bytes(self.position_in_slice, to_current);
+                self.global_position += current_remaining;
+                data = next;
+                self.slice_index += 1;
+                self.position_in_slice = 0;
+            }
+        }
     }
 
     pub fn write_i32(&mut self, value: i32) {
@@ -98,5 +144,163 @@ impl bson::BsonWriter for BufferWriter<'_> {
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
         self.write_bytes(bytes);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::engine::{BufferReader, BufferWriter};
+    use crate::utils::BufferSlice;
+
+    #[test]
+    fn buffer_write_cstring() {
+        let doc = document! {
+          "_id" => 5i64,
+          "unique_id" => "20-133-5",
+          "event_log" => array![
+            document! {
+              "created" => 2020-05-06,
+              "type" => "job_created"
+            },
+            document! {
+              "created" => date![2020-05-06 09:29:19.0510000],
+              "type" => "asset_added",
+              "data" => document!{
+                "filename" => array!["IMG_1333.JPG"],
+                "filepath" => array!["D:\\Users\\Daniel\\Desktop\\German Shepherd\\IMG_1333.JPG"]
+              }
+            },
+            document! {
+              "created" => date![2020-05-06 09:29:23.6910000],
+              "type" => "lookup_preformed",
+              "data" => document!{
+                "searchterm" => array!["1424101.2"]
+              }
+            },
+            document! {
+              "created" => date![2020-05-06 09:29:25.9060000],
+              "type" => "lookup_selected"
+            },
+            document! {
+              "created" => date![2020-05-06 09:29:43.7350000],
+              "type" => "job_saved"
+            },
+            document! {
+              "created" => date![2020-05-06 09:29:43.7900000],
+              "type" => "job_closed"
+            },
+            document! {
+              "created" => date![2020-06-10 16:00:30.3950000],
+              "type" => "job_deleted"
+            },
+            document! {
+              "created" => date![2020-06-10 16:00:30.3950000],
+              "type" => "job_deleted"
+            },
+            document! {
+              "created" => date![2020-06-10 16:00:30.3950000],
+              "type" => "job_deleted"
+            },
+            document! {
+              "created" => date![2020-06-10 16:00:30.3950000],
+              "type" => "job_deleted"
+            }
+          ],
+          "status" => "PERMANANTDELETE",
+          "cleaned_up" => false,
+          "user_info" => document!{
+            "href" => "/fotoweb/users/dan%40deathstar.local",
+            "userName" => "dan@deathstar.local",
+            "fullName" => "DanTwomey",
+            "firstName" => "Dan",
+            "lastName" => "Twomey",
+            "email" => "dan@medialogix.co.uk",
+            "userId" => "15003",
+            "isGuest" => "false",
+            "userAvatarHref" => "https://www.gravatar.com/avatar/9496065924d90ffa6b6184c741aa0184?d=mm"
+          },
+          "device_info" => document!{
+            "_id" => None,
+            "short_id" => 133,
+            "device_name" => "DANSCOMPUTER"
+          },
+          "template_id" => "5cb0b82fd1654e07c7a3dd72",
+          "created" => date![2020-05-06 09:29:10.8350000],
+          "last_save" => date![2020-06-15 19:40:50.8250000],
+          "files" => array![
+            document! {
+              "_id" => "5f9bffbc-a6d7-4ccb-985b-17470745f760",
+              "filename" => "IMG_1333.JPG",
+              "extension" => ".JPG",
+              "file_checksum" => "SHA1:09025C2C3009051C51877E052A740140F73EC518",
+              "local_file_info" => document!{
+                "imported_datetime" => date![2020-05-06 09:29:17.7650000],
+                "system_created_datetime" => date![2020-03-26 17:04:08.9930000],
+                "original_file_path" => "D:\\Users\\Daniel\\Desktop\\German Shepherd\\IMG_1333.JPG",
+                "local_file_path" => "C:\\ProgramData\\Medialogix\\Pixel\\UploadStorage\\20-133-5\\5f9bffbc-a6d7-4ccb-985b-17470745f760\\IMG_1333.JPG",
+                "original_file_directory" => "D:\\Users\\Daniel\\Desktop\\German Shepherd",
+                "thumbnail_path" => "C:\\ProgramData\\Medialogix\\Pixel\\UploadStorage\\20-133-5\\5f9bffbc-a6d7-4ccb-985b-17470745f760\\IMG_1333.JPG.thumb"
+              },
+              "filesize_bytes" => 4225974i64,
+              "friendly_filesize" => "4MB",
+              "metadata" => document!{
+                "2c0066d2-3f9f-4cf8-8d06-33a544624418" => None,
+                "4a389ee1-9e1b-4e06-b46f-23f1fd8f6a93" => None,
+                "b0ad5374-213f-488f-bb21-407e782de287" => None,
+                "91328cc4-eb72-4c30-9545-e931c830e847" => None,
+                "b94b21cf-eef3-4e8c-951a-1c20d16d871f" => None,
+                "3a660b33-c99f-4111-ba88-633533017b40" => None,
+                "500c2388-ccc1-4b63-8da1-5bbb468a0c5b" => None,
+                "652cdabe-3c6f-4765-86fd-1680749b412b" => None,
+                "2a2668c3-2b69-4f9b-89a8-914b70e00aa3" => None,
+                "fd67fdb2-3705-4f14-a929-5336c8e46489" => None,
+                "2405d44c-13d3-4ce3-8ba1-dae189139f84" => array![],
+                "8b73f206-8b2c-4ce5-9867-a4e1892370e5" => None,
+                "5c73f206-8b2c-4ce5-9852-a4e1892370a5" => array!["csitemplate"],
+                "9fc32696-4efd-4b6a-8fcc-554c75421cff" => array!["{{asset.uploadtype}}"],
+                "c47645ab-0bfa-42e0-9c43-66868f10f90f" => array!["{{curentuser.username}}"],
+                "a16a3bae-59bc-4583-9015-7f6bbd0d2b87" => array!["{{job.id}}"]
+              },
+              "status" => "CREATED",
+              "file_valid" => false,
+              "type" => "IMAGE",
+              "fotoweb_responses" => array![]
+            }
+          ],
+          "lookup_metadata" => document!{
+            "2c0066d2-3f9f-4cf8-8d06-33a544624418" => array!["1424101.2"],
+            "4a389ee1-9e1b-4e06-b46f-23f1fd8f6a93" => array!["Exhibit 2"],
+            "b0ad5374-213f-488f-bb21-407e782de287" => array!["1424101.2 - Exhibit 2"],
+            "91328cc4-eb72-4c30-9545-e931c830e847" => array!["Location 3"],
+            "b94b21cf-eef3-4e8c-951a-1c20d16d871f" => array!["DHL"],
+            "3a660b33-c99f-4111-ba88-633533017b40" => array!["Medium"]
+          },
+          "error_reason" => None,
+          "retry_count" => 0,
+          "error_counters" => document!{},
+          "deleted_datetime" => date![2020-06-10 16:00:30.3920000],
+          "delete_when" => date![2020-06-15 16:00:30.3920000]
+        };
+
+        let mut buf0 = [0u8; 2935];
+        let mut buf1 = [0u8; 97];
+        let mut buf2 = [0u8; 5];
+        let mut buf3 = [0u8; 189];
+        let arr0 = BufferSlice::new_mut(&mut buf0);
+        let arr1 = BufferSlice::new_mut(&mut buf1);
+        let arr2 = BufferSlice::new_mut(&mut buf2);
+        let arr3 = BufferSlice::new_mut(&mut buf3);
+
+        let mut writer = BufferWriter::fragmented([arr0, arr1, arr2, arr3]);
+        writer.write_document(&doc);
+
+        let arr0 = BufferSlice::new(&buf0);
+        let arr1 = BufferSlice::new(&buf1);
+        let arr2 = BufferSlice::new(&buf2);
+        let arr3 = BufferSlice::new(&buf3);
+        let mut reader = BufferReader::fragmented([arr0, arr1, arr2, arr3]);
+        let read = reader.read_document().unwrap();
+
+        assert_eq!(doc, read);
     }
 }
