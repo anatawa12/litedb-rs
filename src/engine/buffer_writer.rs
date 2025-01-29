@@ -303,4 +303,105 @@ mod tests {
 
         assert_eq!(doc, read);
     }
+
+    #[test]
+    fn buffer_write_cstring_basic() {
+        let mut arr0 = [0; 3];
+        let mut arr1 = [0; 4];
+        let mut arr2 = [0; 5];
+        let mut arr3 = [0; 6];
+        let mut arr4 = [0; 7];
+
+        let slice0 = BufferSlice::new_mut(&mut arr0);
+        let slice1 = BufferSlice::new_mut(&mut arr1);
+        let slice2 = BufferSlice::new_mut(&mut arr2);
+        let slice3 = BufferSlice::new_mut(&mut arr3);
+        let slice4 = BufferSlice::new_mut(&mut arr4);
+
+        let mut writer = BufferWriter::fragmented([slice0, slice1, slice2, slice3, slice4]);
+        writer.write_cstring("123456789*ABCEFGHIJ");
+        writer.write_cstring("abc");
+
+        let slice0 = BufferSlice::new(&mut arr0);
+        let slice1 = BufferSlice::new(&mut arr1);
+        let slice2 = BufferSlice::new(&mut arr2);
+        let slice3 = BufferSlice::new(&mut arr3);
+        let slice4 = BufferSlice::new(&mut arr4);
+
+        let mut reader = BufferReader::fragmented([slice0, slice1, slice2, slice3, slice4]);
+        assert_eq!(reader.read_cstring().unwrap(), "123456789*ABCEFGHIJ");
+        assert_eq!(reader.read_cstring().unwrap(), "abc");
+    }
+
+    #[test]
+    fn buffer_write_numbers() {
+        let mut array = [0; 1000];
+        let slice = BufferSlice::new_mut(&mut array);
+        let mut writer = BufferWriter::fragmented([slice]);
+
+        // max values
+        writer.write_i32(i32::MAX);
+        writer.write_u32(u32::MAX);
+        writer.write_i64(i64::MAX);
+        writer.write_f64(f64::MAX);
+
+        // min values
+        writer.write_i32(i32::MIN);
+        writer.write_u32(u32::MIN);
+        writer.write_i64(i64::MIN);
+        writer.write_f64(f64::MIN);
+
+        // zero values
+        writer.write_i32(0); // int
+        writer.write_u32(0); // uint
+        writer.write_i64(0); // long
+        writer.write_f64(0.0); // double
+
+        // fixed values
+        writer.write_i32(1990); // int
+        writer.write_u32(1990); // uint
+        writer.write_i64(1990); // long
+        writer.write_f64(1990.0); // double
+
+        let slice = BufferSlice::new(&array);
+
+        let mut p = 0;
+        assert_eq!(slice.read_i32(p), i32::MAX);
+        p += 4;
+        assert_eq!(slice.read_u32(p), u32::MAX);
+        p += 4;
+        assert_eq!(slice.read_i64(p), i64::MAX);
+        p += 8;
+        assert_eq!(slice.read_f64(p), f64::MAX);
+        p += 8;
+
+        assert_eq!(slice.read_i32(p), i32::MIN);
+        p += 4;
+        assert_eq!(slice.read_u32(p), u32::MIN);
+        p += 4;
+        assert_eq!(slice.read_i64(p), i64::MIN);
+        p += 8;
+        assert_eq!(slice.read_f64(p), f64::MIN);
+        p += 8;
+
+        assert_eq!(slice.read_i32(p), 0);
+        p += 4;
+        assert_eq!(slice.read_u32(p), 0);
+        p += 4;
+        assert_eq!(slice.read_i64(p), 0);
+        p += 8;
+        assert_eq!(slice.read_f64(p), 0.0);
+        p += 8;
+
+        assert_eq!(slice.read_i32(p), 1990);
+        p += 4;
+        assert_eq!(slice.read_u32(p), 1990);
+        p += 4;
+        assert_eq!(slice.read_i64(p), 1990);
+        p += 8;
+        assert_eq!(slice.read_f64(p), 1990.0);
+        p += 8;
+
+        _ = p;
+    }
 }
