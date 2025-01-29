@@ -286,7 +286,7 @@ pub trait BsonWriter {
     fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), Self::Error>;
 }
 
-impl <T: AsMut<[u8]>> BsonWriter for std::io::Cursor<T> {
+impl<T: AsMut<[u8]>> BsonWriter for std::io::Cursor<T> {
     type Error = std::convert::Infallible;
 
     fn when_too_large(size: usize) -> Self::Error {
@@ -711,7 +711,8 @@ mod tests {
 
         let mut buffer = [0u8; 3218];
 
-        doc.write_value(&mut std::io::Cursor::new(&mut buffer)).unwrap();
+        doc.write_value(&mut std::io::Cursor::new(&mut buffer))
+            .unwrap();
 
         let read = Document::parse_document(&mut std::io::Cursor::new(&mut buffer)).unwrap();
 

@@ -762,7 +762,7 @@ mod tests {
         assert_eq!(page.fragmented_bytes, 0);
         assert_eq!(page.used_bytes, 100);
         assert_eq!(page.next_free_position, 32 + 100);
-        assert_eq!(page.footer_size(), 4*4);
+        assert_eq!(page.footer_size(), 4 * 4);
         assert_eq!(page.free_bytes(), 8192 - 32 - 100 - (4 * 4));
 
         assert_eq!(page.get(index0).as_bytes(), &[1; 10]);
@@ -782,16 +782,6 @@ mod tests {
         assert_eq!(page2.get(index2).as_bytes(), &[3; 30]);
         assert_eq!(page2.get(index3).as_bytes(), &[4; 40]);
     }
-
-/*
-Process other functions in the similar way.
-
-Please note the following things:
-- you don't need to assign share counter since PageBuffer doesn't have share counter in Rust.
-- You don't need to pass vec or buffer when you create PageBuffer. Please use `PageBuffer::new(3rd param)`
-- You have to box PageBuffer to pass BasePage.
-- You don't need to break down how changed.
- */
 
     // BasePage_Tests.BasePage_Insert_Full_Bytes_Page
     #[test]
