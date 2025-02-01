@@ -65,8 +65,7 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
     pub async fn create_transaction(
         &self,
         query_only: bool,
-    ) -> Result<(TransactionService<SF>, bool)> {
-        let is_new;
+    ) -> Result<TransactionService<SF>> {
         let mut transaction;
         // RustChange: No ThreadLocal Slot
         //if let Some(ref slot_id) = self.slot {
@@ -74,7 +73,6 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
         //    transaction_shared = Shared::clone(slot_id);
         //} else
         {
-            is_new = true;
             {
                 let mut lock = self.transactions.lock().unwrap();
                 if lock.transaction_max_transaction_sizes.len() >= MAX_OPEN_TRANSACTIONS {
@@ -119,7 +117,7 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
             }
         }
 
-        Ok((transaction, is_new))
+        Ok(transaction)
     }
 
     // 2nd is is_new
