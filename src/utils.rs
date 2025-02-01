@@ -307,8 +307,6 @@ impl BufferSlice {
                 BufferWriter::single(self.slice_mut(offset + 1, self.len() - offset - 1))
                     .write_array(a)
             }
-
-            _ => panic!("Unsupported BSON type"),
         }
     }
 
