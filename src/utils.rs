@@ -307,6 +307,15 @@ impl BufferSlice {
                 BufferWriter::single(self.slice_mut(offset + 1, self.len() - offset - 1))
                     .write_array(a)
             }
+
+            bson::Value::ObjectId(oid) => {
+                self.write_u8(offset, BsonType::ObjectId as u8);
+                self.write_bytes(offset + 1, oid.as_bytes());
+            }
+            bson::Value::Guid(uuid) => {
+                self.write_u8(offset, BsonType::Guid as u8);
+                self.write_bytes(offset + 1, &uuid.to_bytes());
+            }
         }
     }
 
