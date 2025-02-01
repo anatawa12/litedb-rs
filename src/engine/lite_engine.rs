@@ -99,7 +99,7 @@ impl<SF: StreamFactory> LiteEngine<SF> {
 
         // system collections
 
-        // LOG("initialization completed", "ENGINE");
+        debug_log!(ENGINE: "initialization completed");
 
         Ok(Self {
             locker,

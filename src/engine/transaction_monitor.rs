@@ -62,10 +62,7 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
 
     // 2nd is is_new
     // pub async fn get_or_create_transaction(
-    pub async fn create_transaction(
-        &self,
-        query_only: bool,
-    ) -> Result<TransactionService<SF>> {
+    pub async fn create_transaction(&self, query_only: bool) -> Result<TransactionService<SF>> {
         let mut transaction;
         // RustChange: No ThreadLocal Slot
         //if let Some(ref slot_id) = self.slot {

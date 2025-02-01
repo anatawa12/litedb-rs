@@ -159,7 +159,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
             .monitor
             .check_safe_point(transaction_size, &self.max_transaction_size)
         {
-            // LOG($"safepoint flushing transaction pages: {_transPages.TransactionSize}", "TRANSACTION");
+            debug_log!(TRANSACTION: "safepoint flushing transaction pages: {transaction_size}");
 
             if self.mode == LockMode::Write {
                 self.persist_dirty_page(false).await?;
@@ -272,7 +272,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
 
     pub async fn commit(mut self) -> Result<()> {
         //debug_assert_eq!(self.state, TransactionState::Active);
-        // LOG($"commit transaction ({_transPages.TransactionSize} pages)", "TRANSACTION");
+        debug_log!(TRANSACTION: "commit transaction ({} pages)", self.trans_pages.borrow().transaction_size);
 
         if self.mode == LockMode::Write || self.trans_pages.borrow().header_changed() {
             // lock on header
@@ -306,7 +306,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
     pub async fn rollback(mut self) -> Result<()> {
         //debug_assert_eq!(self.state, TransactionState::Active);
 
-        // LOG($"rollback transaction ({_transPages.TransactionSize} pages with {_transPages.NewPages.Count} returns)", "TRANSACTION");
+        debug_log!(TRANSACTION: "rollback transaction ({} pages with {} returns", self.trans_pages.borrow().transaction_size, self.trans_pages.borrow().new_pages().len());
 
         // if transaction contains new pages, must return to database in another transaction
         if !self.trans_pages.borrow().new_pages().is_empty() {

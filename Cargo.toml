@@ -9,3 +9,6 @@ futures = "0.3.31"
 
 [dev-dependencies]
 time = { version = "0.3.37", features = ["macros"] }
+
+[features]
+debug-logs = []

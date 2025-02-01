@@ -44,3 +44,11 @@ macro_rules! into_non_drop {
         };
     };
 }
+
+macro_rules! debug_log {
+    ($category: ident: $($tt:tt)*) => {
+        if cfg!(feature = "debug-logs") {
+            std::println!("[{}||{}] {}", core::stringify!($category), core::module_path!(), core::format_args!($($tt)*));
+        }
+    }
+}
