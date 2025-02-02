@@ -23,6 +23,7 @@ pub enum ParseError {
     RemainingDataInDocument,
     BadTag(u8),
     BadUtf8(FromUtf8Error),
+    BadDecimal,
     NoTrailingZero,
     DateTimeRange,
     BadGuidLength,
@@ -43,6 +44,7 @@ impl Display for ParseError {
             }
             ParseError::BadTag(tag) => write!(f, "bad tag: {tag:02x}"),
             ParseError::BadUtf8(e) => Display::fmt(e, f),
+            ParseError::BadDecimal => f.write_str("bad decimal value"),
             ParseError::NoTrailingZero => f.write_str("no trailing zero byte in string"),
             ParseError::DateTimeRange => f.write_str("invalid date time range"),
             ParseError::BadGuidLength => f.write_str("bad GUID bytes length"),
@@ -180,7 +182,9 @@ pub(super) fn parse_element<R: BsonReader>(
         BsonTag::Null => Value::Null,
         BsonTag::ObjectId => Value::ObjectId(ObjectId::from_bytes(r.read_fully_fixed()?)),
         BsonTag::Boolean => Value::Boolean(r.read_fully_fixed::<1>()?[0] != 0),
-        BsonTag::Decimal => Value::Decimal(Decimal128::from_bytes(r.read_fully_fixed()?)),
+        BsonTag::Decimal => Value::Decimal(
+            Decimal128::from_bytes(r.read_fully_fixed()?).ok_or(ParseError::BadDecimal)?,
+        ),
         BsonTag::DateTime => Value::DateTime(
             DateTime::from_unix_milliseconds(i64::from_le_bytes(r.read_fully_fixed()?))
                 .ok_or(ParseError::DateTimeRange)?,
