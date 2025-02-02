@@ -3,7 +3,7 @@ use crate::bson::BsonWriter;
 use std::fmt::{Debug, Formatter};
 
 /// Represents GUID (or UUID)
-#[derive(Copy, Clone, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Eq, Hash, PartialEq, Ord, PartialOrd)]
 pub struct Guid {
     bytes: [u8; 16],
 }
