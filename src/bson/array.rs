@@ -1,4 +1,5 @@
-use super::{BsonReader, BsonWriter, ParseError, Value};
+use super::{BsonReader, BsonWriter, ParseError, TotalOrd, Value};
+use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::vec;
 
@@ -167,5 +168,43 @@ impl IntoIterator for Array {
     type IntoIter = vec::IntoIter<Value>;
     fn into_iter(self) -> Self::IntoIter {
         self.data.into_iter()
+    }
+}
+
+impl TotalOrd for Array {
+    fn total_cmp(&self, other: &Self) -> Ordering {
+        // iter_order_by is unstable
+        // self.data.iter().cmp_by(&other.data, |a, b| a.total_cmp(b))
+
+        let mut other = other.data.iter();
+        let mut this = self.data.iter();
+
+        loop {
+            let x = match this.next() {
+                None => {
+                    return if other.next().is_none() {
+                        // same length
+                        Ordering::Equal
+                    } else {
+                        // this is shorter than other
+                        Ordering::Less
+                    };
+                }
+                Some(val) => val,
+            };
+
+            let y = match other.next() {
+                None => {
+                    // other is shorter than other
+                    return Ordering::Greater;
+                }
+                Some(val) => val,
+            };
+
+            let cmp = x.total_cmp(&y);
+            if !cmp.is_eq() {
+                return cmp;
+            }
+        }
     }
 }

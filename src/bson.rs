@@ -23,6 +23,7 @@ mod document;
 mod guid;
 mod object_id;
 
+use std::cmp::Ordering;
 pub use array::Array;
 pub use binary::Binary;
 pub use date_time::DateTime;
@@ -542,6 +543,14 @@ impl Value {
             _ => None,
         }
     }
+}
+
+/// The trait that is for total order used in LiteDB
+///
+/// This trait is **NOT** consistent with PartialEq.
+/// This difference is the reason why this trait exists. 
+pub trait TotalOrd {
+    fn total_cmp(&self, other: &Self) -> Ordering;
 }
 
 #[cfg(test)]
