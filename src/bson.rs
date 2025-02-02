@@ -23,7 +23,6 @@ mod document;
 mod guid;
 mod object_id;
 
-use std::cmp::Ordering;
 pub use array::Array;
 pub use binary::Binary;
 pub use date_time::DateTime;
@@ -32,6 +31,7 @@ pub use decimal128::Decimal128;
 pub use document::Document;
 pub use guid::Guid;
 pub use object_id::ObjectId;
+use std::cmp::Ordering;
 
 /// The type of bson [`Value`]
 ///
@@ -548,9 +548,86 @@ impl Value {
 /// The trait that is for total order used in LiteDB
 ///
 /// This trait is **NOT** consistent with PartialEq.
-/// This difference is the reason why this trait exists. 
+/// This difference is the reason why this trait exists.
 pub trait TotalOrd {
     fn total_cmp(&self, other: &Self) -> Ordering;
+}
+
+impl TotalOrd for Value {
+    fn total_cmp(&self, other: &Self) -> Ordering {
+        use crate::bson::Value::*;
+        match (self, other) {
+            // same type matches
+            (Null, Null) => Ordering::Equal,
+            (MinValue, MinValue) => Ordering::Equal,
+            (MaxValue, MaxValue) => Ordering::Equal,
+
+            (Int32(l), Int32(r)) => l.cmp(r),
+            (Int64(l), Int64(r)) => l.cmp(r),
+            (Double(l), Double(r)) => match (l.is_nan(), r.is_nan()) {
+                (true, true) => Ordering::Equal,
+                (true, false) => Ordering::Less,
+                (false, true) => Ordering::Greater,
+                // partial_cmp returns None iff either one is none
+                (false, false) => l.partial_cmp(r).unwrap(),
+            },
+            (Decimal(l), Decimal(r)) => l.cmp(r),
+
+            (String(l), String(r)) => l.cmp(r),
+
+            (Document(l), Document(r)) => panic!(
+                "Comparing two documents is unsupported since upstream implementation is completely broken"
+            ),
+            (Array(l), Array(r)) => l.total_cmp(r),
+            (Binary(l), Binary(r)) => l.cmp(r),
+            (ObjectId(l), ObjectId(r)) => l.cmp(r),
+            (Guid(l), Guid(r)) => l.cmp(r),
+
+            (Boolean(l), Boolean(r)) => l.cmp(r),
+            (DateTime(l), DateTime(r)) => l.cmp(r),
+
+            // different type.
+            (l, r) => {
+                fn is_numeric(v: &Value) -> bool {
+                    matches!(v, Int32(_) | Int64(_) | Double(_) | Decimal(_))
+                }
+
+                if is_numeric(l) && is_numeric(r) {
+                    // if both are numeric, compare numerically with casting to Decimal.
+                    fn try_as_decimal(v: &Value) -> (Option<Decimal128>, bool) {
+                        match *v {
+                            Int32(v) => (Some(v.into()), v.is_negative()),
+                            Int64(v) => (Some(v.into()), v.is_negative()),
+                            Double(v) => (v.try_into().ok(), v < 0.0),
+                            Decimal(v) => (Some(v), v.is_negative()),
+                            _ => unreachable!(),
+                        }
+                    }
+
+                    match (try_as_decimal(l), try_as_decimal(r)) {
+                        // both can be successfully converted to Decomal32
+                        ((Some(l), _), (Some(r), _)) => l.cmp(&r),
+                        // Left overflows and left is positive: left is very big
+                        ((None, false), (Some(_), _)) => Ordering::Greater,
+                        // Left overflows and left is negative: left is very small
+                        ((None, true), (Some(_), _)) => Ordering::Less,
+
+                        // Right overflows and left is positive: right is very big
+                        ((Some(_), _), (None, false)) => Ordering::Less,
+                        // Right overflows and left is negative: right is very small
+                        ((Some(_), _), (None, true)) => Ordering::Greater,
+
+                        // Both Overflows: unreachable since overflow can only occur with Double/f64
+                        // and we've checked the type is not the same
+                        ((None, _), (None, _)) => unreachable!("Both overflows"),
+                    }
+                } else {
+                    // Either (or both) are not numeric; compare with type
+                    l.ty().cmp(&r.ty())
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -697,5 +774,72 @@ mod tests {
         let read = Document::parse_document(&mut std::io::Cursor::new(&mut buffer)).unwrap();
 
         assert_eq!(doc, read);
+    }
+
+    #[test]
+    fn compare_documents() {
+        use Value::*;
+        macro_rules! compare {
+            ($less: expr, $greater: expr) => {{
+                let less: Value = $less;
+                let greater: Value = $greater;
+
+                assert_eq!(less.total_cmp(&greater), Ordering::Less);
+                assert_eq!(greater.total_cmp(&less), Ordering::Greater);
+            }};
+        }
+
+        // type ordering
+        compare!(MinValue, Null);
+
+        compare!(Null, Int32(10));
+        compare!(Null, Int64(10));
+        compare!(Null, Double(10.0));
+        compare!(Null, Decimal(decimal!(10.0)));
+
+        compare!(Int32(10), String("test".into()));
+        compare!(Int64(10), String("test".into()));
+        compare!(Double(10.0), String("test".into()));
+        compare!(Decimal(decimal!(10.0)), String("test".into()));
+
+        compare!(String("test".into()), Document(document! {}));
+        compare!(Document(document! {}), Array(array! {}));
+        compare!(Array(array! {}), Binary(vec![].into()));
+        compare!(
+            Binary(vec![].into()),
+            ObjectId(object_id::ObjectId::from_bytes([0; 12]))
+        );
+        compare!(
+            ObjectId(object_id::ObjectId::from_bytes([0; 12])),
+            Guid(guid::Guid::from_bytes([0; 16]))
+        );
+        compare!(Guid(guid::Guid::from_bytes([0; 16])), Boolean(true));
+        compare!(Boolean(true), DateTime(date_time::DateTime::now()));
+        compare!(DateTime(date_time::DateTime::now()), MaxValue);
+
+        // numeric ordering
+        compare!(Int32(10), Int32(100));
+        compare!(Int32(10), Int64(100));
+        compare!(Int32(10), Double(100.0));
+        compare!(Int32(10), Decimal(decimal!(100.0)));
+
+        compare!(Int64(10), Int32(100));
+        compare!(Int64(10), Int64(100));
+        compare!(Int64(10), Double(100.0));
+        compare!(Int64(10), Decimal(decimal!(100.0)));
+
+        compare!(Double(10.0), Int32(100));
+        compare!(Double(10.0), Int64(100));
+        compare!(Double(10.0), Double(100.0));
+        compare!(Double(10.0), Decimal(decimal!(100.0)));
+
+        compare!(Decimal(decimal!(10)), Int32(100));
+        compare!(Decimal(decimal!(10)), Int64(100));
+        compare!(Decimal(decimal!(10)), Double(100.0));
+        compare!(Decimal(decimal!(10)), Decimal(decimal!(100.0)));
+
+        // overflowing decimal
+        compare!(Int32(10), Double(f64::INFINITY));
+        compare!(Double(f64::NEG_INFINITY), Int32(10));
     }
 }
