@@ -1,6 +1,6 @@
 use super::utils::ToHex;
 use std::cmp::Ordering;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 /// Microsoft's decimal128
 ///
@@ -226,7 +226,7 @@ impl Decimal128 {
     }
 
     #[inline]
-    const fn is_negative(&self) -> bool {
+    pub const fn is_negative(&self) -> bool {
         (self.repr & Self::SIGN_MASK) != 0
     }
 
@@ -379,6 +379,180 @@ from_primitive!(signed i16);
 from_primitive!(signed i32);
 from_primitive!(signed i64);
 
+pub struct TryFromDecimal128Error(());
+
+impl Debug for TryFromDecimal128Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Converting to Decimal128 overflows")
+    }
+}
+
+impl Display for TryFromDecimal128Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Converting to Decimal128 overflows")
+    }
+}
+
+impl std::error::Error for TryFromDecimal128Error {}
+
+impl TryFrom<f64> for Decimal128 {
+    type Error = TryFromDecimal128Error;
+
+    fn try_from(value: f64) -> Result<Self, TryFromDecimal128Error> {
+        return var_dec_from_r8(value);
+        // based on https://github.com/dotnet/runtime/blob/e51af404d1ea26be4a3d8e51fe21cf2f09ad34dd/src/libraries/System.Private.CoreLib/src/System/Decimal.DecCalc.cs#L1664
+
+        /// <summary>
+        /// Convert double to Decimal
+        /// </summary>
+        fn var_dec_from_r8(mut input: f64) -> Result<Decimal128, TryFromDecimal128Error> {
+            static DOUBLE_POWERS10: &[f64] = &[
+                1f64, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14,
+                1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22, 1e23, 1e24, 1e25, 1e26, 1e27, 1e28,
+                1e29, 1e30, 1e31, 1e32, 1e33, 1e34, 1e35, 1e36, 1e37, 1e38, 1e39, 1e40, 1e41, 1e42,
+                1e43, 1e44, 1e45, 1e46, 1e47, 1e48, 1e49, 1e50, 1e51, 1e52, 1e53, 1e54, 1e55, 1e56,
+                1e57, 1e58, 1e59, 1e60, 1e61, 1e62, 1e63, 1e64, 1e65, 1e66, 1e67, 1e68, 1e69, 1e70,
+                1e71, 1e72, 1e73, 1e74, 1e75, 1e76, 1e77, 1e78, 1e79, 1e80,
+            ];
+
+            const DEC_SCALE_MAX: i32 = 28;
+
+            // The most we can scale by is 10^28, which is just slightly more
+            // than 2^93.  So a float with an exponent of -94 could just
+            // barely reach 0.5, but smaller exponents will always round to zero.
+            //
+            const DBLBIAS: u32 = 1022;
+            let exp: i32 = get_exponent(input) as i32 - DBLBIAS as i32;
+            if exp < -94 {
+                return Ok(Decimal128::ZERO); // result should be zeroed out
+            }
+
+            if exp > 96 {
+                return Err(TryFromDecimal128Error(()));
+            }
+
+            let mut is_negative = false;
+            if input < 0.0 {
+                input = -input;
+                is_negative = true;
+            }
+
+            // Round the input to a 15-digit integer.  The R8 format has
+            // only 15 digits of precision, and we want to keep garbage digits
+            // out of the Decimal were making.
+            //
+            // Calculate max power of 10 input value could have by multiplying
+            // the exponent by log10(2).  Using scaled integer multiplcation,
+            // log10(2) * 2 ^ 16 = .30103 * 65536 = 19728.3.
+            //
+            let mut dbl = input;
+            let mut power = 14 - ((exp * 19728) >> 16);
+            // power is between -14 and 43
+
+            #[allow(clippy::collapsible_else_if)]
+            if power >= 0 {
+                // We have less than 15 digits, scale input up.
+                //
+                if power > DEC_SCALE_MAX {
+                    power = DEC_SCALE_MAX;
+                }
+
+                dbl *= DOUBLE_POWERS10[power as usize];
+            } else {
+                if power != -1 || dbl >= 1E15 {
+                    dbl /= DOUBLE_POWERS10[-power as usize];
+                } else {
+                    power = 0; // didn't scale it
+                }
+            }
+
+            debug_assert!(dbl < 1E15);
+            if dbl < 1E14 && power < DEC_SCALE_MAX {
+                dbl *= 10.0;
+                power += 1;
+                debug_assert!(dbl >= 1E14);
+            }
+
+            // Round to int64
+            //
+            let mut mant: u64;
+            // with SSE4.1 support ROUNDSD can be used
+            //if (X86.Sse41.IsSupported) {
+            //    mant = (ulong)(long)Math.Round(dbl);
+            //} else
+            {
+                mant = dbl as i64 as u64;
+                dbl -= mant as i64 as f64; // difference between input & integer
+                if dbl > 0.5 || dbl == 0.5 && (mant & 1) != 0 {
+                    mant += 1;
+                }
+            }
+
+            if mant == 0 {
+                return Ok(Decimal128::ZERO); // result should be zeroed out
+            }
+
+            if power < 0 {
+                // Add -power factors of 10, -power <= (29 - 15) = 14.
+                power = -power;
+
+                let mantissa = (mant as u128) * (POWERS_10[power as usize]);
+
+                Ok(Decimal128::new(mantissa, 0, is_negative))
+            } else {
+                // Factor out powers of 10 to reduce the scale, if possible.
+                // The maximum number we could factor out would be 14.  This
+                // comes from the fact we have a 15-digit number, and the
+                // MSD must be non-zero -- but the lower 14 digits could be
+                // zero.  Note also the scale factor is never negative, so
+                // we can't scale by any more than the power we used to
+                // get the integer.
+                //
+                let mut lmax = power;
+                if lmax > 14 {
+                    lmax = 14;
+                }
+
+                macro_rules! div_when_possible {
+                    // $actual_value must be 10 ^ $digits
+                    // $fast_mask must be one smaller than biggest 2^x divisor of $actual_value
+                    ($fast_mask: literal, $actual_value: literal, $digits: literal) => {
+                        // (mant & $fast_mask) == 0 checks for it can be divided by ($fast_mask + 1)
+                        // Which is biggest 2^x divisor of $actual_value
+                        if (mant & $fast_mask) == 0 && lmax >= $digits {
+                            const DEN: u64 = $actual_value;
+                            let div = mant / DEN;
+                            #[allow(unused_assignments)] // inside macro
+                            if mant & 0xFFFFFFFF == (div * DEN) & 0xFFFFFFFF {
+                                mant = div;
+                                power -= $digits;
+                                lmax -= $digits;
+                            }
+                        }
+                    };
+                }
+
+                div_when_possible!(0xFF, 100000000, 8);
+                div_when_possible!(0xF, 10000, 4);
+                div_when_possible!(0x3, 100, 2);
+                div_when_possible!(0x1, 10, 1);
+
+                Ok(Decimal128::new(mant as u128, power as u32, is_negative))
+            }
+        }
+
+        fn get_exponent(d: f64) -> u32 {
+            // Based on pulling out the exp from this double struct layout
+            // typedef struct {
+            //   DWORDLONG mant:52;
+            //   DWORDLONG signexp:12;
+            // } DBLSTRUCT;
+
+            ((d.to_bits() >> 52) & 0x7FF) as u32
+        }
+    }
+}
+
 #[test]
 fn construct_test() {
     macro_rules! construct_test {
@@ -456,6 +630,75 @@ fn construct_test() {
         Decimal128::MIN.bytes(),
         decimal!(-79228162514264337593543950335).bytes()
     );
+}
+
+#[test]
+fn from_f64_test() {
+    // very basic ones
+    assert_eq!(Decimal128::try_from(10.0).unwrap(), decimal!(10.0));
+    assert_eq!(Decimal128::try_from(10.1).unwrap(), decimal!(10.1));
+    assert_eq!(Decimal128::try_from(0.1).unwrap(), decimal!(0.1));
+
+    // copied from .NET
+    // https://github.com/dotnet/runtime/blob/e51af404d1ea26be4a3d8e51fe21cf2f09ad34dd/src/libraries/System.Runtime/tests/System.Runtime.Tests/System/DecimalTests.cs#L177-L211
+
+    macro_rules! test_cs {
+        ($double: literal, $converted: expr) => {
+            let double: f64 = $double;
+            let converted: [i32; 4] = $converted;
+            let converted_bytes = {
+                let mut tmp = [0u8; 16];
+                tmp[0..][..4].copy_from_slice(&converted[0].to_le_bytes());
+                tmp[4..][..4].copy_from_slice(&converted[1].to_le_bytes());
+                tmp[8..][..4].copy_from_slice(&converted[2].to_le_bytes());
+                tmp[12..][..4].copy_from_slice(&converted[3].to_le_bytes());
+                tmp
+            };
+
+            let after = Decimal128::try_from(double).unwrap();
+            assert_eq!(after.bytes(), converted_bytes);
+        };
+    }
+
+    test_cs!(123456789.123456, [-2045800064, 28744, 0, 393216]);
+    test_cs!(2.0123456789123456, [-1829795549, 46853, 0, 917504]);
+    test_cs!(2E-28, [2, 0, 0, 1835008]);
+    test_cs!(2E-29, [0, 0, 0, 0]);
+    test_cs!(2E28, [536870912, 2085225666, 1084202172, 0]);
+    test_cs!(1.5, [15, 0, 0, 65536]);
+    test_cs!(0.0, [0, 0, 0, 0]);
+    test_cs!(-0.0, [0, 0, 0, 0]);
+
+    test_cs!(100000000000000.1, [276447232, 23283, 0, 0]);
+    test_cs!(10000000000000.1, [276447233, 23283, 0, 65536]);
+    test_cs!(1000000000000.1, [1316134913, 2328, 0, 65536]);
+    test_cs!(100000000000.1, [-727379967, 232, 0, 65536]);
+    test_cs!(10000000000.1, [1215752193, 23, 0, 65536]);
+    test_cs!(1000000000.1, [1410065409, 2, 0, 65536]);
+    test_cs!(100000000.1, [1000000001, 0, 0, 65536]);
+    test_cs!(10000000.1, [100000001, 0, 0, 65536]);
+    test_cs!(1000000.1, [10000001, 0, 0, 65536]);
+    test_cs!(100000.1, [1000001, 0, 0, 65536]);
+    test_cs!(10000.1, [100001, 0, 0, 65536]);
+    test_cs!(1000.1, [10001, 0, 0, 65536]);
+    test_cs!(100.1, [1001, 0, 0, 65536]);
+    test_cs!(10.1, [101, 0, 0, 65536]);
+    test_cs!(1.1, [11, 0, 0, 65536]);
+    test_cs!(1.0, [1, 0, 0, 0]);
+    test_cs!(0.1, [1, 0, 0, 65536]);
+    test_cs!(0.01, [1, 0, 0, 131072]);
+    test_cs!(0.001, [1, 0, 0, 196608]);
+    test_cs!(0.0001, [1, 0, 0, 262144]);
+    test_cs!(0.00001, [1, 0, 0, 327680]);
+    test_cs!(0.0000000000000000000000000001, [1, 0, 0, 1835008]);
+    test_cs!(0.00000000000000000000000000001, [0, 0, 0, 0]);
+
+    // overflows
+    assert!(Decimal128::try_from(f64::NAN).is_err());
+    assert!(Decimal128::try_from(f64::MAX).is_err());
+    assert!(Decimal128::try_from(f64::MIN).is_err());
+    assert!(Decimal128::try_from(f64::INFINITY).is_err());
+    assert!(Decimal128::try_from(f64::NEG_INFINITY).is_err());
 }
 
 #[test]
