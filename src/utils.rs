@@ -3,10 +3,12 @@ use crate::bson;
 use crate::engine::{BufferReader, BufferWriter, PageAddress};
 use bson::BsonType;
 use std::cell::{Ref, RefCell, RefMut};
+use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::rc::Rc;
+use crate::bson::TotalOrd;
 
 // TODO: Implement the CompareOptions struct
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +42,14 @@ impl Default for Collation {
 impl Collation {
     pub fn new(lcid: i32, sort_options: CompareOptions) -> Self {
         Collation { lcid, sort_options }
+    }
+
+    pub(crate) fn compare(&self, left: &bson::Value, right: &bson::Value) -> Ordering {
+        use bson::Value::*;
+        match (left, right) {
+            (String(l), String(r)) => l.cmp(r), // TODO: compare with collation settings
+            (l, r) => l.total_cmp(r),
+        }
     }
 }
 
@@ -136,9 +146,10 @@ impl BufferSlice {
             BsonType::Int32 => bson::Value::Int32(self.read_i32(offset)),
             BsonType::Int64 => bson::Value::Int64(self.read_i64(offset)),
             BsonType::Double => bson::Value::Double(self.read_f64(offset)),
-            BsonType::Decimal => bson::Value::Decimal(bson::Decimal128::from_bytes(
-                self.read_bytes(offset, 16).try_into().unwrap(),
-            )), // known to be 16 bytes
+            BsonType::Decimal => bson::Value::Decimal(
+                bson::Decimal128::from_bytes(self.read_bytes(offset, 16).try_into().unwrap())
+                    .ok_or_else(Error::invalid_bson)?,
+            ), // known to be 16 bytes
             BsonType::String => {
                 let offset = offset + 1; // using length byte
                 bson::Value::String(self.read_string(offset, length as usize)?.to_owned())
