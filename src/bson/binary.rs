@@ -1,7 +1,7 @@
 use crate::bson::BsonWriter;
 use std::fmt::Debug;
 
-#[derive(Eq, PartialEq, Hash, Debug, Clone)]
+#[derive(Eq, PartialEq, Hash, Debug, Clone, Ord, PartialOrd)]
 pub struct Binary {
     bytes: Vec<u8>,
 }
@@ -49,4 +49,10 @@ impl From<Vec<u8>> for Binary {
     fn from(bytes: Vec<u8>) -> Self {
         Binary::new(bytes)
     }
+}
+
+#[test]
+fn cmp_test() {
+    assert!(Binary::new(vec![]) < Binary::new(vec![1, 2, 3]));
+    assert!(Binary::new(vec![0]) < Binary::new(vec![1, 2, 3]));
 }
