@@ -13,6 +13,7 @@ impl<SF: StreamFactory> LiteEngine<SF> {
 
     pub async fn drop_collection(&self, name: &str) -> Result<bool> {
         let mut transaction = self.monitor.create_transaction(false).await?;
+        transaction.safe_pointer();
         let snapshot = transaction
             .create_snapshot(LockMode::Write, name, false)
             .await?;
@@ -22,7 +23,12 @@ impl<SF: StreamFactory> LiteEngine<SF> {
 
         debug_log!(COMMAND: "Drop collection `{}`", name);
 
-        //snapshot.drop_collection();
+        snapshot.drop_collection(async || Ok(())).await?;
+        transaction.safe_point().await?;
+
+        self.sequences.lock().await.remove(name);
+
+        transaction.commit().await?;
 
         Ok(true)
     }

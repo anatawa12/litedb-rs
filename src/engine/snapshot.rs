@@ -819,7 +819,7 @@ impl<SF: StreamFactory> SnapshotPages<SF> {
 impl<SF: StreamFactory> Snapshot<SF> {
     pub async fn drop_collection(
         &mut self,
-        safe_point: impl AsyncFn() -> Result<()>,
+        mut safe_point: impl AsyncFnMut() -> Result<()>,
     ) -> Result<()> {
         let collation = self.page_collection.header.borrow().pragmas().collation();
         let max_items_count = self.page_collection.disk.max_items_count();
