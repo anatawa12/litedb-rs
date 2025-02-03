@@ -65,4 +65,16 @@ impl TransactionPages {
     pub fn add_new_page(&mut self, page_id: u32) {
         self.new_pages.push(page_id);
     }
+
+    pub fn deleted_pages(&self) -> usize {
+        self.deleted_pages
+    }
+
+    pub(crate) fn inc_deleted_pages(&mut self) {
+        self.deleted_pages += 1;
+    }
+
+    pub fn set_deleted_pages(&mut self, deleted_pages: usize) {
+        self.deleted_pages = deleted_pages;
+    }
 }

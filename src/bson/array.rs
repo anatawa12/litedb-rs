@@ -201,7 +201,7 @@ impl TotalOrd for Array {
                 Some(val) => val,
             };
 
-            let cmp = x.total_cmp(&y);
+            let cmp = x.total_cmp(y);
             if !cmp.is_eq() {
                 return cmp;
             }

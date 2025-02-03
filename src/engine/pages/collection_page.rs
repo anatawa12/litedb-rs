@@ -117,6 +117,27 @@ impl CollectionPage {
         indexes
     }
 
+    pub fn get_collection_indexes_slots_mut_with_dirty(
+        &mut self,
+    ) -> (Vec<Option<&mut CollectionIndex>>, &mut bool) {
+        let len = self
+            .indexes
+            .values()
+            .map(|x| x.slot())
+            .max()
+            .map(|x| x as usize + 1)
+            .unwrap_or(0);
+        let mut indexes = vec![];
+        indexes.resize_with(len, || None);
+
+        for index in self.indexes.values_mut() {
+            let slot = index.slot();
+            indexes[slot as usize] = Some(index);
+        }
+
+        (indexes, &mut self.base.dirty)
+    }
+
     pub fn insert_collection_index(
         &mut self,
         name: &str,

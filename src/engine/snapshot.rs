@@ -1,6 +1,6 @@
 use crate::engine::collection_service::CollectionService;
 use crate::engine::disk::DiskService;
-use crate::engine::index_service::IndexService;
+use crate::engine::index_service::{IndexService, PartialIndexNodeAccessorMut};
 use crate::engine::lock_service::{CollectionLockScope, LockService};
 use crate::engine::pages::HeaderPage;
 use crate::engine::transaction_pages::TransactionPages;
@@ -26,17 +26,18 @@ pub(crate) struct Snapshot<SF: StreamFactory> {
     collection_name: String,
     collection_page: Option<Pin<Box<CollectionPage>>>,
 
-    page_collection: PageCollection<SF>,
+    page_collection: SnapshotPages<SF>,
 }
 
 // for lifetime reasons, we split page collection to one struct
-struct PageCollection<SF: StreamFactory> {
+pub(crate) struct SnapshotPages<SF: StreamFactory> {
     header: Shared<HeaderPage>,
     disk: Rc<DiskService<SF>>,
     wal_index: Rc<WalIndexService>,
     trans_pages: Shared<TransactionPages>,
     read_version: i32,
     local_pages: HashMap<u32, Pin<Box<dyn Page>>>,
+    collection_page_id: Option<u32>,
 }
 
 impl<SF: StreamFactory> Snapshot<SF> {
@@ -65,12 +66,13 @@ impl<SF: StreamFactory> Snapshot<SF> {
             mode,
             collection_name: collection_name.to_string(),
             collection_page: None,
-            page_collection: PageCollection {
+            page_collection: SnapshotPages {
                 header,
                 disk,
                 trans_pages,
                 wal_index,
                 read_version,
+                collection_page_id: None,
                 local_pages: HashMap::new(),
             },
         };
@@ -96,6 +98,8 @@ impl<SF: StreamFactory> Snapshot<SF> {
         };
 
         snapshot.collection_page = collection_page;
+        snapshot.page_collection.collection_page_id =
+            snapshot.collection_page.as_ref().map(|x| x.page_id());
 
         Ok(snapshot)
     }
@@ -236,7 +240,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
 }
 
 // region Page Version functions
-impl<SF: StreamFactory> PageCollection<SF> {
+impl<SF: StreamFactory> SnapshotPages<SF> {
     pub async fn get_page<T: Page>(
         &mut self,
         page_id: u32,
@@ -445,6 +449,17 @@ impl<SF: StreamFactory> Snapshot<SF> {
         length: usize,
         free_index_page_list: u32,
     ) -> Result<Pin<&mut IndexPage>> {
+        self.page_collection
+            .get_free_index_page(length, free_index_page_list)
+            .await
+    }
+}
+impl<SF: StreamFactory> SnapshotPages<SF> {
+    pub async fn get_free_index_page(
+        &mut self,
+        length: usize,
+        free_index_page_list: u32,
+    ) -> Result<Pin<&mut IndexPage>> {
         let page;
 
         if free_index_page_list == u32::MAX {
@@ -460,8 +475,8 @@ impl<SF: StreamFactory> Snapshot<SF> {
 
         Ok(page)
     }
-
-    #[allow(clippy::await_holding_refcell_ref)]
+}
+impl<SF: StreamFactory> Snapshot<SF> {
     pub async fn new_page<T: Page>(&mut self) -> Result<Pin<&mut T>> {
         if self.collection_page.is_none() {
             debug_assert_eq!(
@@ -473,18 +488,24 @@ impl<SF: StreamFactory> Snapshot<SF> {
             debug_assert!(self.collection_page.is_none())
         }
 
+        self.page_collection.new_page().await
+    }
+}
+impl<SF: StreamFactory> SnapshotPages<SF> {
+    #[allow(clippy::await_holding_refcell_ref)]
+    pub async fn new_page<T: Page>(&mut self) -> Result<Pin<&mut T>> {
         let page_id;
         let buffer;
 
         // no locks
 
-        let free_empty_page_list = self.page_collection.header.borrow().free_empty_page_list();
+        let free_empty_page_list = self.header.borrow().free_empty_page_list();
         if free_empty_page_list != u32::MAX {
             let free = self
                 .get_page::<BasePage>(free_empty_page_list, true)
                 .await?;
             page_id = free.page_id();
-            let free = self.page_collection.local_pages.remove(&page_id).unwrap();
+            let free = self.local_pages.remove(&page_id).unwrap();
             let mut free = match free.downcast_pin::<BasePage>() {
                 Ok(page) => page,
                 Err(_) => unreachable!("the cast should not fail"),
@@ -497,8 +518,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
                 "empty page must be defined as empty type"
             );
 
-            self.page_collection
-                .header
+            self.header
                 .borrow_mut()
                 .set_free_empty_page_list(free.next_page_id());
 
@@ -507,7 +527,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
             //page_id = free.page_id(); //assigned above
             buffer = Pin::into_inner(free).into_buffer();
         } else {
-            let mut header = self.page_collection.header.borrow_mut();
+            let mut header = self.header.borrow_mut();
             let new_length = (header.last_page_id() as usize + 1) * PAGE_SIZE;
             if new_length > header.pragmas().limit_size() as usize {
                 return Err(Error::size_limit_reached());
@@ -518,32 +538,21 @@ impl<SF: StreamFactory> Snapshot<SF> {
             page_id = save_point.header.last_page_id() + 1;
             save_point.header.set_last_page_id(page_id);
 
-            buffer = self.page_collection.disk.get_reader().await?.new_page();
+            buffer = self.disk.get_reader().await?.new_page();
             forget(save_point);
         }
 
-        self.page_collection
-            .trans_pages
-            .borrow_mut()
-            .add_new_page(page_id);
+        self.trans_pages.borrow_mut().add_new_page(page_id);
 
         let mut page = T::new(buffer, page_id);
-        page.as_mut().set_col_id(
-            self.collection_page
-                .as_ref()
-                .map(|x| x.page_id())
-                .unwrap_or(page_id),
-        );
+        page.as_mut()
+            .set_col_id(self.collection_page_id.unwrap_or(page_id));
         page.as_mut().set_dirty();
 
-        self.page_collection
-            .trans_pages
-            .borrow_mut()
-            .transaction_size += 1;
+        self.trans_pages.borrow_mut().transaction_size += 1;
 
         if page.as_ref().page_type() != PageType::Collection {
             let page = self
-                .page_collection
                 .local_pages
                 .entry(page_id)
                 .insert_entry(Box::pin(page))
@@ -558,7 +567,9 @@ impl<SF: StreamFactory> Snapshot<SF> {
             Ok(unsafe { Pin::new_unchecked(Box::leak(Box::new(page))) })
         }
     }
+}
 
+impl<SF: StreamFactory> Snapshot<SF> {
     pub async fn add_or_remove_free_data_list(&mut self, page: &mut DataPage) -> Result<()> {
         let new_slot = DataPage::free_index_slot(page.free_bytes());
         let initial_slot = page.page_list_slot();
@@ -606,41 +617,51 @@ impl<SF: StreamFactory> Snapshot<SF> {
 
     pub async fn add_or_remove_free_index_list(
         &mut self,
-        page: &mut IndexPage,
+        page: *mut IndexPage,
         start_page_id: &mut u32,
     ) -> Result<()> {
+        if self
+            .page_collection
+            .add_or_remove_free_index_list(page, start_page_id)
+            .await?
+        {
+            self.collection_page.as_mut().unwrap().set_dirty();
+        }
+        Ok(())
+    }
+}
+
+impl<SF: StreamFactory> SnapshotPages<SF> {
+    pub async fn add_or_remove_free_index_list(
+        &mut self,
+        page: *mut IndexPage,
+        start_page_id: &mut u32,
+    ) -> Result<bool> {
+        let page = unsafe { &mut *page };
         let new_slot = IndexPage::free_index_slot(page.free_bytes());
         let is_on_list = page.page_list_slot() == 0;
         let must_keep = new_slot == 0;
+
+        let mut dirty = false;
 
         // first, test if page should be deleted
         if page.items_count() == 0 {
             #[allow(clippy::collapsible_if)]
             if is_on_list {
-                if self
-                    .page_collection
-                    .remove_free_list(page, start_page_id)
-                    .await?
-                {
-                    self.collection_page.as_mut().unwrap().set_dirty();
+                if self.remove_free_list(page, start_page_id).await? {
+                    dirty = true;
                 }
             }
 
-            self.page_collection.delete_page(page);
+            self.delete_page(page);
         } else {
             if is_on_list && !must_keep {
-                if self
-                    .page_collection
-                    .remove_free_list(page, start_page_id)
-                    .await?
-                {
-                    self.collection_page.as_mut().unwrap().set_dirty();
+                if self.remove_free_list(page, start_page_id).await? {
+                    dirty = true;
                 }
             } else if !is_on_list && must_keep {
-                self.page_collection
-                    .add_free_list(page, start_page_id)
-                    .await?;
-                self.collection_page.as_mut().unwrap().set_dirty();
+                self.add_free_list(page, start_page_id).await?;
+                dirty = true;
             }
 
             page.set_page_list_slot(new_slot);
@@ -649,10 +670,9 @@ impl<SF: StreamFactory> Snapshot<SF> {
             // otherwise, nothing was changed
         }
 
-        Ok(())
+        Ok(dirty)
     }
-}
-impl<SF: StreamFactory> PageCollection<SF> {
+
     async fn add_free_list<T: Page>(
         &mut self,
         page: &mut T,
@@ -691,7 +711,7 @@ impl<SF: StreamFactory> PageCollection<SF> {
         Ok(())
     }
 }
-impl<SF: StreamFactory> PageCollection<SF> {
+impl<SF: StreamFactory> SnapshotPages<SF> {
     async fn remove_free_list<T: Page>(
         &mut self,
         page: &mut T,
@@ -824,6 +844,15 @@ impl<SF: StreamFactory> Snapshot<SF> {
             // TODO: wip
             indexer.find_all(index, Order::Ascending);
         }
+    }
+}
+// rust lifetime utilities
+impl<SF: StreamFactory> Snapshot<SF> {
+    pub fn pages_and_collections(&mut self) -> (&mut SnapshotPages<SF>, &mut CollectionPage) {
+        (
+            &mut self.page_collection,
+            self.collection_page.as_mut().unwrap(),
+        )
     }
 }
 

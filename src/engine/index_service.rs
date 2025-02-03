@@ -1,13 +1,21 @@
-use crate::Result;
 use crate::bson;
+use crate::bson::Value;
 use crate::engine::collection_index::CollectionIndex;
-use crate::engine::index_node::IndexNode;
-use crate::engine::snapshot::Snapshot;
-use crate::engine::{IndexPage, MAX_LEVEL_LENGTH, PageAddress, StreamFactory};
-use crate::utils::Collation;
+use crate::engine::index_node::{IndexNode, IndexNodeMut};
+use crate::engine::snapshot::{Snapshot, SnapshotPages};
+use crate::engine::{
+    IndexPage, MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress, StreamFactory,
+};
+use crate::utils::{Collation, Order, Shared};
+use crate::{Error, Result};
+use std::collections::HashSet;
+use std::hash::{BuildHasher, RandomState};
+use std::ops::{Deref, DerefMut};
+use std::pin::Pin;
 
+// see http://igoro.com/archive/skip-lists-are-fascinating/ for index structure
 pub(crate) struct IndexService<'snapshot, SF: StreamFactory> {
-    snapshot: &'snapshot mut Snapshot<SF>,
+    pub(crate) snapshot: &'snapshot mut Snapshot<SF>,
     collation: Collation,
     max_item_count: u32,
 }
@@ -37,7 +45,7 @@ impl<SF: StreamFactory> IndexService<'_, SF> {
         expression: &str,
         unique: bool,
     ) -> Result<&mut CollectionIndex> {
-        let length = IndexNode::get_node_length(MAX_LEVEL_LENGTH as u8, &bson::Value::MinValue);
+        let (length, _) = IndexNode::get_node_length(MAX_LEVEL_LENGTH, &bson::Value::MinValue);
 
         let index = self
             .snapshot
@@ -49,7 +57,7 @@ impl<SF: StreamFactory> IndexService<'_, SF> {
         let mut index_page = self.snapshot.new_page::<IndexPage>().await?;
         let head = index_page.as_mut().insert_index_node(
             index_slot,
-            MAX_LEVEL_LENGTH as u8,
+            MAX_LEVEL_LENGTH,
             bson::Value::MinValue,
             PageAddress::default(),
             length,
@@ -57,7 +65,7 @@ impl<SF: StreamFactory> IndexService<'_, SF> {
         let head_position = head.position();
         let mut tail = index_page.as_mut().insert_index_node(
             index_slot,
-            MAX_LEVEL_LENGTH as u8,
+            MAX_LEVEL_LENGTH,
             bson::Value::MaxValue,
             PageAddress::default(),
             length,
@@ -84,5 +92,506 @@ impl<SF: StreamFactory> IndexService<'_, SF> {
         index.set_tail(head_position);
 
         Ok(index)
+    }
+
+    pub async fn add_node<'a>(
+        &'a mut self,
+        index: &mut CollectionIndex,
+        key: bson::Value,
+        data_block: PageAddress,
+        last: Option<&IndexNode<'a>>,
+    ) -> Result<IndexNodeMut<'a>> {
+        // RustChange: Document is valid since its order is not determinable
+        if key == bson::Value::MinValue
+            || key == bson::Value::MaxValue
+            || key.ty() == bson::BsonType::Document
+        {
+            return Err(Error::invalid_index_key(
+                "Min/Max Value are not supported as index key",
+            ));
+        }
+
+        let levels = self.flip();
+
+        self.add_node_with_levels(index, key, data_block, levels, last)
+            .await
+    }
+
+    async fn add_node_with_levels<'a>(
+        &'a mut self,
+        index: &mut CollectionIndex,
+        key: bson::Value,
+        data_block: PageAddress,
+        insert_levels: u8,
+        last: Option<&IndexNode<'a>>,
+    ) -> Result<IndexNodeMut<'a>> {
+        let (bytes_length, key_length) = IndexNode::get_node_length(insert_levels, &key);
+
+        if key_length > MAX_INDEX_KEY_LENGTH {
+            return Err(Error::invalid_index_key("Index key too long"));
+        }
+
+        let (pages, collections_page) = self.snapshot.pages_and_collections();
+        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+
+        let mut node = accessor
+            .insert_index_node(
+                index.free_index_page_list(),
+                index.slot(),
+                insert_levels,
+                key,
+                data_block,
+                bytes_length,
+            )
+            .await?;
+
+        let mut left_node = accessor.get_node_mut(index.head()).await?;
+        let mut counter = 0;
+
+        for current_level in (0..=(MAX_LEVEL_LENGTH - 1)).rev() {
+            let mut right = left_node.get_next(current_level);
+
+            while !right.is_empty() && right != index.tail() {
+                assert!(
+                    counter < self.max_item_count,
+                    "Detected loop in AddNode({:?})",
+                    node.position()
+                );
+                counter += 1;
+
+                let right_node = accessor.get_node_mut(right).await?;
+
+                let diff = self.collation.compare(right_node.key(), node.key());
+
+                if diff.is_eq() && index.unique() {
+                    return Err(Error::index_duplicate_key(
+                        index.name(),
+                        node.into_node().into_key(),
+                    ));
+                }
+
+                if diff.is_gt() {
+                    break;
+                }
+
+                right = right_node.get_next(current_level);
+                left_node = right_node;
+            }
+
+            if current_level < insert_levels {
+                // level == length
+                // prev: immediately before new node
+                // node: new inserted node
+                // next: right node from prev (where left is pointing)
+
+                let prev = left_node.position();
+                let mut next = left_node.get_next(current_level);
+
+                if next.is_empty() {
+                    next = index.tail();
+                }
+
+                // set new node pointer links with current level sibling
+                node.set_next(current_level, next);
+                node.set_prev(current_level, prev);
+
+                // fix sibling pointer to new node
+                left_node.set_next(current_level, node.position());
+
+                right = node.get_next(current_level); // next
+
+                let mut right_node = accessor.get_node_mut(right).await?;
+
+                // mark right page as dirty (after change PrevID)
+                right_node.set_prev(current_level, node.position());
+            }
+        }
+
+        if let Some(last) = last {
+            assert_eq!(
+                last.next_node(),
+                PageAddress::EMPTY,
+                "last index node must point to null"
+            );
+
+            let mut last = accessor.get_node_mut(last.position()).await?;
+            last.set_next_node(node.position());
+        }
+
+        if accessor
+            .snapshot
+            .add_or_remove_free_index_list(node.page_ptr(), index.free_index_page_list_mut())
+            .await?
+        {
+            collections_page.set_dirty();
+        }
+
+        let node = node.into_node();
+        Ok(node)
+    }
+
+    fn flip(&self) -> u8 {
+        let mut levels = 1;
+
+        //for (int R = Randomizer.Next(); (R & 1) == 1; R >>= 1)
+        let mut random = (RandomState::new().hash_one(0) & 0xFFFFFFFF) as u32;
+        while (random & 1) == 1 {
+            levels += 1;
+            if levels == MAX_LEVEL_LENGTH {
+                break;
+            }
+            random >>= 1;
+        }
+
+        levels
+    }
+
+    pub async fn get_node_list(&mut self, first_address: PageAddress) -> Result<Vec<IndexNodeMut>> {
+        let (pages, _) = self.snapshot.pages_and_collections();
+        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+        let mut result = Vec::new();
+
+        let mut current = first_address;
+        while !current.is_empty() {
+            let node = accessor.get_node_mut(current).await?.into_node();
+            current = node.next_node();
+            result.push(node)
+        }
+
+        Ok(result)
+    }
+
+    pub async fn delete_all(&mut self, first_address: PageAddress) -> Result<()> {
+        let (pages, collection_page) = self.snapshot.pages_and_collections();
+        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+        // Rust: no count check since we've checked recursion with PartialIndexNodeAccessorMut
+        let (mut indexes, dirty) = collection_page.get_collection_indexes_slots_mut_with_dirty();
+
+        let mut current = first_address;
+        while !current.is_empty() {
+            let node = accessor.get_node_mut(current).await?;
+            current = node.next_node();
+
+            let index = indexes[node.slot() as usize].as_mut().unwrap();
+            if Self::delete_single_node(&mut accessor, node.into_node(), index).await? {
+                *dirty = true;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn delete_list(
+        &mut self,
+        first_address: PageAddress,
+        to_delete: HashSet<PageAddress>,
+    ) -> Result<IndexNodeMut> {
+        let (pages, collection_page) = self.snapshot.pages_and_collections();
+        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+        let mut last = first_address;
+        // Rust: no count check since we've checked recursion with PartialIndexNodeAccessorMut
+        let (mut indexes, dirty) = collection_page.get_collection_indexes_slots_mut_with_dirty();
+
+        let mut current = accessor.get_node_mut(last).await?.next_node(); // starts in first node after PK
+
+        while !current.is_empty() {
+            let node = accessor.get_node_mut(current).await?;
+            current = node.next_node();
+
+            if to_delete.contains(&node.position()) {
+                let index = indexes[node.slot() as usize].as_mut().unwrap();
+                let position = node.next_node();
+                if Self::delete_single_node(&mut accessor, node.into_node(), index).await? {
+                    *dirty = true;
+                }
+                accessor.get_node_mut(last).await?.set_next_node(position);
+            } else {
+                last = node.position();
+            }
+        }
+
+        Ok(accessor.get_node_mut(last).await?.into_node())
+    }
+
+    /// Delete a single index node - fix tree double-linked list levels
+    async fn delete_single_node(
+        accessor: &mut PartialIndexNodeAccessorMut<'_, SF>,
+        node: IndexNodeMut<'_>,
+        index: &mut CollectionIndex,
+    ) -> Result<bool> {
+        for i in (0..node.levels()).rev() {
+            // get previous and next nodes (between my deleted node)
+            let prev_node = accessor.get_node_mut_opt(node.get_prev(i)).await?;
+            let next_node = accessor.get_node_mut_opt(node.get_next(i)).await?;
+
+            if let Some(mut prev_node) = prev_node {
+                prev_node.set_next(i, node.get_next(i));
+            }
+            if let Some(mut next_node) = next_node {
+                next_node.set_prev(i, node.get_prev(i));
+            }
+        }
+
+        let page_ptr = node.page_ptr();
+
+        node.remove_from_page();
+
+        accessor
+            .snapshot
+            .add_or_remove_free_index_list(page_ptr, index.free_index_page_list_mut())
+            .await
+    }
+
+    pub async fn drop_index(&mut self, index: &CollectionIndex) -> Result<()> {
+        let (pages, collection_page) = self.snapshot.pages_and_collections();
+        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+
+        let slot = index.slot();
+        let pk_index = collection_page.pk_index();
+
+        for pk_node in Self::find_all_accessor(&mut accessor, pk_index, Order::Ascending).await? {
+            let mut next = pk_node.next_node();
+            let mut last = pk_node;
+
+            while !next.is_empty() {
+                let node = accessor.get_node_mut(next).await?;
+                next = node.next_node();
+
+                if node.slot() == slot {
+                    // delete node from page (mark as dirty)
+                    unsafe { Pin::new_unchecked(&mut *node.page_ptr()) }
+                        .delete_index_node(node.position().index());
+
+                    last.set_next_node(node.next_node());
+                } else {
+                    last = node.into_node();
+                }
+            }
+        }
+
+        // removing head/tail index nodes
+        accessor
+            .get_node_mut(index.head())
+            .await?
+            .into_node()
+            .remove_from_page();
+        accessor
+            .get_node_mut(index.tail())
+            .await?
+            .into_node()
+            .remove_from_page();
+
+        Ok(())
+    }
+}
+
+// region Find
+impl<SF: StreamFactory> IndexService<'_, SF> {
+    pub async fn find_all(
+        &mut self,
+        index: &CollectionIndex,
+        order: Order,
+    ) -> Result<Vec<IndexNodeMut>> {
+        Self::find_all_accessor(
+            &mut PartialIndexNodeAccessorMut::new(self.snapshot.pages_and_collections().0),
+            index,
+            order,
+        )
+        .await
+    }
+    pub async fn find_all_accessor<'s>(
+        accessor: &mut PartialIndexNodeAccessorMut<'s, SF>,
+        index: &CollectionIndex,
+        order: Order,
+    ) -> Result<Vec<IndexNodeMut<'s>>> {
+        let mut cur = if order == Order::Ascending {
+            accessor.get_node_mut(index.head()).await?
+        } else {
+            accessor.get_node_mut(index.tail()).await?
+        };
+        let mut nodes = vec![];
+        //let counter = 0u;
+
+        let mut current = cur.get_next_prev(0, order);
+        while !current.is_empty() {
+            //ENSURE(counter++ < _maxItemsCount, "Detected loop in FindAll({0})", index.Name);
+
+            cur = accessor.get_node_mut(current).await?;
+
+            // stop if node is head/tail
+            if matches!(cur.key(), bson::Value::MaxValue | bson::Value::MinValue) {
+                break;
+            }
+
+            current = cur.get_next_prev(0, order);
+
+            nodes.push(cur.into_node());
+        }
+
+        Ok(nodes)
+    }
+
+    pub async fn find(
+        &mut self,
+        index: &CollectionIndex,
+        value: Value,
+        sibling: bool,
+        order: Order,
+    ) -> Result<Option<IndexNodeMut>> {
+        let accessor =
+            &mut PartialIndexNodeAccessorMut::new(self.snapshot.pages_and_collections().0);
+        let mut left_node = if order == Order::Ascending {
+            accessor.get_node_mut(index.head()).await?
+        } else {
+            accessor.get_node_mut(index.tail()).await?
+        };
+
+        let mut counter = 0;
+
+        for level in (0..=(MAX_LEVEL_LENGTH - 1)).rev() {
+            let mut right = left_node.get_next_prev(level, order);
+
+            while !right.is_empty() {
+                assert!(
+                    counter < self.max_item_count,
+                    "Detected loop in Find({}, {:?})",
+                    index.name(),
+                    value
+                );
+                counter += 1;
+
+                let right_node = accessor.get_node_mut(right).await?;
+
+                let diff = self.collation.compare(right_node.key(), &value);
+
+                if order == diff && (level > 0 || !sibling) {
+                    break; // go down one level
+                }
+
+                if order == diff && level == 0 && sibling {
+                    // is head/tail?
+                    if matches!(right_node.key(), Value::MinValue | Value::MaxValue) {
+                        return Ok(None);
+                    } else {
+                        return Ok(Some(right_node.into_node()));
+                    };
+                }
+
+                // if equals, return index node
+                if diff.is_eq() {
+                    return Ok(Some(right_node.into_node()));
+                }
+
+                right = right_node.get_next_prev(level, order);
+                left_node = right_node;
+            }
+        }
+
+        Ok(None)
+    }
+}
+
+/// The struct to safely partial borrow index node from snapshot.
+pub(crate) struct PartialIndexNodeAccessorMut<'snapshot, SF: StreamFactory> {
+    snapshot: &'snapshot mut SnapshotPages<SF>,
+    borrowed: Shared<HashSet<PageAddress>>,
+}
+
+impl<'snapshot, SF: StreamFactory> PartialIndexNodeAccessorMut<'snapshot, SF> {
+    pub(crate) fn new(snapshot: &'snapshot mut SnapshotPages<SF>) -> Self {
+        Self {
+            snapshot,
+            borrowed: Shared::new(HashSet::new()),
+        }
+    }
+
+    async fn insert_index_node(
+        &mut self,
+        free_index_page_list: u32,
+        slot: u8,
+        level: u8,
+        key: bson::Value,
+        data_block: PageAddress,
+        length: usize,
+    ) -> Result<IndexNodeMutRef<'snapshot>> {
+        let index_page = self
+            .snapshot
+            .get_free_index_page(length, free_index_page_list)
+            .await?;
+
+        let index_node = index_page.insert_index_node(slot, level, key, data_block, length);
+
+        let address = index_node.position();
+
+        self.borrowed.borrow_mut().insert(address);
+        Ok(IndexNodeMutRef {
+            node: unsafe { std::mem::transmute::<IndexNodeMut, IndexNodeMut>(index_node) },
+            address,
+            borrowed: self.borrowed.clone(),
+        })
+    }
+
+    async fn get_node_mut(&mut self, address: PageAddress) -> Result<IndexNodeMutRef<'snapshot>> {
+        Ok(self.get_node_mut_opt(address).await?.expect("not found"))
+    }
+    async fn get_node_mut_opt(
+        &mut self,
+        address: PageAddress,
+    ) -> Result<Option<IndexNodeMutRef<'snapshot>>> {
+        if address.page_id() == u32::MAX {
+            return Ok(None);
+        }
+        assert!(
+            !self.borrowed.borrow().contains(&address),
+            "double reference"
+        ); // TODO: make non-hard error
+
+        let index_page = self
+            .snapshot
+            .get_page::<IndexPage>(address.page_id(), false)
+            .await?;
+        let index_node = index_page.get_index_node_mut(address.index())?;
+
+        self.borrowed.borrow_mut().insert(address);
+        Ok(Some(IndexNodeMutRef {
+            node: unsafe { std::mem::transmute::<IndexNodeMut, IndexNodeMut>(index_node) },
+            address,
+            borrowed: self.borrowed.clone(),
+        }))
+    }
+}
+
+into_non_drop! {
+    struct IndexNodeMutRef<'snapshot> {
+        node: IndexNodeMut<'snapshot>,
+        address: PageAddress,
+        borrowed: Shared<HashSet<PageAddress>>,
+    }
+}
+
+impl<'snapshot> IndexNodeMutRef<'snapshot> {
+    fn into_node(self) -> IndexNodeMut<'snapshot> {
+        let destruct = self.into_destruct();
+        destruct.node
+    }
+}
+
+impl Drop for IndexNodeMutRef<'_> {
+    fn drop(&mut self) {
+        self.borrowed.borrow_mut().remove(&self.address);
+    }
+}
+
+impl<'snapshot> Deref for IndexNodeMutRef<'snapshot> {
+    type Target = IndexNodeMut<'snapshot>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.node
+    }
+}
+
+impl DerefMut for IndexNodeMutRef<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.node
     }
 }

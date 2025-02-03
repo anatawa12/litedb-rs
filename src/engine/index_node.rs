@@ -3,6 +3,7 @@ use crate::bson;
 use crate::engine::{IndexPage, PageAddress};
 use crate::utils::{BufferSlice, Order};
 use std::ops::Deref;
+use std::pin::Pin;
 
 const INDEX_NODE_FIXED_SIZE: usize =
     1 + 1 + PageAddress::SERIALIZED_SIZE + PageAddress::SERIALIZED_SIZE;
@@ -74,7 +75,7 @@ impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
         self.position
     }
 
-    fn get_next_prev(&self, level: u8, order: Order) -> PageAddress {
+    pub fn get_next_prev(&self, level: u8, order: Order) -> PageAddress {
         match order {
             Order::Ascending => self.next[level as usize],
             Order::Descending => self.prev[level as usize],
@@ -128,6 +129,14 @@ impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
 
     pub fn key(&self) -> &bson::Value {
         &self.key
+    }
+
+    pub fn slot(&self) -> u8 {
+        self.slot
+    }
+
+    pub fn levels(&self) -> u8 {
+        self.levels
     }
 
     pub fn next_node(&self) -> PageAddress {
@@ -235,5 +244,13 @@ impl<'a> IndexNodeMut<'a> {
 
     pub fn page_ptr(&self) -> *mut IndexPage {
         self.ptr
+    }
+}
+
+// lifetime utility
+impl IndexNodeMut<'_> {
+    pub(crate) fn remove_from_page(self) {
+        unsafe { Pin::new_unchecked(&mut *self.page_ptr()) }
+            .delete_index_node(self.position().index());
     }
 }

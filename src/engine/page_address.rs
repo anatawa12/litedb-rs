@@ -11,6 +11,15 @@ impl PageAddress {
             index: 0,
         }
     }
+
+    pub const EMPTY: PageAddress = PageAddress {
+        page_id: u32::MAX,
+        index: 0,
+    };
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.page_id == u32::MAX && self.index == u8::MAX
+    }
 }
 
 impl PageAddress {

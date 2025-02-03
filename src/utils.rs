@@ -1,5 +1,6 @@
 use crate::Error;
 use crate::bson;
+use crate::bson::TotalOrd;
 use crate::engine::{BufferReader, BufferWriter, PageAddress};
 use bson::BsonType;
 use std::cell::{Ref, RefCell, RefMut};
@@ -8,7 +9,6 @@ use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::rc::Rc;
-use crate::bson::TotalOrd;
 
 // TODO: Implement the CompareOptions struct
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -339,9 +339,17 @@ impl BufferSlice {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[repr(i8)]
 pub(crate) enum Order {
     Ascending = 1,
-    Descending = 2,
+    Descending = -1,
+}
+
+impl PartialEq<Ordering> for Order {
+    fn eq(&self, other: &Ordering) -> bool {
+        *self as i8 == *other as i8
+    }
 }
 
 /// The wrapper struct for Rc<RefCell<T>>

@@ -10,7 +10,7 @@ macro_rules! into_ok {
 macro_rules! into_non_drop {
     (
         $(#[$meta:meta])*
-        $struct_vis:vis struct $struct_name: ident $(< $($generics: ident $(: $constraint0: path )? ),+ >)? {
+        $struct_vis:vis struct $struct_name: ident $(< $($lifetime: lifetime),* $($generics: ident $(: $constraint0: path )? ),* >)? {
             $(
             $(#[$field_meta:meta])*
             $field_vis:vis $field_name:ident : $field_ty:ty
@@ -19,19 +19,19 @@ macro_rules! into_non_drop {
         }
     ) => {
         $(#[$meta])*
-        $struct_vis struct $struct_name $(< $($generics $(: $constraint0 )*),+ >)? {
+        $struct_vis struct $struct_name $(< $($lifetime),* $($generics $(: $constraint0 )*),* >)? {
             $($(#[$field_meta])* $field_vis $field_name: $field_ty,)*
         }
 
         const _: () = {
-            struct Destructed $(< $($generics $(: $constraint0 )*),*+>)? {
+            struct Destructed $(< $($lifetime),* $($generics $(: $constraint0 )*),* >)? {
                 $($(#[$field_meta])* $field_vis $field_name: $field_ty,)*
             }
 
-            impl  $(< $($generics $(: $constraint0 )*),* >)? $struct_name $(< $($generics),+ >)? {
+            impl  $(< $($lifetime),* $($generics $(: $constraint0 )*),* >)? $struct_name $(< $($lifetime),* $($generics),* >)? {
                 /// Converts this to destructed struct which does not implement drop
 
-                fn into_destruct(self) -> Destructed $(< $($generics),*>)?  {
+                fn into_destruct(self) -> Destructed $(< $($lifetime),* $($generics),*>)?  {
                     let mut manually_drop = ::core::mem::ManuallyDrop::new(self);
 
                     unsafe {

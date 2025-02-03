@@ -10,6 +10,7 @@
 #![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
 
+use crate::bson::Value;
 use crate::engine::{BasePage, PageType};
 use std::fmt::Display;
 
@@ -86,6 +87,14 @@ impl Error {
 
     pub(crate) fn transaction_limit() -> Error {
         Self::err("Maximum number of transactions reached")
+    }
+
+    pub(crate) fn invalid_index_key(message: &str) -> Error {
+        Error::err(format!("Invalid index key: {}", message))
+    }
+
+    pub(crate) fn index_duplicate_key(index: &str, key: Value) -> Error {
+        Error::err(format!("Duplicate key in index {index}: {key:?}"))
     }
 }
 

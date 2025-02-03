@@ -111,6 +111,10 @@ impl CollectionIndex {
         self.free_index_page_list
     }
 
+    pub fn free_index_page_list_mut(&mut self) -> &mut u32 {
+        &mut self.free_index_page_list
+    }
+
     pub fn set_free_index_page_list(&mut self, list: u32) {
         self.free_index_page_list = list;
     }
