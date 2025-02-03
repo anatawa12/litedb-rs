@@ -96,6 +96,10 @@ impl Error {
     pub(crate) fn index_duplicate_key(index: &str, key: Value) -> Error {
         Error::err(format!("Duplicate key in index {index}: {key:?}"))
     }
+
+    pub(crate) fn already_exists_collection_name(name: &str) -> Error {
+        Error::err(format!("Already exists collection name: {}", name))
+    }
 }
 
 impl Error {
