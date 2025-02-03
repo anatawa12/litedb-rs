@@ -1,5 +1,6 @@
 use crate::engine::collection_service::CollectionService;
 use crate::engine::disk::DiskService;
+use crate::engine::index_service::IndexService;
 use crate::engine::lock_service::{CollectionLockScope, LockService};
 use crate::engine::pages::HeaderPage;
 use crate::engine::transaction_pages::TransactionPages;
@@ -9,26 +10,31 @@ use crate::engine::{
     BasePage, CollectionPage, DataPage, FileOrigin, IndexPage, PAGE_SIZE, Page, PageType,
     StreamFactory,
 };
-use crate::utils::Shared;
+use crate::utils::{Order, Shared};
 use crate::{Error, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem::forget;
 use std::rc::Rc;
 
 pub(crate) struct Snapshot<SF: StreamFactory> {
-    header: Shared<HeaderPage>,
     lock_scope: Option<CollectionLockScope>,
-    disk: Rc<DiskService<SF>>,
-    wal_index: Rc<WalIndexService>,
 
     transaction_id: u32,
-    trans_pages: Shared<TransactionPages>,
 
-    read_version: i32,
     mode: LockMode,
     collection_name: String,
     collection_page: Option<CollectionPage>,
 
+    page_collection: PageCollection<SF>,
+}
+
+// for lifetime reasons, we split page collection to one struct
+struct PageCollection<SF: StreamFactory> {
+    header: Shared<HeaderPage>,
+    disk: Rc<DiskService<SF>>,
+    wal_index: Rc<WalIndexService>,
+    trans_pages: Shared<TransactionPages>,
+    read_version: i32,
     local_pages: HashMap<u32, Box<dyn Page>>,
 }
 
@@ -53,17 +59,19 @@ impl<SF: StreamFactory> Snapshot<SF> {
         let read_version = wal_index.current_read_version().await;
 
         let mut snapshot = Self {
-            header,
             lock_scope,
-            disk,
-            wal_index,
             transaction_id,
-            trans_pages,
-            read_version,
             mode,
             collection_name: collection_name.to_string(),
             collection_page: None,
-            local_pages: HashMap::new(),
+            page_collection: PageCollection {
+                header,
+                disk,
+                trans_pages,
+                wal_index,
+                read_version,
+                local_pages: HashMap::new(),
+            },
         };
 
         let mut srv = CollectionService::new(&mut snapshot);
@@ -75,6 +83,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
             let collection_page_id = collection_page.page_id();
             Some(
                 *snapshot
+                    .page_collection
                     .local_pages
                     .remove(&collection_page_id)
                     .unwrap()
@@ -92,19 +101,19 @@ impl<SF: StreamFactory> Snapshot<SF> {
     }
 
     pub fn header(&mut self) -> &Shared<HeaderPage> {
-        &self.header
+        &self.page_collection.header
     }
 
     pub fn trans_pages(&self) -> &Shared<TransactionPages> {
-        &self.trans_pages
+        &self.page_collection.trans_pages
     }
 
     pub fn disk(&self) -> &Rc<DiskService<SF>> {
-        &self.disk
+        &self.page_collection.disk
     }
 
     pub fn wal_index(&self) -> &Rc<WalIndexService> {
-        &self.wal_index
+        &self.page_collection.wal_index
     }
 
     pub fn mode(&self) -> LockMode {
@@ -124,11 +133,11 @@ impl<SF: StreamFactory> Snapshot<SF> {
     }
 
     pub fn local_pages(&self) -> impl Iterator<Item = &dyn Page> {
-        self.local_pages.values().map(AsRef::as_ref)
+        self.page_collection.local_pages.values().map(AsRef::as_ref)
     }
 
     pub fn read_version(&self) -> i32 {
-        self.read_version
+        self.page_collection.read_version
     }
 
     pub fn get_writable_pages(
@@ -140,6 +149,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
             None
         } else {
             let pages = self
+                .page_collection
                 .local_pages
                 .values()
                 .filter(move |p| p.as_ref().as_ref().is_dirty() == dirty)
@@ -166,6 +176,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
             None
         } else {
             let page_ids = self
+                .page_collection
                 .local_pages
                 .iter()
                 .filter(|(_, p)| p.as_ref().as_ref().is_dirty() == dirty)
@@ -173,7 +184,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
                 .collect::<Vec<_>>();
             let pages = page_ids
                 .into_iter()
-                .map(|k| self.local_pages.remove(&k).unwrap());
+                .map(|k| self.page_collection.local_pages.remove(&k).unwrap());
             let collection_page = self
                 .collection_page
                 .take_if(|p| with_collection_page && p.is_dirty() == dirty)
@@ -195,6 +206,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
             None
         } else {
             let pages = self
+                .page_collection
                 .local_pages
                 .values_mut()
                 .filter(move |p| p.as_ref().as_ref().is_dirty() == dirty)
@@ -213,12 +225,12 @@ impl<SF: StreamFactory> Snapshot<SF> {
     }
 
     pub fn clear(&mut self) {
-        self.local_pages.clear();
+        self.page_collection.local_pages.clear();
     }
 }
 
 // region Page Version functions
-impl<SF: StreamFactory> Snapshot<SF> {
+impl<SF: StreamFactory> PageCollection<SF> {
     pub async fn get_page<T: Page>(
         &mut self,
         page_id: u32,
@@ -361,6 +373,37 @@ impl<SF: StreamFactory> Snapshot<SF> {
             })
         }
     }
+}
+impl<SF: StreamFactory> Snapshot<SF> {
+    pub async fn get_page<T: Page>(
+        &mut self,
+        page_id: u32,
+        use_latest_version: bool, /* = false*/
+    ) -> Result<&mut T> {
+        self.page_collection
+            .get_page::<T>(page_id, use_latest_version)
+            .await
+    }
+
+    pub async fn get_page_with_additional_info<T: Page>(
+        &mut self,
+        page_id: u32,
+        use_latest_version: bool,
+    ) -> Result<PageWithAdditionalInfo<&mut T>> {
+        self.page_collection
+            .get_page_with_additional_info::<T>(page_id, use_latest_version)
+            .await
+    }
+
+    async fn read_page<T: Page>(
+        &mut self,
+        page_id: u32,
+        use_latest_version: bool,
+    ) -> Result<PageWithAdditionalInfo<T>> {
+        self.page_collection
+            .read_page(page_id, use_latest_version)
+            .await
+    }
 
     async fn get_free_data_page(&mut self, length: i32) -> Result<&mut DataPage> {
         let length = length as usize + BasePage::SLOT_SIZE;
@@ -429,13 +472,13 @@ impl<SF: StreamFactory> Snapshot<SF> {
 
         // no locks
 
-        let free_empty_page_list = self.header.borrow().free_empty_page_list();
+        let free_empty_page_list = self.page_collection.header.borrow().free_empty_page_list();
         if free_empty_page_list != u32::MAX {
             let free = self
                 .get_page::<BasePage>(free_empty_page_list, true)
                 .await?;
             page_id = free.page_id();
-            let free = self.local_pages.remove(&page_id).unwrap();
+            let free = self.page_collection.local_pages.remove(&page_id).unwrap();
             let mut free = match free.downcast::<BasePage>() {
                 Ok(page) => page,
                 Err(_) => unreachable!("the cast should not fail"),
@@ -448,7 +491,8 @@ impl<SF: StreamFactory> Snapshot<SF> {
                 "empty page must be defined as empty type"
             );
 
-            self.header
+            self.page_collection
+                .header
                 .borrow_mut()
                 .set_free_empty_page_list(free.next_page_id());
 
@@ -457,7 +501,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
             //page_id = free.page_id(); //assigned above
             buffer = free.into_buffer();
         } else {
-            let mut header = self.header.borrow_mut();
+            let mut header = self.page_collection.header.borrow_mut();
             let new_length = (header.last_page_id() as usize + 1) * PAGE_SIZE;
             if new_length > header.pragmas().limit_size() as usize {
                 return Err(Error::size_limit_reached());
@@ -468,11 +512,14 @@ impl<SF: StreamFactory> Snapshot<SF> {
             page_id = save_point.header.last_page_id() + 1;
             save_point.header.set_last_page_id(page_id);
 
-            buffer = self.disk.get_reader().await?.new_page();
+            buffer = self.page_collection.disk.get_reader().await?.new_page();
             forget(save_point);
         }
 
-        self.trans_pages.borrow_mut().add_new_page(page_id);
+        self.page_collection
+            .trans_pages
+            .borrow_mut()
+            .add_new_page(page_id);
 
         let mut page = T::new(buffer, page_id);
         page.as_mut().set_col_id(
@@ -483,10 +530,14 @@ impl<SF: StreamFactory> Snapshot<SF> {
         );
         page.as_mut().set_dirty();
 
-        self.trans_pages.borrow_mut().transaction_size += 1;
+        self.page_collection
+            .trans_pages
+            .borrow_mut()
+            .transaction_size += 1;
 
         if page.as_ref().page_type() != PageType::Collection {
             let page = self
+                .page_collection
                 .local_pages
                 .entry(page_id)
                 .insert_entry(Box::new(page))
@@ -500,6 +551,238 @@ impl<SF: StreamFactory> Snapshot<SF> {
             // UNSAFE: for collection page, leak
             Ok(Box::leak(Box::new(page)))
         }
+    }
+
+    pub async fn add_or_remove_free_data_list(&mut self, page: &mut DataPage) -> Result<()> {
+        let new_slot = DataPage::free_index_slot(page.free_bytes());
+        let initial_slot = page.page_list_slot();
+
+        // there is no slot change - just exit (no need any change) [except if has no more items]
+        if new_slot == initial_slot && page.items_count() > 0 {
+            return Ok(());
+        }
+
+        // remove from intial slot
+        #[allow(clippy::collapsible_if)]
+        if initial_slot != u8::MAX {
+            if self
+                .page_collection
+                .remove_free_list(
+                    page,
+                    &mut self.collection_page.as_mut().unwrap().free_data_page_list
+                        [initial_slot as usize],
+                )
+                .await?
+            {
+                self.collection_page.as_mut().unwrap().set_dirty();
+            }
+        }
+
+        // if there is no items, delete page
+        if page.items_count() == 0 {
+            self.page_collection.delete_page(page);
+        } else {
+            // add into current slot
+            self.page_collection
+                .add_free_list(
+                    page,
+                    &mut self.collection_page.as_mut().unwrap().free_data_page_list
+                        [new_slot as usize],
+                )
+                .await?;
+            self.collection_page.as_mut().unwrap().set_dirty();
+
+            page.set_page_list_slot(new_slot);
+        }
+
+        Ok(())
+    }
+
+    pub async fn add_or_remove_free_index_list(
+        &mut self,
+        page: &mut IndexPage,
+        start_page_id: &mut u32,
+    ) -> Result<()> {
+        let new_slot = IndexPage::free_index_slot(page.free_bytes());
+        let is_on_list = page.page_list_slot() == 0;
+        let must_keep = new_slot == 0;
+
+        // first, test if page should be deleted
+        if page.items_count() == 0 {
+            #[allow(clippy::collapsible_if)]
+            if is_on_list {
+                if self
+                    .page_collection
+                    .remove_free_list(page, start_page_id)
+                    .await?
+                {
+                    self.collection_page.as_mut().unwrap().set_dirty();
+                }
+            }
+
+            self.page_collection.delete_page(page);
+        } else {
+            if is_on_list && !must_keep {
+                if self
+                    .page_collection
+                    .remove_free_list(page, start_page_id)
+                    .await?
+                {
+                    self.collection_page.as_mut().unwrap().set_dirty();
+                }
+            } else if !is_on_list && must_keep {
+                self.page_collection
+                    .add_free_list(page, start_page_id)
+                    .await?;
+                self.collection_page.as_mut().unwrap().set_dirty();
+            }
+
+            page.set_page_list_slot(new_slot);
+            page.set_dirty();
+
+            // otherwise, nothing was changed
+        }
+
+        Ok(())
+    }
+}
+impl<SF: StreamFactory> PageCollection<SF> {
+    async fn add_free_list<T: Page>(
+        &mut self,
+        page: &mut T,
+        start_page_id: &mut u32,
+    ) -> Result<()> {
+        assert_eq!(
+            page.as_ref().prev_page_id(),
+            u32::MAX,
+            "only non-linked page can be added in linked list"
+        );
+        assert_eq!(
+            page.as_ref().next_page_id(),
+            u32::MAX,
+            "only non-linked page can be added in linked list"
+        );
+
+        if *start_page_id != u32::MAX {
+            let next = self.get_page::<T>(*start_page_id, false).await?;
+            next.as_mut().set_prev_page_id(page.as_ref().page_id());
+            next.as_mut().set_dirty();
+        }
+
+        page.as_mut().set_prev_page_id(u32::MAX);
+        page.as_mut().set_next_page_id(*start_page_id);
+        page.as_mut().set_dirty();
+
+        assert!(
+            page.as_ref().page_type() == PageType::Data
+                || page.as_ref().page_type() == PageType::Index,
+            "only data/index pages must be first on free stack"
+        );
+
+        *start_page_id = page.as_ref().page_id();
+
+        Ok(())
+    }
+}
+impl<SF: StreamFactory> PageCollection<SF> {
+    async fn remove_free_list<T: Page>(
+        &mut self,
+        page: &mut T,
+        start_page_id: &mut u32,
+    ) -> Result<bool> {
+        // fix prev page
+        if page.as_ref().prev_page_id() != u32::MAX {
+            let prev = self
+                .get_page::<T>(page.as_ref().prev_page_id(), false)
+                .await?;
+            prev.as_mut().set_next_page_id(page.as_ref().next_page_id());
+            prev.as_mut().set_dirty();
+        }
+
+        // fix next page
+        if page.as_ref().next_page_id() != u32::MAX {
+            let next = self
+                .get_page::<T>(page.as_ref().next_page_id(), false)
+                .await?;
+            next.as_mut().set_prev_page_id(page.as_ref().prev_page_id());
+            next.as_mut().set_dirty();
+        }
+
+        let mut set_dirty = false;
+        // if page is first of the list set firstPage as next page
+        if *start_page_id == page.as_ref().page_id() {
+            *start_page_id = page.as_ref().next_page_id();
+
+            //debug_assert!(page.as_ref().next_page_id() == u32::MAX || self.get_page::<BasePage>(page.NextPageID).PageType != PageType.Empty, "first page on free stack must be non empty page");
+
+            set_dirty = true;
+            //self.collection_page.as_mut().unwrap().set_dirty()
+        }
+
+        // clear page pointer (MaxValue = not used)
+        page.as_mut().set_prev_page_id(u32::MAX);
+        page.as_mut().set_next_page_id(u32::MAX);
+        //page.PrevPageID = page.NextPageID = uint.MaxValue;
+        page.as_mut().set_dirty();
+
+        Ok(set_dirty)
+    }
+
+    fn delete_page<T: Page>(&mut self, page: &mut T) {
+        assert!(
+            page.as_ref().prev_page_id() == u32::MAX && page.as_ref().next_page_id() == u32::MAX,
+            "before delete a page, no linked list with any another page"
+        );
+        assert!(
+            page.as_ref().items_count() == 0
+                && page.as_ref().used_bytes() == 0
+                && page.as_ref().highest_index() == u8::MAX
+                && page.as_ref().fragmented_bytes() == 0,
+            "no items on page when delete this page"
+        );
+        assert!(
+            page.as_ref().page_type() == PageType::Data
+                || page.as_ref().page_type() == PageType::Index,
+            "only data/index page can be deleted"
+        );
+        //DEBUG(!_collectionPage.FreeDataPageList.Any(x => x == page.PageID), "this page cann't be deleted because free data list page is linked o this page");
+        //DEBUG(!_collectionPage.GetCollectionIndexes().Any(x => x.FreeIndexPageList == page.PageID), "this page cann't be deleted because free index list page is linked o this page");
+        //DEBUG(page.Buffer.Slice(PAGE_HEADER_SIZE, PAGE_SIZE - PAGE_HEADER_SIZE - 1).All(0), "page content shloud be empty");
+
+        // mark page as empty and dirty
+        page.as_mut().mark_as_empty();
+
+        if self.trans_pages.borrow().first_deleted_page() == u32::MAX {
+            assert_eq!(
+                self.trans_pages.borrow().deleted_pages(),
+                0,
+                "if has no firstDeletedPageID must has deleted pages"
+            );
+
+            // set first and last deleted page as current deleted page
+            self.trans_pages
+                .borrow_mut()
+                .set_first_deleted_page(page.as_ref().page_id());
+            self.trans_pages
+                .borrow_mut()
+                .set_last_deleted_page(page.as_ref().page_id());
+        } else {
+            assert!(
+                self.trans_pages.borrow().deleted_pages() > 0,
+                "must have at least 1 deleted page"
+            );
+
+            // set next link from current deleted page to first deleted page
+            page.as_mut()
+                .set_next_page_id(self.trans_pages.borrow().first_deleted_page());
+
+            // and then, set this current deleted page as first page making a linked list
+            self.trans_pages
+                .borrow_mut()
+                .set_first_deleted_page(page.as_ref().page_id());
+        }
+
+        self.trans_pages.borrow_mut().inc_deleted_pages();
     }
 }
 

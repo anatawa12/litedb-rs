@@ -201,8 +201,12 @@ impl BasePage {
         self.next_page_id
     }
 
+    pub fn set_prev_page_id(&mut self, next_page_id: u32) {
+        self.prev_page_id = next_page_id;
+    }
+
     pub fn set_next_page_id(&mut self, next_page_id: u32) {
-        self.page_id = next_page_id;
+        self.next_page_id = next_page_id;
     }
 
     pub fn page_list_slot(&self) -> u8 {
