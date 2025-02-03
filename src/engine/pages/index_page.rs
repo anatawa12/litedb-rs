@@ -32,30 +32,36 @@ impl IndexPage {
         IndexNode::load(self.page_id(), index, segment)
     }
 
+    fn as_ptr(self: Pin<&mut Self>) -> *mut Self {
+        unsafe { Pin::into_inner_unchecked(self) as *mut Self }
+    }
+
     fn base(self: Pin<&mut Self>) -> &mut BasePage {
         unsafe { &mut Pin::into_inner_unchecked(self).base }
     }
 
-    pub fn get_index_node_mut(self: Pin<&mut Self>, index: u8) -> Result<IndexNodeMut> {
+    pub fn get_index_node_mut(mut self: Pin<&mut Self>, index: u8) -> Result<IndexNodeMut> {
+        let ptr = self.as_mut().as_ptr();
         let base = self.base();
         let page_id = base.page_id();
-        let (segment, dirty_ptr) = base.get_mut_with_dirty(index);
-        IndexNodeMut::load(page_id, dirty_ptr, index, segment)
+        let segment = base.get_mut(index);
+        IndexNodeMut::load(page_id, ptr, index, segment)
     }
 
     pub fn insert_index_node(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         slot: u8,
         level: u8,
         key: bson::Value,
         data_block: PageAddress,
         length: usize,
     ) -> IndexNodeMut {
+        let ptr = self.as_mut().as_ptr();
         let base = self.base();
         let page_id = base.page_id();
-        let (segment, index, dirty) = base.insert_with_dirty(length);
+        let (segment, index) = base.insert(length);
 
-        IndexNodeMut::new(page_id, index, dirty, segment, slot, level, key, data_block)
+        IndexNodeMut::new(page_id, index, ptr, segment, slot, level, key, data_block)
     }
 
     pub fn delete_index_node(self: Pin<&mut Self>, index: u8) {
@@ -68,6 +74,18 @@ impl IndexPage {
 
     pub fn free_index_slot(free_bytes: usize) -> u8 {
         if free_bytes >= MAX_INDEX_LENGTH { 0 } else { 1 }
+    }
+}
+
+// Rust lifetime utility
+impl IndexPage {
+    pub(crate) unsafe fn set_dirty_ptr(ptr: *mut IndexPage) {
+        unsafe {
+            // SAFETY: &raw mut (*ptr).base.dirty is just a pointer math
+            // the ptr should have ownership for dirty
+            let dirty_ptr = &raw mut (*ptr).base.dirty;
+            *dirty_ptr = true;
+        }
     }
 }
 

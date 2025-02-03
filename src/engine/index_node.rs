@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::bson;
-use crate::engine::PageAddress;
+use crate::engine::{IndexPage, PageAddress};
 use crate::utils::{BufferSlice, Order};
 use std::ops::Deref;
 
@@ -22,11 +22,11 @@ pub(crate) struct IndexNodeShared<S, D> {
     next_node: PageAddress,
     prev: Vec<PageAddress>,
     next: Vec<PageAddress>,
-    dirty_ptr: D,
+    ptr: D,
 }
 
 pub(crate) type IndexNode<'a> = IndexNodeShared<&'a BufferSlice, ()>;
-pub(crate) type IndexNodeMut<'a> = IndexNodeShared<&'a mut BufferSlice, &'a mut bool>;
+pub(crate) type IndexNodeMut<'a> = IndexNodeShared<&'a mut BufferSlice, *mut IndexPage>;
 
 fn calc_key_ptr(levels: u8) -> usize {
     P_PREV_NEXT + levels as usize * PageAddress::SERIALIZED_SIZE * 2
@@ -66,7 +66,7 @@ impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
             next_node,
             prev,
             next,
-            dirty_ptr,
+            ptr: dirty_ptr,
         })
     }
 
@@ -110,10 +110,33 @@ impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
             + byte_len
     }
 
-    pub fn get_node_length(level: u8, key: &bson::Value) -> usize {
+    pub fn get_node_length(level: u8, key: &bson::Value) -> (usize, usize) {
         let key_length = Self::get_key_length(key, false);
+        let bytes_length =
+            INDEX_NODE_FIXED_SIZE + level as usize * PageAddress::SERIALIZED_SIZE * 2 + key_length;
 
-        INDEX_NODE_FIXED_SIZE + level as usize * PageAddress::SERIALIZED_SIZE * 2 + key_length
+        (bytes_length, key_length)
+    }
+
+    pub fn get_next(&self, level: u8) -> PageAddress {
+        self.next[level as usize]
+    }
+
+    pub fn get_prev(&self, level: u8) -> PageAddress {
+        self.prev[level as usize]
+    }
+
+    pub fn key(&self) -> &bson::Value {
+        &self.key
+    }
+
+    pub fn next_node(&self) -> PageAddress {
+        self.next_node
+    }
+
+    // used when creating error
+    pub(crate) fn into_key(self) -> bson::Value {
+        self.key
     }
 }
 
@@ -126,7 +149,7 @@ impl<'a> IndexNode<'a> {
 impl<'a> IndexNodeMut<'a> {
     pub fn load(
         page_id: u32,
-        dirty_ptr: &'a mut bool,
+        dirty_ptr: *mut IndexPage,
         index: u8,
         segment: &'a mut BufferSlice,
     ) -> Result<Self> {
@@ -136,7 +159,7 @@ impl<'a> IndexNodeMut<'a> {
     pub fn new(
         page_id: u32,
         index: u8,
-        dirty_ptr: &'a mut bool,
+        dirty_ptr: *mut IndexPage,
         segment: &'a mut BufferSlice,
         slot: u8,
         levels: u8,
@@ -164,7 +187,7 @@ impl<'a> IndexNodeMut<'a> {
             next_node,
             prev,
             next,
-            dirty_ptr,
+            ptr: dirty_ptr,
         };
 
         // write data
@@ -181,7 +204,7 @@ impl<'a> IndexNodeMut<'a> {
     }
 
     fn set_dirty(&mut self) {
-        *self.dirty_ptr = true;
+        unsafe { IndexPage::set_dirty_ptr(self.ptr) };
     }
 
     pub fn set_next_node(&mut self, values: PageAddress) {
@@ -208,5 +231,9 @@ impl<'a> IndexNodeMut<'a> {
             address,
         );
         self.set_dirty();
+    }
+
+    pub fn page_ptr(&self) -> *mut IndexPage {
+        self.ptr
     }
 }

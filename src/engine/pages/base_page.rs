@@ -42,7 +42,7 @@ pub(crate) struct BasePage {
     next_free_position: u16,
     highest_index: u8,
 
-    dirty: bool,
+    pub(crate) dirty: bool,
     // cache for GetFreeIndex
     start_index: u8,
 }
