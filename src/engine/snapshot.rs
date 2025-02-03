@@ -817,33 +817,91 @@ impl<SF: StreamFactory> SnapshotPages<SF> {
 
 // region drop collection
 impl<SF: StreamFactory> Snapshot<SF> {
-    pub async fn drop_collection(&mut self, f: impl AsyncFn() -> ()) {
-        let indexer = IndexService::new(
-            self,
-            self.page_collection.header.borrow().pragmas().collation(),
-            self.page_collection.disk.max_items_count(),
-        );
+    pub async fn drop_collection(
+        &mut self,
+        safe_point: impl AsyncFn() -> Result<()>,
+    ) -> Result<()> {
+        let collation = self.page_collection.header.borrow().pragmas().collation();
+        let max_items_count = self.page_collection.disk.max_items_count();
+        let indexer = IndexService::new(self, collation, max_items_count);
 
-        let mut collection_page = self
-            .collection_page
-            .as_mut()
-            .expect("The collection page is None");
-        let mut trans_pages = self.page_collection.trans_pages.borrow_mut();
-        trans_pages.set_first_deleted_page(collection_page.page_id());
-        trans_pages.set_last_deleted_page(collection_page.page_id());
+        let (pages, collection_page) = indexer.snapshot.pages_and_collections();
+        let trans_pages_shared = pages.trans_pages.clone();
+        {
+            let mut trans_pages = trans_pages_shared.borrow_mut();
+            trans_pages.set_first_deleted_page(collection_page.page_id());
+            trans_pages.set_last_deleted_page(collection_page.page_id());
 
-        collection_page.mark_as_empty();
+            collection_page.mark_as_empty();
 
-        trans_pages.set_deleted_pages(1);
+            trans_pages.set_deleted_pages(1);
+
+            drop(trans_pages);
+        }
 
         let mut index_pages = HashSet::new();
 
+        // getting all indexes pages from all indexes
         for index in collection_page.get_collection_indexes() {
+            // add head/tail (same page) to be deleted
             index_pages.insert(index.head().page_id());
 
-            // TODO: wip
-            indexer.find_all(index, Order::Ascending);
+            let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+            for node in
+                IndexService::find_all_accessor(&mut accessor, index, Order::Ascending).await?
+            {
+                index_pages.insert(unsafe { &*node.page_ptr() }.page_id());
+                safe_point().await?;
+            }
         }
+
+        // now, mark all pages as deleted
+        for page_id in index_pages {
+            let page = pages.get_page::<IndexPage>(page_id, true).await?;
+            let mut page = page.as_base_mut();
+
+            // mark page as delete and fix deleted page list
+            page.mark_as_empty();
+
+            {
+                let mut trans_pages = trans_pages_shared.borrow_mut();
+                page.set_next_page_id(trans_pages.first_deleted_page());
+                trans_pages.set_first_deleted_page(page.page_id());
+                trans_pages.inc_deleted_pages();
+            }
+
+            safe_point().await?;
+        }
+
+        // adding all data pages
+        for start_page_id in collection_page.free_data_page_list {
+            let mut next = start_page_id;
+
+            while next != u32::MAX {
+                let mut page = pages.get_page::<DataPage>(next, false).await?;
+
+                next = page.next_page_id();
+
+                // mark page as delete and fix deleted page list
+                page.mark_as_empty();
+
+                {
+                    let mut trans_pages = trans_pages_shared.borrow_mut();
+                    page.set_next_page_id(trans_pages.first_deleted_page());
+                    trans_pages.set_first_deleted_page(page.page_id());
+                    trans_pages.inc_deleted_pages();
+                }
+
+                safe_point().await?;
+            }
+        }
+
+        // remove collection name (in header) at commit time
+        let collection_name = self.collection_name.clone();
+        let mut trans_pages = trans_pages_shared.borrow_mut();
+        trans_pages.on_commit(move |h| h.delete_collection(&collection_name));
+
+        Ok(())
     }
 }
 // rust lifetime utilities
