@@ -4,7 +4,7 @@ use crate::engine::{PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer};
 use crate::utils::BufferSlice;
 use std::cmp::Ordering;
 use std::fmt::Debug;
-
+use std::pin::Pin;
 // The common variables for each page
 
 const SLOT_SIZE: usize = 4;
@@ -711,12 +711,16 @@ impl Page for BasePage {
         Self::new(buffer, page_id, PageType::Empty)
     }
 
-    fn update_buffer(&mut self) -> &PageBuffer {
-        self.update_buffer()
+    fn update_buffer(self: Pin<&mut Self>) -> &PageBuffer {
+        Pin::into_inner(self).update_buffer()
     }
 
-    fn into_base(self: Box<Self>) -> BasePage {
-        *self
+    fn into_base(self: Pin<Box<Self>>) -> BasePage {
+        *Pin::into_inner(self)
+    }
+
+    fn as_base_mut(self: Pin<&mut Self>) -> Pin<&mut BasePage> {
+        self
     }
 }
 

@@ -3,22 +3,28 @@ use crate::bson;
 use crate::engine::index_node::{IndexNode, IndexNodeMut};
 use crate::engine::{BasePage, MAX_INDEX_LENGTH, Page, PageAddress, PageBuffer, PageType};
 use std::ops::{Deref, DerefMut};
+use std::pin::Pin;
 
 pub(crate) struct IndexPage {
     base: BasePage,
+    _phantom: std::marker::PhantomPinned,
 }
 
 impl IndexPage {
     pub fn new(buffer: Box<PageBuffer>, page_id: u32) -> Self {
         Self {
             base: BasePage::new(buffer, page_id, PageType::Index),
+            _phantom: std::marker::PhantomPinned,
         }
     }
 
     pub fn load(buffer: Box<PageBuffer>) -> Result<Self> {
         let base = BasePage::load(buffer)?;
         assert_eq!(base.page_type(), PageType::Index);
-        Ok(Self { base })
+        Ok(Self {
+            base,
+            _phantom: std::marker::PhantomPinned,
+        })
     }
 
     pub fn get_index_node(&self, index: u8) -> Result<IndexNode> {
@@ -26,28 +32,34 @@ impl IndexPage {
         IndexNode::load(self.page_id(), index, segment)
     }
 
-    pub fn get_index_node_mut(&mut self, index: u8) -> Result<IndexNodeMut> {
-        let page_id = self.page_id();
-        let (segment, dirty_ptr) = self.base.get_mut_with_dirty(index);
+    fn base(self: Pin<&mut Self>) -> &mut BasePage {
+        unsafe { &mut Pin::into_inner_unchecked(self).base }
+    }
+
+    pub fn get_index_node_mut(self: Pin<&mut Self>, index: u8) -> Result<IndexNodeMut> {
+        let base = self.base();
+        let page_id = base.page_id();
+        let (segment, dirty_ptr) = base.get_mut_with_dirty(index);
         IndexNodeMut::load(page_id, dirty_ptr, index, segment)
     }
 
     pub fn insert_index_node(
-        &mut self,
+        self: Pin<&mut Self>,
         slot: u8,
         level: u8,
         key: bson::Value,
         data_block: PageAddress,
         length: usize,
     ) -> IndexNodeMut {
-        let page_id = self.base.page_id();
-        let (segment, index, dirty) = self.base.insert_with_dirty(length);
+        let base = self.base();
+        let page_id = base.page_id();
+        let (segment, index, dirty) = base.insert_with_dirty(length);
 
         IndexNodeMut::new(page_id, index, dirty, segment, slot, level, key, data_block)
     }
 
-    pub fn delete_index_node(&mut self, index: u8) {
-        self.base.delete(index);
+    pub fn delete_index_node(self: Pin<&mut Self>, index: u8) {
+        self.base().delete(index);
     }
 
     pub fn get_index_nodes(&self) -> impl Iterator<Item = Result<IndexNode>> {
@@ -94,11 +106,17 @@ impl Page for IndexPage {
         Self::new(buffer, page_id)
     }
 
-    fn update_buffer(&mut self) -> &PageBuffer {
-        self.base.update_buffer()
+    fn update_buffer(self: Pin<&mut Self>) -> &PageBuffer {
+        unsafe { Pin::into_inner_unchecked(self) }
+            .base
+            .update_buffer()
     }
 
-    fn into_base(self: Box<Self>) -> BasePage {
-        self.base
+    fn into_base(self: Pin<Box<Self>>) -> BasePage {
+        unsafe { Pin::into_inner_unchecked(self) }.base
+    }
+
+    fn as_base_mut(self: Pin<&mut Self>) -> Pin<&mut BasePage> {
+        unsafe { self.map_unchecked_mut(|page| &mut page.base) }
     }
 }

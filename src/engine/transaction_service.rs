@@ -195,7 +195,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
             let mark_last_as_confirmed = commit && !self.trans_pages.borrow().header_changed();
 
             while let Some(mut page) = pages.next() {
-                let page_mut = page.as_mut().as_mut();
+                let mut page_mut = page.as_mut().as_base_mut();
                 page_mut.set_transaction_id(self.transaction_id);
 
                 if pages.peek().is_none() {
@@ -224,7 +224,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
 
                 let page_id = page_mut.page_id();
 
-                let buffer = page.update_buffer();
+                let buffer = page.as_mut().update_buffer();
                 let position = buffer.position();
 
                 buffers.push(page.into_base().into_buffer());

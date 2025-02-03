@@ -575,7 +575,7 @@ impl TotalOrd for Value {
 
             (String(l), String(r)) => l.cmp(r),
 
-            (Document(l), Document(r)) => panic!(
+            (Document(_), Document(_)) => panic!(
                 "Comparing two documents is unsupported since upstream implementation is completely broken"
             ),
             (Array(l), Array(r)) => l.total_cmp(r),

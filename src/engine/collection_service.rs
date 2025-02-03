@@ -3,6 +3,7 @@ use crate::engine::pages::HeaderPage;
 use crate::engine::snapshot::Snapshot;
 use crate::engine::{CollectionPage, StreamFactory};
 use crate::{Error, Result};
+use std::pin::Pin;
 
 pub(crate) struct CollectionService<'snapshot, SF: StreamFactory> {
     snapshot: &'snapshot mut Snapshot<SF>,
@@ -55,7 +56,7 @@ impl<'snapshot, SF: StreamFactory> CollectionService<'snapshot, SF> {
         &mut self,
         name: &str,
         add_if_not_exists: bool,
-    ) -> Result<(bool, Option<&mut CollectionPage>)> {
+    ) -> Result<(bool, Option<Pin<&mut CollectionPage>>)> {
         let page_id = self.snapshot.header().borrow().get_collection_page_id(name);
 
         if page_id != u32::MAX {
@@ -71,7 +72,7 @@ impl<'snapshot, SF: StreamFactory> CollectionService<'snapshot, SF> {
         }
     }
 
-    pub async fn add(&mut self, name: &str) -> Result<&mut CollectionPage> {
+    pub async fn add(&mut self, name: &str) -> Result<Pin<&mut CollectionPage>> {
         Self::check_name(name, &self.snapshot.header().borrow())?;
 
         let page = self.snapshot.new_page::<CollectionPage>().await?;

@@ -6,6 +6,7 @@ use crate::engine::{PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, Pag
 use crate::{Error, Result};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
+use std::pin::Pin;
 
 const P_INDEXES: usize = 96; // 96-8192 (64 + 32 header = 96)
 const P_INDEXES_COUNT: usize = PAGE_SIZE - P_INDEXES;
@@ -200,11 +201,15 @@ impl Page for CollectionPage {
         Self::new(buffer, page_id)
     }
 
-    fn update_buffer(&mut self) -> &PageBuffer {
-        self.update_buffer()
+    fn update_buffer(self: Pin<&mut Self>) -> &PageBuffer {
+        Pin::into_inner(self).update_buffer()
     }
 
-    fn into_base(self: Box<Self>) -> BasePage {
-        self.base
+    fn into_base(self: Pin<Box<Self>>) -> BasePage {
+        Pin::into_inner(self).base
+    }
+
+    fn as_base_mut(self: Pin<&mut Self>) -> Pin<&mut BasePage> {
+        unsafe { self.map_unchecked_mut(|page| &mut page.base) }
     }
 }

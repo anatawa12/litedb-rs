@@ -46,8 +46,8 @@ impl<SF: StreamFactory> IndexService<'_, SF> {
             .insert_collection_index(name, expression, unique)?;
         let index_slot = index.slot();
 
-        let index_page = self.snapshot.new_page::<IndexPage>().await?;
-        let head = index_page.insert_index_node(
+        let mut index_page = self.snapshot.new_page::<IndexPage>().await?;
+        let head = index_page.as_mut().insert_index_node(
             index_slot,
             MAX_LEVEL_LENGTH as u8,
             bson::Value::MinValue,
@@ -55,7 +55,7 @@ impl<SF: StreamFactory> IndexService<'_, SF> {
             length,
         );
         let head_position = head.position();
-        let mut tail = index_page.insert_index_node(
+        let mut tail = index_page.as_mut().insert_index_node(
             index_slot,
             MAX_LEVEL_LENGTH as u8,
             bson::Value::MaxValue,
@@ -65,10 +65,11 @@ impl<SF: StreamFactory> IndexService<'_, SF> {
         let tail_position = tail.position();
         tail.set_prev(0, head_position);
         let mut head = index_page
+            .as_mut()
             .get_index_node_mut(head_position.index())
             .unwrap();
         head.set_prev(0, tail_position);
-        index_page.set_page_list_slot(0);
+        index_page.as_mut().as_base_mut().set_page_list_slot(0);
 
         let page_id = index_page.page_id();
 

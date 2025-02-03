@@ -5,6 +5,7 @@ use crate::engine::{
     BasePage, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer, PageType,
 };
 use std::ops::{Deref, DerefMut};
+use std::pin::Pin;
 
 pub(crate) struct DataPage {
     base: BasePage,
@@ -134,11 +135,15 @@ impl Page for DataPage {
         Self::new(buffer, page_id)
     }
 
-    fn update_buffer(&mut self) -> &PageBuffer {
-        self.base.update_buffer()
+    fn update_buffer(self: Pin<&mut Self>) -> &PageBuffer {
+        Pin::into_inner(self).base.update_buffer()
     }
 
-    fn into_base(self: Box<Self>) -> BasePage {
-        self.base
+    fn into_base(self: Pin<Box<Self>>) -> BasePage {
+        Pin::into_inner(self).base
+    }
+
+    fn as_base_mut(self: Pin<&mut Self>) -> Pin<&mut BasePage> {
+        unsafe { self.map_unchecked_mut(|page| &mut page.base) }
     }
 }

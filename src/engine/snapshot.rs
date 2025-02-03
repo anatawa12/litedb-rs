@@ -14,6 +14,7 @@ use crate::utils::{Order, Shared};
 use crate::{Error, Result};
 use std::collections::{HashMap, HashSet};
 use std::mem::forget;
+use std::pin::Pin;
 use std::rc::Rc;
 
 pub(crate) struct Snapshot<SF: StreamFactory> {
@@ -23,7 +24,7 @@ pub(crate) struct Snapshot<SF: StreamFactory> {
 
     mode: LockMode,
     collection_name: String,
-    collection_page: Option<CollectionPage>,
+    collection_page: Option<Pin<Box<CollectionPage>>>,
 
     page_collection: PageCollection<SF>,
 }
@@ -35,7 +36,7 @@ struct PageCollection<SF: StreamFactory> {
     wal_index: Rc<WalIndexService>,
     trans_pages: Shared<TransactionPages>,
     read_version: i32,
-    local_pages: HashMap<u32, Box<dyn Page>>,
+    local_pages: HashMap<u32, Pin<Box<dyn Page>>>,
 }
 
 impl<SF: StreamFactory> Snapshot<SF> {
@@ -81,16 +82,15 @@ impl<SF: StreamFactory> Snapshot<SF> {
         // replace with owned one
         let collection_page = if let Some(collection_page) = collection_page {
             let collection_page_id = collection_page.page_id();
-            Some(
-                *snapshot
-                    .page_collection
-                    .local_pages
-                    .remove(&collection_page_id)
-                    .unwrap()
-                    .downcast::<CollectionPage>()
-                    .ok()
-                    .unwrap(),
-            )
+            let collection_page = snapshot
+                .page_collection
+                .local_pages
+                .remove(&collection_page_id)
+                .unwrap()
+                .downcast_pin::<CollectionPage>()
+                .ok()
+                .unwrap();
+            Some(collection_page)
         } else {
             None
         };
@@ -125,15 +125,21 @@ impl<SF: StreamFactory> Snapshot<SF> {
     }
 
     pub fn collection_page(&self) -> Option<&CollectionPage> {
-        self.collection_page.as_ref()
+        self.collection_page
+            .as_ref()
+            .map(Pin::as_ref)
+            .map(Pin::get_ref)
     }
 
     pub fn collection_page_mut(&mut self) -> Option<&mut CollectionPage> {
-        self.collection_page.as_mut()
+        self.collection_page
+            .as_mut()
+            .map(Pin::as_mut)
+            .map(Pin::get_mut)
     }
 
-    pub fn local_pages(&self) -> impl Iterator<Item = &dyn Page> {
-        self.page_collection.local_pages.values().map(AsRef::as_ref)
+    pub fn local_pages(&self) -> impl Iterator<Item = Pin<&dyn Page>> {
+        self.page_collection.local_pages.values().map(Pin::as_ref)
     }
 
     pub fn read_version(&self) -> i32 {
@@ -152,13 +158,13 @@ impl<SF: StreamFactory> Snapshot<SF> {
                 .page_collection
                 .local_pages
                 .values()
-                .filter(move |p| p.as_ref().as_ref().is_dirty() == dirty)
-                .map(|p| p.as_ref());
+                .filter(move |p| p.as_ref().get_ref().as_ref().is_dirty() == dirty)
+                .map(|p| p.as_ref().get_ref());
             let collection_page = self
                 .collection_page
                 .as_ref()
                 .take_if(|p| with_collection_page && p.is_dirty() == dirty)
-                .map(|x| -> &dyn Page { x });
+                .map(|x| -> &dyn Page { x.as_ref().get_ref() });
             let collection_page = collection_page.into_iter();
 
             Some(pages.chain(collection_page))
@@ -171,7 +177,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
         &mut self,
         dirty: bool,
         with_collection_page: bool,
-    ) -> impl Iterator<Item = Box<dyn Page>> {
+    ) -> impl Iterator<Item = Pin<Box<dyn Page>>> {
         let x = if self.mode != LockMode::Write {
             None
         } else {
@@ -179,7 +185,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
                 .page_collection
                 .local_pages
                 .iter()
-                .filter(|(_, p)| p.as_ref().as_ref().is_dirty() == dirty)
+                .filter(|(_, p)| p.as_ref().get_ref().as_ref().is_dirty() == dirty)
                 .map(|(&k, _)| k)
                 .collect::<Vec<_>>();
             let pages = page_ids
@@ -188,7 +194,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
             let collection_page = self
                 .collection_page
                 .take_if(|p| with_collection_page && p.is_dirty() == dirty)
-                .map(|x| -> Box<dyn Page> { Box::new(x) });
+                .map(|x| -> Pin<Box<dyn Page>> { x });
             let collection_page = collection_page.into_iter();
 
             Some(pages.chain(collection_page))
@@ -201,7 +207,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
         &mut self,
         dirty: bool,
         with_collection_page: bool,
-    ) -> impl Iterator<Item = &mut dyn Page> {
+    ) -> impl Iterator<Item = Pin<&mut dyn Page>> {
         let x = if self.mode != LockMode::Write {
             None
         } else {
@@ -209,13 +215,13 @@ impl<SF: StreamFactory> Snapshot<SF> {
                 .page_collection
                 .local_pages
                 .values_mut()
-                .filter(move |p| p.as_ref().as_ref().is_dirty() == dirty)
+                .filter(move |p| p.as_ref().get_ref().as_ref().is_dirty() == dirty)
                 .map(|p| p.as_mut());
             let collection_page = self
                 .collection_page
                 .as_mut()
                 .take_if(|p| with_collection_page && p.is_dirty() == dirty)
-                .map(|x| -> &mut dyn Page { &mut *x });
+                .map(|x| -> Pin<&mut dyn Page> { x.as_mut() });
             let collection_page = collection_page.into_iter();
 
             Some(pages.chain(collection_page))
@@ -235,7 +241,7 @@ impl<SF: StreamFactory> PageCollection<SF> {
         &mut self,
         page_id: u32,
         use_latest_version: bool, /* = false*/
-    ) -> Result<&mut T> {
+    ) -> Result<Pin<&mut T>> {
         Ok(self
             .get_page_with_additional_info::<T>(page_id, use_latest_version)
             .await?
@@ -246,7 +252,7 @@ impl<SF: StreamFactory> PageCollection<SF> {
         &mut self,
         page_id: u32,
         use_latest_version: bool,
-    ) -> Result<PageWithAdditionalInfo<&mut T>> {
+    ) -> Result<PageWithAdditionalInfo<Pin<&mut T>>> {
         assert!(page_id != u32::MAX && page_id < self.header.borrow().last_page_id());
 
         // check for header page (return header single instance)
@@ -267,8 +273,8 @@ impl<SF: StreamFactory> PageCollection<SF> {
         //let result = if let Some(page) = self.local_pages.get_mut(&page_id) {
         if self.local_pages.contains_key(&page_id) {
             let page = self.local_pages.get_mut(&page_id).unwrap();
-            Ok(PageWithAdditionalInfo::<&mut T> {
-                page: page.downcast_mut().unwrap(),
+            Ok(PageWithAdditionalInfo {
+                page: page.as_mut().downcast_mut_pin().unwrap(),
                 origin: None,
                 position: 0,
                 wal_version: 0,
@@ -280,10 +286,10 @@ impl<SF: StreamFactory> PageCollection<SF> {
             let page_box = self
                 .local_pages
                 .entry(page_id)
-                .insert_entry(Box::new(page.page))
+                .insert_entry(Box::pin(page.page))
                 .into_mut();
             // It must success because we just have inserted the Box<T>
-            let page_box = page_box.downcast_mut::<T>().unwrap();
+            let page_box = page_box.as_mut().downcast_mut_pin::<T>().unwrap();
             self.trans_pages.borrow_mut().transaction_size += 1;
 
             Ok(PageWithAdditionalInfo {
@@ -379,7 +385,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
         &mut self,
         page_id: u32,
         use_latest_version: bool, /* = false*/
-    ) -> Result<&mut T> {
+    ) -> Result<Pin<&mut T>> {
         self.page_collection
             .get_page::<T>(page_id, use_latest_version)
             .await
@@ -389,7 +395,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
         &mut self,
         page_id: u32,
         use_latest_version: bool,
-    ) -> Result<PageWithAdditionalInfo<&mut T>> {
+    ) -> Result<PageWithAdditionalInfo<Pin<&mut T>>> {
         self.page_collection
             .get_page_with_additional_info::<T>(page_id, use_latest_version)
             .await
@@ -405,7 +411,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
             .await
     }
 
-    async fn get_free_data_page(&mut self, length: i32) -> Result<&mut DataPage> {
+    async fn get_free_data_page(&mut self, length: i32) -> Result<Pin<&mut DataPage>> {
         let length = length as usize + BasePage::SLOT_SIZE;
 
         let start_slot = DataPage::get_minimum_index_slot(length);
@@ -417,7 +423,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
                 continue;
             }
 
-            let page = self.get_page::<DataPage>(free_page_id, false).await?;
+            let mut page = self.get_page::<DataPage>(free_page_id, false).await?;
 
             debug_assert_eq!(
                 page.page_list_slot() as i32,
@@ -438,7 +444,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
         &mut self,
         length: usize,
         free_index_page_list: u32,
-    ) -> Result<&mut IndexPage> {
+    ) -> Result<Pin<&mut IndexPage>> {
         let page;
 
         if free_index_page_list == u32::MAX {
@@ -456,7 +462,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
     }
 
     #[allow(clippy::await_holding_refcell_ref)]
-    pub async fn new_page<T: Page>(&mut self) -> Result<&mut T> {
+    pub async fn new_page<T: Page>(&mut self) -> Result<Pin<&mut T>> {
         if self.collection_page.is_none() {
             debug_assert_eq!(
                 std::any::TypeId::of::<T>(),
@@ -479,7 +485,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
                 .await?;
             page_id = free.page_id();
             let free = self.page_collection.local_pages.remove(&page_id).unwrap();
-            let mut free = match free.downcast::<BasePage>() {
+            let mut free = match free.downcast_pin::<BasePage>() {
                 Ok(page) => page,
                 Err(_) => unreachable!("the cast should not fail"),
             };
@@ -499,7 +505,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
             free.set_next_page_id(u32::MAX);
 
             //page_id = free.page_id(); //assigned above
-            buffer = free.into_buffer();
+            buffer = Pin::into_inner(free).into_buffer();
         } else {
             let mut header = self.page_collection.header.borrow_mut();
             let new_length = (header.last_page_id() as usize + 1) * PAGE_SIZE;
@@ -540,16 +546,16 @@ impl<SF: StreamFactory> Snapshot<SF> {
                 .page_collection
                 .local_pages
                 .entry(page_id)
-                .insert_entry(Box::new(page))
+                .insert_entry(Box::pin(page))
                 .into_mut()
                 .as_mut()
-                .downcast_mut::<T>()
+                .downcast_mut_pin::<T>()
                 .unwrap();
 
             Ok(page)
         } else {
             // UNSAFE: for collection page, leak
-            Ok(Box::leak(Box::new(page)))
+            Ok(unsafe { Pin::new_unchecked(Box::leak(Box::new(page))) })
         }
     }
 
@@ -665,8 +671,9 @@ impl<SF: StreamFactory> PageCollection<SF> {
 
         if *start_page_id != u32::MAX {
             let next = self.get_page::<T>(*start_page_id, false).await?;
-            next.as_mut().set_prev_page_id(page.as_ref().page_id());
-            next.as_mut().set_dirty();
+            let mut next = next.as_base_mut();
+            next.set_prev_page_id(page.as_ref().page_id());
+            next.set_dirty();
         }
 
         page.as_mut().set_prev_page_id(u32::MAX);
@@ -695,8 +702,9 @@ impl<SF: StreamFactory> PageCollection<SF> {
             let prev = self
                 .get_page::<T>(page.as_ref().prev_page_id(), false)
                 .await?;
-            prev.as_mut().set_next_page_id(page.as_ref().next_page_id());
-            prev.as_mut().set_dirty();
+            let mut prev = prev.as_base_mut();
+            prev.set_next_page_id(page.as_ref().next_page_id());
+            prev.set_dirty();
         }
 
         // fix next page
@@ -704,8 +712,9 @@ impl<SF: StreamFactory> PageCollection<SF> {
             let next = self
                 .get_page::<T>(page.as_ref().next_page_id(), false)
                 .await?;
-            next.as_mut().set_prev_page_id(page.as_ref().prev_page_id());
-            next.as_mut().set_dirty();
+            let mut next = next.as_base_mut();
+            next.set_prev_page_id(page.as_ref().prev_page_id());
+            next.set_dirty();
         }
 
         let mut set_dirty = false;
@@ -783,6 +792,38 @@ impl<SF: StreamFactory> PageCollection<SF> {
         }
 
         self.trans_pages.borrow_mut().inc_deleted_pages();
+    }
+}
+
+// region drop collection
+impl<SF: StreamFactory> Snapshot<SF> {
+    pub async fn drop_collection(&mut self, f: impl AsyncFn() -> ()) {
+        let indexer = IndexService::new(
+            self,
+            self.page_collection.header.borrow().pragmas().collation(),
+            self.page_collection.disk.max_items_count(),
+        );
+
+        let mut collection_page = self
+            .collection_page
+            .as_mut()
+            .expect("The collection page is None");
+        let mut trans_pages = self.page_collection.trans_pages.borrow_mut();
+        trans_pages.set_first_deleted_page(collection_page.page_id());
+        trans_pages.set_last_deleted_page(collection_page.page_id());
+
+        collection_page.mark_as_empty();
+
+        trans_pages.set_deleted_pages(1);
+
+        let mut index_pages = HashSet::new();
+
+        for index in collection_page.get_collection_indexes() {
+            index_pages.insert(index.head().page_id());
+
+            // TODO: wip
+            indexer.find_all(index, Order::Ascending);
+        }
     }
 }
 
