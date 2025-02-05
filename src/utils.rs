@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 // TODO: Implement the CompareOptions struct
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CompareOptions(pub i32);
+pub struct CompareOptions(pub i32);
 
 impl CompareOptions {
     pub const IGNORE_CASE: CompareOptions = CompareOptions(1);
@@ -25,7 +25,7 @@ impl CompareOptions {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Collation {
+pub struct Collation {
     pub lcid: i32,
     pub sort_options: CompareOptions,
 }
