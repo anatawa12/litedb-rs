@@ -16,29 +16,29 @@ use std::collections::HashMap;
 use std::pin::pin;
 use std::rc::Rc;
 
-pub struct LiteSettings<SF: StreamFactory> {
-    pub data_stream: SF,
-    pub log_stream: SF,
-    pub temp_stream: SF,
+pub struct LiteSettings {
+    pub data_stream: Box<dyn StreamFactory>,
+    pub log_stream: Box<dyn StreamFactory>,
+    pub temp_stream: Box<dyn StreamFactory>,
     pub auto_build: bool,
     pub collation: Option<Collation>,
 }
 
-pub struct LiteEngine<SF: StreamFactory> {
+pub struct LiteEngine {
     locker: Rc<LockService>,
-    disk: Rc<DiskService<SF>>,
+    disk: Rc<DiskService>,
     wal_index: Rc<WalIndexService>,
     header: Shared<HeaderPage>,
-    monitor: Rc<TransactionMonitor<SF>>,
-    sort_disk: Rc<SortDisk<SF>>,
+    monitor: Rc<TransactionMonitor>,
+    sort_disk: Rc<SortDisk>,
     // state,
     // settings,
     // system_collections, // we use match
     sequences: Mutex<HashMap<CaseInsensitiveString, i64>>,
 }
 
-impl<SF: StreamFactory> LiteEngine<SF> {
-    pub async fn new(settings: LiteSettings<SF>) -> Result<Self> {
+impl LiteEngine {
+    pub async fn new(settings: LiteSettings) -> Result<Self> {
         // SystemCollection
         // sequences
         // TODO: upgrade

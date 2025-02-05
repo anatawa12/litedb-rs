@@ -40,8 +40,7 @@ pub(crate) trait Stream: AsyncRead + AsyncWrite + AsyncSeek + Unpin {}
 impl<T: AsyncRead + AsyncWrite + AsyncSeek + Unpin> Stream for T {}
 
 pub(crate) trait StreamFactory {
-    type Stream: Stream;
-    fn get_stream(&self) -> Box<dyn Future<Output = Result<&mut Self::Stream>> + Unpin>;
+    fn get_stream(&self) -> Box<dyn Future<Output = Result<&mut dyn Stream>> + Unpin>;
     fn exists(&self) -> Box<dyn Future<Output = bool> + Unpin>;
     fn len(&self) -> Box<dyn Future<Output = Result<i64>> + Unpin>;
     fn set_len(&self, len: i64) -> Box<dyn Future<Output = Result<()>> + Unpin>;

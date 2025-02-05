@@ -8,7 +8,6 @@ use crate::engine::transaction_service::LockMode;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{
     BasePage, CollectionPage, DataPage, FileOrigin, IndexPage, PAGE_SIZE, Page, PageType,
-    StreamFactory,
 };
 use crate::utils::{Order, Shared};
 use crate::{Error, Result};
@@ -17,7 +16,7 @@ use std::mem::forget;
 use std::pin::Pin;
 use std::rc::Rc;
 
-pub(crate) struct Snapshot<SF: StreamFactory> {
+pub(crate) struct Snapshot {
     lock_scope: Option<CollectionLockScope>,
 
     transaction_id: u32,
@@ -26,13 +25,13 @@ pub(crate) struct Snapshot<SF: StreamFactory> {
     collection_name: String,
     collection_page: Option<Pin<Box<CollectionPage>>>,
 
-    page_collection: SnapshotPages<SF>,
+    page_collection: SnapshotPages,
 }
 
 // for lifetime reasons, we split page collection to one struct
-pub(crate) struct SnapshotPages<SF: StreamFactory> {
+pub(crate) struct SnapshotPages {
     header: Shared<HeaderPage>,
-    disk: Rc<DiskService<SF>>,
+    disk: Rc<DiskService>,
     wal_index: Rc<WalIndexService>,
     trans_pages: Shared<TransactionPages>,
     read_version: i32,
@@ -40,7 +39,7 @@ pub(crate) struct SnapshotPages<SF: StreamFactory> {
     collection_page_id: Option<u32>,
 }
 
-impl<SF: StreamFactory> Snapshot<SF> {
+impl Snapshot {
     pub async fn new(
         mode: LockMode,
         collection_name: &str,
@@ -49,7 +48,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
         trans_pages: Shared<TransactionPages>,
         locker: Rc<LockService>,
         wal_index: Rc<WalIndexService>,
-        disk: Rc<DiskService<SF>>,
+        disk: Rc<DiskService>,
         add_if_not_exists: bool,
     ) -> Result<Self> {
         let lock_scope = if mode == LockMode::Write {
@@ -112,7 +111,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
         &self.page_collection.trans_pages
     }
 
-    pub fn disk(&self) -> &Rc<DiskService<SF>> {
+    pub fn disk(&self) -> &Rc<DiskService> {
         &self.page_collection.disk
     }
 
@@ -240,7 +239,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
 }
 
 // region Page Version functions
-impl<SF: StreamFactory> SnapshotPages<SF> {
+impl SnapshotPages {
     pub async fn get_page<T: Page>(
         &mut self,
         page_id: u32,
@@ -384,7 +383,7 @@ impl<SF: StreamFactory> SnapshotPages<SF> {
         }
     }
 }
-impl<SF: StreamFactory> Snapshot<SF> {
+impl Snapshot {
     pub async fn get_page<T: Page>(
         &mut self,
         page_id: u32,
@@ -454,7 +453,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
             .await
     }
 }
-impl<SF: StreamFactory> SnapshotPages<SF> {
+impl SnapshotPages {
     pub async fn get_free_index_page(
         &mut self,
         length: usize,
@@ -476,7 +475,7 @@ impl<SF: StreamFactory> SnapshotPages<SF> {
         Ok(page)
     }
 }
-impl<SF: StreamFactory> Snapshot<SF> {
+impl Snapshot {
     pub async fn new_page<T: Page>(&mut self) -> Result<Pin<&mut T>> {
         if self.collection_page.is_none() {
             debug_assert_eq!(
@@ -491,7 +490,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
         self.page_collection.new_page().await
     }
 }
-impl<SF: StreamFactory> SnapshotPages<SF> {
+impl SnapshotPages {
     #[allow(clippy::await_holding_refcell_ref)]
     pub async fn new_page<T: Page>(&mut self) -> Result<Pin<&mut T>> {
         let page_id;
@@ -569,7 +568,7 @@ impl<SF: StreamFactory> SnapshotPages<SF> {
     }
 }
 
-impl<SF: StreamFactory> Snapshot<SF> {
+impl Snapshot {
     pub async fn add_or_remove_free_data_list(&mut self, page: &mut DataPage) -> Result<()> {
         let new_slot = DataPage::free_index_slot(page.free_bytes());
         let initial_slot = page.page_list_slot();
@@ -631,7 +630,7 @@ impl<SF: StreamFactory> Snapshot<SF> {
     }
 }
 
-impl<SF: StreamFactory> SnapshotPages<SF> {
+impl SnapshotPages {
     pub async fn add_or_remove_free_index_list(
         &mut self,
         page: *mut IndexPage,
@@ -711,7 +710,7 @@ impl<SF: StreamFactory> SnapshotPages<SF> {
         Ok(())
     }
 }
-impl<SF: StreamFactory> SnapshotPages<SF> {
+impl SnapshotPages {
     async fn remove_free_list<T: Page>(
         &mut self,
         page: &mut T,
@@ -816,7 +815,7 @@ impl<SF: StreamFactory> SnapshotPages<SF> {
 }
 
 // region drop collection
-impl<SF: StreamFactory> Snapshot<SF> {
+impl Snapshot {
     pub async fn drop_collection(
         &mut self,
         mut safe_point: impl AsyncFnMut() -> Result<()>,
@@ -905,8 +904,8 @@ impl<SF: StreamFactory> Snapshot<SF> {
     }
 }
 // rust lifetime utilities
-impl<SF: StreamFactory> Snapshot<SF> {
-    pub fn pages_and_collections(&mut self) -> (&mut SnapshotPages<SF>, &mut CollectionPage) {
+impl Snapshot {
+    pub fn pages_and_collections(&mut self) -> (&mut SnapshotPages, &mut CollectionPage) {
         (
             &mut self.page_collection,
             self.collection_page.as_mut().unwrap(),

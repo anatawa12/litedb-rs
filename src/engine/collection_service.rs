@@ -1,16 +1,16 @@
+use crate::engine::CollectionPage;
 use crate::engine::index_service::IndexService;
 use crate::engine::pages::HeaderPage;
 use crate::engine::snapshot::Snapshot;
-use crate::engine::{CollectionPage, StreamFactory};
 use crate::{Error, Result};
 use std::pin::Pin;
 
-pub(crate) struct CollectionService<'snapshot, SF: StreamFactory> {
-    snapshot: &'snapshot mut Snapshot<SF>,
+pub(crate) struct CollectionService<'snapshot> {
+    snapshot: &'snapshot mut Snapshot,
 }
 
-impl<'snapshot, SF: StreamFactory> CollectionService<'snapshot, SF> {
-    pub fn new(snapshot: &'snapshot mut Snapshot<SF>) -> Self {
+impl<'snapshot> CollectionService<'snapshot> {
+    pub fn new(snapshot: &'snapshot mut Snapshot) -> Self {
         Self { snapshot }
     }
 

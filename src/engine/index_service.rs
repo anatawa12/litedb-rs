@@ -3,9 +3,7 @@ use crate::bson::Value;
 use crate::engine::collection_index::CollectionIndex;
 use crate::engine::index_node::{IndexNode, IndexNodeMut};
 use crate::engine::snapshot::{Snapshot, SnapshotPages};
-use crate::engine::{
-    IndexPage, MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress, StreamFactory,
-};
+use crate::engine::{IndexPage, MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress};
 use crate::utils::{Collation, Order, Shared};
 use crate::{Error, Result};
 use std::collections::HashSet;
@@ -14,15 +12,15 @@ use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 
 // see http://igoro.com/archive/skip-lists-are-fascinating/ for index structure
-pub(crate) struct IndexService<'snapshot, SF: StreamFactory> {
-    pub(crate) snapshot: &'snapshot mut Snapshot<SF>,
+pub(crate) struct IndexService<'snapshot> {
+    pub(crate) snapshot: &'snapshot mut Snapshot,
     collation: Collation,
     max_item_count: u32,
 }
 
-impl<'snapshot, SF: StreamFactory> IndexService<'snapshot, SF> {
+impl<'snapshot> IndexService<'snapshot> {
     pub fn new(
-        snapshot: &'snapshot mut Snapshot<SF>,
+        snapshot: &'snapshot mut Snapshot,
         collation: Collation,
         max_item_count: u32,
     ) -> Self {
@@ -34,7 +32,7 @@ impl<'snapshot, SF: StreamFactory> IndexService<'snapshot, SF> {
     }
 }
 
-impl<SF: StreamFactory> IndexService<'_, SF> {
+impl IndexService<'_> {
     pub fn collation(&self) -> &Collation {
         &self.collation
     }
@@ -315,7 +313,7 @@ impl<SF: StreamFactory> IndexService<'_, SF> {
 
     /// Delete a single index node - fix tree double-linked list levels
     async fn delete_single_node(
-        accessor: &mut PartialIndexNodeAccessorMut<'_, SF>,
+        accessor: &mut PartialIndexNodeAccessorMut<'_>,
         node: IndexNodeMut<'_>,
         index: &mut CollectionIndex,
     ) -> Result<bool> {
@@ -386,7 +384,7 @@ impl<SF: StreamFactory> IndexService<'_, SF> {
 }
 
 // region Find
-impl<SF: StreamFactory> IndexService<'_, SF> {
+impl IndexService<'_> {
     pub async fn find_all(
         &mut self,
         index: &CollectionIndex,
@@ -400,7 +398,7 @@ impl<SF: StreamFactory> IndexService<'_, SF> {
         .await
     }
     pub async fn find_all_accessor<'s>(
-        accessor: &mut PartialIndexNodeAccessorMut<'s, SF>,
+        accessor: &mut PartialIndexNodeAccessorMut<'s>,
         index: &CollectionIndex,
         order: Order,
     ) -> Result<Vec<IndexNodeMut<'s>>> {
@@ -492,13 +490,13 @@ impl<SF: StreamFactory> IndexService<'_, SF> {
 }
 
 /// The struct to safely partial borrow index node from snapshot.
-pub(crate) struct PartialIndexNodeAccessorMut<'snapshot, SF: StreamFactory> {
-    snapshot: &'snapshot mut SnapshotPages<SF>,
+pub(crate) struct PartialIndexNodeAccessorMut<'snapshot> {
+    snapshot: &'snapshot mut SnapshotPages,
     borrowed: Shared<HashSet<PageAddress>>,
 }
 
-impl<'snapshot, SF: StreamFactory> PartialIndexNodeAccessorMut<'snapshot, SF> {
-    pub(crate) fn new(snapshot: &'snapshot mut SnapshotPages<SF>) -> Self {
+impl<'snapshot> PartialIndexNodeAccessorMut<'snapshot> {
+    pub(crate) fn new(snapshot: &'snapshot mut SnapshotPages) -> Self {
         Self {
             snapshot,
             borrowed: Shared::new(HashSet::new()),

@@ -2,45 +2,43 @@ use crate::engine::disk::DiskService;
 use crate::engine::lock_service::LockService;
 use crate::engine::transaction_service::TransactionService;
 use crate::engine::wal_index_service::WalIndexService;
-use crate::engine::{HeaderPage, MAX_OPEN_TRANSACTIONS, MAX_TRANSACTION_SIZE, StreamFactory};
+use crate::engine::{HeaderPage, MAX_OPEN_TRANSACTIONS, MAX_TRANSACTION_SIZE};
 use crate::utils::Shared;
 use crate::{Error, Result};
 use std::collections::HashMap;
-use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering::Relaxed;
 
-pub(crate) struct TransactionMonitorShared<SF: StreamFactory> {
-    inner: Rc<StdMutex<InTransactionsLock<SF>>>,
+pub(crate) struct TransactionMonitorShared {
+    inner: Rc<StdMutex<InTransactionsLock>>,
 }
 
-pub(crate) struct TransactionMonitor<SF: StreamFactory> {
+pub(crate) struct TransactionMonitor {
     header: Shared<HeaderPage>,
     locker: Rc<LockService>,
-    disk: Rc<DiskService<SF>>,
+    disk: Rc<DiskService>,
     // reader will be created each time
     wal_index: Rc<WalIndexService>,
 
     // each operation(s) in this mutex is small so using StdMutex instead of async one
-    transactions: Rc<StdMutex<InTransactionsLock<SF>>>,
+    transactions: Rc<StdMutex<InTransactionsLock>>,
     // RustChange: No ThreadLocal Slot because API in rust won't need that I feel
-    //slot: Option<Shared<TransactionService<SF>>>, // thread local
+    //slot: Option<Shared<TransactionService>>, // thread local
 }
 
-struct InTransactionsLock<SF: StreamFactory> {
+struct InTransactionsLock {
     transaction_max_transaction_sizes: HashMap<u32, Rc<AtomicU32>>,
     pub free_pages: u32,
     pub initial_size: u32,
-    _phantom: PhantomData<SF>,
 }
 
-impl<SF: StreamFactory> TransactionMonitor<SF> {
+impl TransactionMonitor {
     pub fn new(
         header: Shared<HeaderPage>,
         locker: Rc<LockService>,
-        disk: Rc<DiskService<SF>>,
+        disk: Rc<DiskService>,
         // reader will be created each time
         wal_index: Rc<WalIndexService>,
     ) -> Self {
@@ -53,7 +51,6 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
                 transaction_max_transaction_sizes: HashMap::new(),
                 free_pages: MAX_TRANSACTION_SIZE,
                 initial_size: MAX_TRANSACTION_SIZE / MAX_OPEN_TRANSACTIONS as u32,
-                _phantom: PhantomData,
             })),
             // RustChange: No ThreadLocal Slot
             //slot: None,
@@ -62,7 +59,7 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
 
     // 2nd is is_new
     // pub async fn get_or_create_transaction(
-    pub async fn create_transaction(&self, query_only: bool) -> Result<TransactionService<SF>> {
+    pub async fn create_transaction(&self, query_only: bool) -> Result<TransactionService> {
         let mut transaction;
         // RustChange: No ThreadLocal Slot
         //if let Some(ref slot_id) = self.slot {
@@ -139,7 +136,7 @@ impl<SF: StreamFactory> TransactionMonitor<SF> {
     //}
 }
 
-impl<SF: StreamFactory> InTransactionsLock<SF> {
+impl InTransactionsLock {
     fn get_initial_size(&mut self) -> u32 {
         if self.free_pages >= self.initial_size {
             self.free_pages -= self.initial_size;
@@ -164,7 +161,7 @@ impl<SF: StreamFactory> InTransactionsLock<SF> {
     }
 }
 
-impl<SF: StreamFactory> TransactionMonitorShared<SF> {
+impl TransactionMonitorShared {
     fn try_extend_max_transaction_size(&self, max_transaction_size: &AtomicU32) -> bool {
         let mut lock = self.inner.lock().unwrap();
 

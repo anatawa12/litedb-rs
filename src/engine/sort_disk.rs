@@ -1,18 +1,18 @@
 use crate::Result;
-use crate::engine::{PAGE_SIZE, StreamFactory};
+use crate::engine::{PAGE_SIZE, Stream, StreamFactory};
 use futures::prelude::*;
 use std::collections::HashSet;
 use std::io::SeekFrom;
 
-pub(crate) struct SortDisk<SF: StreamFactory> {
-    temp_stream: SF,
+pub(crate) struct SortDisk {
+    temp_stream: Box<dyn StreamFactory>,
     free_positions: HashSet<i64>,
     last_container_position: i64,
     container_size: usize,
 }
 
-impl<SF: StreamFactory> SortDisk<SF> {
-    pub fn new(temp_stream: SF, container_size: usize) -> Self {
+impl SortDisk {
+    pub fn new(temp_stream: Box<dyn StreamFactory>, container_size: usize) -> Self {
         SortDisk {
             temp_stream,
             container_size,
@@ -25,7 +25,7 @@ impl<SF: StreamFactory> SortDisk<SF> {
         self.container_size
     }
 
-    pub async fn get_reader(&self) -> Result<&mut SF::Stream> {
+    pub async fn get_reader(&self) -> Result<&mut dyn Stream> {
         self.temp_stream.get_stream().await
     }
 

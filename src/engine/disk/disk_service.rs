@@ -1,5 +1,6 @@
 use super::memory_cache::MemoryCache;
 use crate::Result;
+use crate::engine::Stream;
 use crate::engine::disk::disk_reader::DiskReader;
 use crate::engine::pages::HeaderPage;
 use crate::engine::*;
@@ -11,19 +12,19 @@ use std::io::SeekFrom;
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 
-pub(crate) struct DiskService<SF: StreamFactory> {
+pub(crate) struct DiskService {
     cache: MemoryCache,
-    data_stream: SF,
-    log_stream: SF,
+    data_stream: Box<dyn StreamFactory>,
+    log_stream: Box<dyn StreamFactory>,
     log_lock: Mutex<()>,
     data_length: AtomicI64,
     log_length: AtomicI64,
 }
 
-impl<SF: StreamFactory> DiskService<SF> {
+impl DiskService {
     pub async fn new(
-        data_stream: SF,
-        log_stream: SF,
+        data_stream: Box<dyn StreamFactory>,
+        log_stream: Box<dyn StreamFactory>,
         collation: Option<Collation>,
     ) -> Result<Self> {
         let disk_service = DiskService {
@@ -79,7 +80,7 @@ impl<SF: StreamFactory> DiskService<SF> {
         Ok(())
     }
 
-    pub async fn get_reader(&self) -> Result<DiskReader<SF::Stream>> {
+    pub async fn get_reader(&self) -> Result<DiskReader<dyn Stream + '_>> {
         Ok(DiskReader::new(
             &self.cache,
             self.data_stream.get_stream().await?,

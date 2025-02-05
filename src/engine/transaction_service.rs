@@ -7,7 +7,7 @@ use crate::engine::snapshot::Snapshot;
 use crate::engine::transaction_monitor::TransactionMonitorShared;
 use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::wal_index_service::WalIndexService;
-use crate::engine::{BasePage, PageType, StreamFactory};
+use crate::engine::{BasePage, PageType};
 use crate::utils::Shared;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -19,14 +19,14 @@ use std::thread::ThreadId;
 use std::time::SystemTime;
 
 into_non_drop! {
-pub(crate) struct TransactionService<SF: StreamFactory> {
+pub(crate) struct TransactionService {
     header: Shared<HeaderPage>,
     locker: Rc<LockService>,
-    disk: Rc<DiskService<SF>>,
+    disk: Rc<DiskService>,
     // reader will be created each time
     wal_index: Rc<WalIndexService>,
-    monitor: TransactionMonitorShared<SF>, // TransactionService will be owned by TransactionMonitor so Rc here
-    snapshots: HashMap<String, Snapshot<SF>>,
+    monitor: TransactionMonitorShared, // TransactionService will be owned by TransactionMonitor so Rc here
+    snapshots: HashMap<String, Snapshot>,
     trans_pages: Shared<TransactionPages>, // Fn TransactionPages will be shared with SnapShot so Rc
 
     transaction_id: u32,
@@ -41,15 +41,15 @@ pub(crate) struct TransactionService<SF: StreamFactory> {
 }
 }
 
-impl<SF: StreamFactory> TransactionService<SF> {
+impl TransactionService {
     pub fn new(
         header: Shared<HeaderPage>,
         locker: Rc<LockService>,
-        disk: Rc<DiskService<SF>>,
+        disk: Rc<DiskService>,
         // reader will be created each time
         wal_index: Rc<WalIndexService>,
         max_transaction_size: Rc<AtomicU32>,
-        monitor: TransactionMonitorShared<SF>,
+        monitor: TransactionMonitorShared,
         query_only: bool,
     ) -> Self {
         Self {
@@ -105,7 +105,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
         mode: LockMode,
         collection: &str,
         add_if_not_exists: bool,
-    ) -> Result<&'a mut Snapshot<SF>> {
+    ) -> Result<&'a mut Snapshot> {
         //debug_assert_eq!(self.state, TransactionState::Active);
 
         match self.snapshots.entry(collection.to_string()) {
@@ -133,7 +133,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
                 Ok(o.into_mut())
             }
             Entry::Vacant(v) => {
-                let new = Snapshot::<SF>::new(
+                let new = Snapshot::new(
                     mode,
                     collection,
                     Shared::clone(&self.header),
@@ -405,7 +405,7 @@ impl<SF: StreamFactory> TransactionService<SF> {
     }
 }
 
-impl<SF: StreamFactory> Drop for TransactionService<SF> {
+impl Drop for TransactionService {
     fn drop(&mut self) {
         //if self.state == TransactionState::Active && !self.snapshots.is_empty() {
         if !self.snapshots.is_empty() {

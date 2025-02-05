@@ -4,7 +4,7 @@ use super::*;
 use crate::engine::collection_service::CollectionService;
 use crate::utils::CaseInsensitiveStr;
 
-impl<SF: StreamFactory> LiteEngine<SF> {
+impl LiteEngine {
     pub fn get_collection_names(&self) -> Vec<String> {
         self.header
             .borrow()
@@ -42,7 +42,7 @@ impl<SF: StreamFactory> LiteEngine<SF> {
             return Ok(true); // Original: errors, this: OK
         }
 
-        CollectionService::<SF>::check_name(new_name, &self.header.borrow())?;
+        CollectionService::check_name(new_name, &self.header.borrow())?;
 
         let mut transaction = self.monitor.create_transaction(false).await?;
 

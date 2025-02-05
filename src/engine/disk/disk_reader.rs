@@ -5,13 +5,13 @@ use futures::io;
 use futures::prelude::*;
 use std::rc::Rc;
 
-pub(crate) struct DiskReader<'a, S: Stream> {
+pub(crate) struct DiskReader<'a, S: Stream + ?Sized> {
     cache: &'a MemoryCache,
     data_stream: &'a mut S,
     log_stream: &'a mut S,
 }
 
-impl<'a, S: Stream> DiskReader<'a, S> {
+impl<'a, S: Stream + ?Sized> DiskReader<'a, S> {
     pub fn new(cache: &'a MemoryCache, data_stream: &'a mut S, log_stream: &'a mut S) -> Self {
         DiskReader {
             cache,
