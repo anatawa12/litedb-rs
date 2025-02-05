@@ -256,7 +256,7 @@ impl SnapshotPages {
         page_id: u32,
         use_latest_version: bool,
     ) -> Result<PageWithAdditionalInfo<Pin<&mut T>>> {
-        assert!(page_id != u32::MAX && page_id < self.header.borrow().last_page_id());
+        assert!(page_id != u32::MAX && page_id <= self.header.borrow().last_page_id());
 
         // check for header page (return header single instance)
         //TODO(upstream): remove this

@@ -134,10 +134,16 @@ impl BufferSlice {
     pub fn read_index_key(&self, offset: usize) -> crate::Result<bson::Value> {
         // extended length: use two bytes for type and length pair
         let type_byte = self.read_byte(offset);
-        let length_byte = self.read_byte(offset + 1);
-
         let type_ = BsonType::from_u8(type_byte & 0b0011_1111).ok_or_else(Error::invalid_bson)?;
-        let length = ((length_byte as u16 & 0b1100_0000) << 2) | (length_byte as u16);
+
+        // RustChange: no out of bounds are allowed so we check for length byte before access
+        let length = if matches!(type_, BsonType::Binary | BsonType::String) {
+            let length_byte = self.read_byte(offset + 1);
+            ((type_byte as u16 & 0b1100_0000) << 2) | (length_byte as u16)
+        } else {
+            0
+        };
+
         let offset = offset + 1; // length byte might not be used
 
         let value = match type_ {
@@ -167,7 +173,7 @@ impl BufferSlice {
                 ))
             }
             BsonType::ObjectId => bson::Value::ObjectId(bson::ObjectId::from_bytes(
-                self.read_bytes(offset, 16).try_into().unwrap(),
+                self.read_bytes(offset, 12).try_into().unwrap(),
             )),
             BsonType::Guid => bson::Value::Guid(bson::Guid::from_bytes(
                 self.read_bytes(offset, 16).try_into().unwrap(),

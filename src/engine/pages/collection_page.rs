@@ -39,7 +39,9 @@ impl CollectionPage {
             return Err(Error::invalid_page_type(PageType::Collection, base));
         }
 
-        let area = base.buffer().slice(P_INDEXES, P_INDEXES_COUNT);
+        let area = base
+            .buffer()
+            .slice(PAGE_HEADER_SIZE, PAGE_SIZE - PAGE_HEADER_SIZE);
         let mut reader = BufferReader::single(area);
 
         for item in free_data_page_list.iter_mut() {
