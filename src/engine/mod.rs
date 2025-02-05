@@ -24,24 +24,30 @@ mod transaction_pages;
 mod transaction_service;
 mod wal_index_service;
 
-use futures::{AsyncRead, AsyncSeek, AsyncWrite};
-
 pub(crate) use super::Result;
 pub(crate) use buffer_reader::*;
 pub(crate) use buffer_writer::*;
 pub(crate) use constants::*;
+use futures::{AsyncRead, AsyncSeek, AsyncWrite};
 pub(crate) use page_address::*;
 pub(crate) use page_buffer::*;
 pub(crate) use pages::*;
+use std::pin::Pin;
 pub(crate) type PageBufferArray = [u8; PAGE_SIZE];
 
-pub(crate) trait Stream: AsyncRead + AsyncWrite + AsyncSeek + Unpin {}
+pub trait Stream: AsyncRead + AsyncWrite + AsyncSeek + Unpin + Send {
+    // Should we use poll method instead?
+    fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output = Result<()>> + '_>>;
+}
 
-impl<T: AsyncRead + AsyncWrite + AsyncSeek + Unpin> Stream for T {}
-
-pub(crate) trait StreamFactory {
-    fn get_stream(&self) -> Box<dyn Future<Output = Result<&mut dyn Stream>> + Unpin>;
-    fn exists(&self) -> Box<dyn Future<Output = bool> + Unpin>;
-    fn len(&self) -> Box<dyn Future<Output = Result<i64>> + Unpin>;
-    fn set_len(&self, len: i64) -> Box<dyn Future<Output = Result<()>> + Unpin>;
+#[allow(clippy::len_without_is_empty)]
+pub trait StreamFactory: Send + Sync {
+    #[allow(clippy::type_complexity)]
+    fn get_stream(
+        &self,
+        writable: bool,
+    ) -> Pin<Box<dyn Future<Output = Result<Box<dyn Stream>>> + '_>>;
+    fn exists(&self) -> Pin<Box<dyn Future<Output = bool> + '_>>;
+    fn len(&self) -> Pin<Box<dyn Future<Output = Result<u64>> + '_>>;
+    fn delete(&self) -> Pin<Box<dyn Future<Output = Result<()>> + '_>>;
 }

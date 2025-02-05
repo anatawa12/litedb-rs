@@ -5,7 +5,9 @@ edition = "2024"
 
 [dependencies]
 async-lock = "3.4.0"
+async-stream = "0.3.6"
 futures = "0.3.31"
+opool = "0.1.1"
 
 [dev-dependencies]
 time = { version = "0.3.37", features = ["macros"] }

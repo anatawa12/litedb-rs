@@ -317,7 +317,6 @@ impl SnapshotPages {
             let buffer = self
                 .disk
                 .get_reader()
-                .await?
                 .read_writable_page(wal_position.position(), FileOrigin::Log)
                 .await?;
             let dirty = T::load(buffer)?;
@@ -348,7 +347,6 @@ impl SnapshotPages {
             let buffer = self
                 .disk
                 .get_reader()
-                .await?
                 .read_writable_page(pos, FileOrigin::Log)
                 .await?;
             let mut log_page = T::load(buffer)?;
@@ -369,7 +367,6 @@ impl SnapshotPages {
             let buffer = self
                 .disk
                 .get_reader()
-                .await?
                 .read_writable_page(page_position, FileOrigin::Data)
                 .await?;
             let data_page = T::load(buffer)?;
@@ -537,7 +534,7 @@ impl SnapshotPages {
             page_id = save_point.header.last_page_id() + 1;
             save_point.header.set_last_page_id(page_id);
 
-            buffer = self.disk.get_reader().await?.new_page();
+            buffer = self.disk.get_reader().new_page();
             forget(save_point);
         }
 

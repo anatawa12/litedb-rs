@@ -16,7 +16,7 @@ use std::fmt::Display;
 
 #[macro_use]
 pub mod bson;
-mod engine;
+pub mod engine;
 mod utils;
 
 pub type Result<T> = std::result::Result<T, Error>;

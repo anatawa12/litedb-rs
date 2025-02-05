@@ -2,6 +2,7 @@ use super::memory_cache::MemoryCache;
 use crate::Result;
 use crate::engine::Stream;
 use crate::engine::disk::disk_reader::DiskReader;
+use crate::engine::disk::stream_pool::StreamPool;
 use crate::engine::pages::HeaderPage;
 use crate::engine::*;
 use crate::utils::Collation;
@@ -14,8 +15,8 @@ use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 
 pub(crate) struct DiskService {
     cache: MemoryCache,
-    data_stream: Box<dyn StreamFactory>,
-    log_stream: Box<dyn StreamFactory>,
+    data_pool: StreamPool,
+    log_pool: StreamPool,
     log_lock: Mutex<()>,
     data_length: AtomicI64,
     log_length: AtomicI64,
@@ -27,27 +28,27 @@ impl DiskService {
         log_stream: Box<dyn StreamFactory>,
         collation: Option<Collation>,
     ) -> Result<Self> {
-        let disk_service = DiskService {
+        let mut disk_service = DiskService {
             cache: MemoryCache::new(),
-            data_stream,
-            log_stream,
+            data_pool: StreamPool::new(data_stream),
+            log_pool: StreamPool::new(log_stream),
             log_lock: Mutex::new(()),
             data_length: AtomicI64::new(0),
             log_length: AtomicI64::new(0),
         };
 
-        if disk_service.data_stream.len().await? == 0 {
-            disk_service.initialize(collation).await?;
+        if disk_service.data_pool.factory().len().await? == 0 {
+            Self::initialize(disk_service.data_pool.writeable_mut().await?, collation).await?;
         }
 
         disk_service.data_length.store(
-            disk_service.data_stream.len().await? - PAGE_SIZE as i64,
+            disk_service.data_pool.factory().len().await? as i64 - PAGE_SIZE as i64,
             Relaxed,
         );
 
-        if disk_service.log_stream.exists().await {
+        if disk_service.log_pool.factory().exists().await {
             disk_service.log_length.store(
-                disk_service.log_stream.len().await? - PAGE_SIZE as i64,
+                disk_service.log_pool.factory().len().await? as i64 - PAGE_SIZE as i64,
                 Relaxed,
             );
         } else {
@@ -61,10 +62,8 @@ impl DiskService {
         &self.cache
     }
 
-    async fn initialize(&self, collation: Option<Collation>) -> Result<()> {
-        let stream = self.data_stream.get_stream().await?;
+    async fn initialize(stream: &mut dyn Stream, collation: Option<Collation>) -> Result<()> {
         let collation = collation.unwrap_or_default();
-        //let initial_size = 0;
 
         let buffer = Box::new(PageBuffer::new(0));
         let mut header = HeaderPage::new(buffer);
@@ -76,16 +75,13 @@ impl DiskService {
         stream.write_all(header.buffer().buffer()).await?;
 
         // initial size
+
         stream.flush().await?;
         Ok(())
     }
 
-    pub async fn get_reader(&self) -> Result<DiskReader<dyn Stream + '_>> {
-        Ok(DiskReader::new(
-            &self.cache,
-            self.data_stream.get_stream().await?,
-            self.log_stream.get_stream().await?,
-        ))
+    pub fn get_reader(&self) -> DiskReader {
+        DiskReader::new(&self.cache, &self.data_pool, &self.log_pool)
     }
 
     pub fn max_items_count(&self) -> u32 {
@@ -121,7 +117,7 @@ impl DiskService {
 
     pub(crate) async fn write_log_disk(&self, pages: Vec<Box<PageBuffer>>) -> Result<usize> {
         let mut count = 0;
-        let stream = self.log_stream.get_stream().await?;
+        let mut stream = self.log_pool.writeable().await?;
         let _log_write_lock = self.log_lock.lock().await;
 
         // lock on stream
@@ -153,27 +149,29 @@ impl DiskService {
         &self,
         origin: FileOrigin,
     ) -> impl futures::Stream<Item = Result<Box<PageBuffer>>> {
-        futures::stream::try_unfold((self, 0, origin), async |(this, mut position, origin)| {
-            let length = this.get_file_length(origin);
-            let stream = this.data_stream.get_stream().await?;
+        async_stream::try_stream! {
+            let pool = if origin == FileOrigin::Log { &self.log_pool } else { &self.data_pool };
+            let mut stream = pool.rent().await?;
 
-            if position >= length {
-                return Ok(None);
+            let length = self.get_file_length(origin);
+
+            stream.seek(SeekFrom::Start(0)).await?;
+            let mut position = 0;
+
+            while position < length {
+                let mut buffer = Box::new(PageBuffer::new(0));
+                buffer.set_position_origin(position as u64, origin);
+                stream.read_exact(buffer.buffer_mut()).await?;
+                position += PAGE_SIZE as i64;
+
+                yield buffer
             }
-
-            let mut buffer = Box::new(PageBuffer::new(0));
-            buffer.set_position_origin(position as u64, origin);
-            stream.read_exact(buffer.buffer_mut()).await?;
-
-            position += PAGE_SIZE as i64;
-
-            Ok(Some((buffer, (this, position, origin))))
-        })
+        }
     }
 
     /// This method must be externally mutably excluded
     pub(crate) async fn write_data_disk(&self, pages: &[Box<PageBuffer>]) -> Result<()> {
-        let stream = self.data_stream.get_stream().await?;
+        let mut stream = self.data_pool.writeable().await?;
 
         for page in pages {
             self.data_length.store(
@@ -190,17 +188,27 @@ impl DiskService {
         Ok(())
     }
 
-    pub(crate) async fn set_length(&self, size: i64, origin: FileOrigin) -> Result<()> {
+    pub(crate) async fn set_length(&self, size: u64, origin: FileOrigin) -> Result<()> {
         match origin {
             FileOrigin::Data => {
-                self.data_length.store(size - PAGE_SIZE as i64, SeqCst);
-                self.data_stream.set_len(size).await?;
+                self.data_length
+                    .store(size as i64 - PAGE_SIZE as i64, SeqCst);
+                self.data_pool.writeable().await?.set_len(size).await?;
             }
             FileOrigin::Log => {
-                self.log_length.store(size - PAGE_SIZE as i64, SeqCst);
-                self.log_stream.set_len(size).await?;
+                self.log_length
+                    .store(size as i64 - PAGE_SIZE as i64, SeqCst);
+                self.log_pool.writeable().await?.set_len(size).await?;
             }
         }
         Ok(())
+    }
+
+    pub(crate) async fn dispose(self) {
+        let to_remove = self.log_pool.factory().exists().await
+            && self.log_pool.factory().len().await.ok() == Some(0);
+        if to_remove {
+            let _ = self.log_pool.factory().delete().await;
+        }
     }
 }

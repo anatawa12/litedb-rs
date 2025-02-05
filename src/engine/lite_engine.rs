@@ -123,4 +123,11 @@ impl LiteEngine {
 
         Ok(())
     }
+
+    pub async fn dispose(self) -> Result<()> {
+        if let Some(disk) = Rc::into_inner(self.disk) {
+            disk.dispose().await;
+        }
+        Ok(())
+    }
 }
