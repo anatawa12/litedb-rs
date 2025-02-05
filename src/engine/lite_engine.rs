@@ -60,7 +60,7 @@ impl LiteEngine {
             return Err(Error::encrypted_no_password());
         }
 
-        let mut header = HeaderPage::new(header_buffer);
+        let mut header = HeaderPage::load(header_buffer)?;
 
         if header.buffer().buffer()[HeaderPage::P_INVALID_DATAFILE_STATE] != 0
             && settings.auto_build
