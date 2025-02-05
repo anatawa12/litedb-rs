@@ -42,12 +42,16 @@ impl<SF: StreamFactory> LiteEngine<SF> {
             return Ok(true); // Original: errors, this: OK
         }
 
-        CollectionService::check_name(new_name, &self.header.borrow())?;
+        CollectionService::<SF>::check_name(new_name, &self.header.borrow())?;
 
         let mut transaction = self.monitor.create_transaction(false).await?;
 
-        let current_snapshot = transaction.create_snapshot(LockMode::Write, collection, false).await?;
-        let _new_snapshot = transaction.create_snapshot(LockMode::Write, new_name, false).await?;
+        let _new_snapshot = transaction
+            .create_snapshot(LockMode::Write, new_name, false)
+            .await?;
+        let current_snapshot = transaction
+            .create_snapshot(LockMode::Write, collection, false)
+            .await?;
 
         // not exists
         if current_snapshot.collection_page().is_none() {
@@ -60,7 +64,10 @@ impl<SF: StreamFactory> LiteEngine<SF> {
 
         let collection = collection.to_string();
         let new_name = new_name.to_string();
-        transaction.pages().borrow_mut().on_commit(|h| h.rename_collection(&collection, &new_name));
+        transaction
+            .pages()
+            .borrow_mut()
+            .on_commit(move |h| h.rename_collection(&collection, &new_name));
 
         transaction.commit().await?;
 
