@@ -124,6 +124,10 @@ impl LiteEngine {
         Ok(())
     }
 
+    pub async fn checkpoint(&self) -> Result<()> {
+        self.wal_index.checkpoint(&self.disk, &self.locker).await
+    }
+
     pub async fn dispose(self) -> Result<()> {
         drop(self.monitor);
         if let Some(disk) = Rc::into_inner(self.disk) {
