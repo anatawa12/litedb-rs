@@ -8,9 +8,13 @@ async-lock = "3.4.0"
 async-stream = "0.3.6"
 futures = "0.3.31"
 opool = "0.1.1"
+tokio = { version = "1.43.0", features = ["fs"], optional = true }
+tokio-util = { version = "0.7.13", features = ["compat"], optional = true }
 
 [dev-dependencies]
 time = { version = "0.3.37", features = ["macros"] }
+tokio = { version = "1.43.0", features = ["rt-multi-thread", "macros", "fs"] }
 
 [features]
 debug-logs = []
+tokio-fs = ['dep:tokio', 'dep:tokio-util']

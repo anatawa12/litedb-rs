@@ -54,3 +54,10 @@ pub trait StreamFactory: Send + Sync {
     fn len(&self) -> Pin<Box<dyn Future<Output = Result<u64>> + '_>>;
     fn delete(&self) -> Pin<Box<dyn Future<Output = Result<()>> + '_>>;
 }
+
+#[cfg(feature = "tokio-fs")]
+impl Stream for tokio_util::compat::Compat<tokio::fs::File> {
+    fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output = Result<()>> + '_>> {
+        Box::pin(async move { Ok(self.get_ref().set_len(len).await?) })
+    }
+}
