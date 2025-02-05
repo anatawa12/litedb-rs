@@ -35,6 +35,9 @@ pub(crate) use pages::*;
 use std::pin::Pin;
 pub(crate) type PageBufferArray = [u8; PAGE_SIZE];
 
+// public uses
+pub use lite_engine::*;
+
 pub trait Stream: AsyncRead + AsyncWrite + AsyncSeek + Unpin + Send {
     // Should we use poll method instead?
     fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output = Result<()>> + '_>>;
