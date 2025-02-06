@@ -58,6 +58,8 @@ pub(crate) struct DataBlockMut<'a> {
     dirty_ptr: &'a mut bool,
 }
 
+extend_lifetime!(DataBlockMut);
+
 impl<'a> DataBlockMut<'a> {
     pub fn new(
         page_id: u32,
@@ -118,6 +120,11 @@ impl<'a> DataBlockMut<'a> {
     pub fn buffer(&self) -> &BufferSlice {
         let len = self.segment.len() - P_BUFFER;
         self.segment.slice(P_BUFFER, len)
+    }
+
+    pub fn buffer_mut(&mut self) -> &mut BufferSlice {
+        let len = self.segment.len() - P_BUFFER;
+        self.segment.slice_mut(P_BUFFER, len)
     }
 
     pub fn set_next_block(&mut self, next_block: PageAddress) {

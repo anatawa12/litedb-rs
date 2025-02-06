@@ -72,6 +72,18 @@ impl<'target, Target, Key: Hash + Eq + Copy> PartialBorrower<'target, Target, Ke
             borrowed: self.borrowed.clone(),
         })
     }
+
+    pub async unsafe fn try_delete_borrow_async<'s, Result>(
+        &'s mut self,
+        key: Key,
+        delete: impl AsyncFnOnce(&'s mut Target, &Key) -> Result,
+    ) -> Result {
+        assert!(
+            !self.borrowed.borrow().contains(&key),
+            "removing using reference"
+        ); // TODO: make non-hard error?
+        delete(self.target, &key).await
+    }
 }
 
 into_non_drop! {

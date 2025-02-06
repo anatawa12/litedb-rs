@@ -100,6 +100,10 @@ impl Error {
     pub(crate) fn already_exists_collection_name(name: &str) -> Error {
         Error::err(format!("Already exists collection name: {}", name))
     }
+
+    pub(crate) fn document_size_exceed_limit() -> Self {
+        Error::err("DocumentSize exceed limit")
+    }
 }
 
 impl Error {

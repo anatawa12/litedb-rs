@@ -411,8 +411,8 @@ impl Snapshot {
             .await
     }
 
-    async fn get_free_data_page(&mut self, length: i32) -> Result<Pin<&mut DataPage>> {
-        let length = length as usize + BasePage::SLOT_SIZE;
+    pub async fn get_free_data_page(&mut self, length: usize) -> Result<Pin<&mut DataPage>> {
+        let length = length + BasePage::SLOT_SIZE;
 
         let start_slot = DataPage::get_minimum_index_slot(length);
         let collection_page = self.collection_page.as_ref().unwrap();
@@ -566,7 +566,17 @@ impl SnapshotPages {
 }
 
 impl Snapshot {
-    pub async fn add_or_remove_free_data_list(&mut self, page: &mut DataPage) -> Result<()> {
+    pub async fn add_or_remove_free_data_list(&mut self, page_id: u32) -> Result<()> {
+        // TODO: safety with partial borrow
+        let mut page = self
+            .page_collection
+            .get_page::<DataPage>(page_id, false)
+            .await?;
+        let page = unsafe {
+            std::mem::transmute::<&mut DataPage, &mut DataPage>(std::ops::DerefMut::deref_mut(
+                &mut page,
+            ))
+        };
         let new_slot = DataPage::free_index_slot(page.free_bytes());
         let initial_slot = page.page_list_slot();
 

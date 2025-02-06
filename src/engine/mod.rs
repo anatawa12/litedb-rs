@@ -7,6 +7,7 @@ mod collection_index;
 mod collection_service;
 mod constants;
 mod data_block;
+mod data_service;
 mod disk;
 mod engine_pragmas;
 mod index_node;
