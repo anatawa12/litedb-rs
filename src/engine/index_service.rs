@@ -1,14 +1,13 @@
 use crate::bson;
-use crate::bson::Value;
 use crate::engine::collection_index::CollectionIndex;
 use crate::engine::index_node::{IndexNode, IndexNodeMut};
 use crate::engine::snapshot::{Snapshot, SnapshotPages};
+use crate::engine::utils::{PartialBorrower, PartialRefMut};
 use crate::engine::{IndexPage, MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress};
-use crate::utils::{Collation, Order, Shared};
+use crate::utils::{Collation, Order};
 use crate::{Error, Result};
 use std::collections::HashSet;
 use std::hash::{BuildHasher, RandomState};
-use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 
 // see http://igoro.com/archive/skip-lists-are-fascinating/ for index structure
@@ -164,7 +163,7 @@ impl IndexService<'_> {
                 if diff.is_eq() && index.unique() {
                     return Err(Error::index_duplicate_key(
                         index.name(),
-                        node.into_node().into_key(),
+                        node.into_value().into_key(),
                     ));
                 }
 
@@ -217,14 +216,15 @@ impl IndexService<'_> {
         }
 
         if accessor
-            .snapshot
+            .inner
+            .target_mut()
             .add_or_remove_free_index_list(node.page_ptr(), index.free_index_page_list_mut())
             .await?
         {
             collections_page.set_dirty();
         }
 
-        let node = node.into_node();
+        let node = node.into_value();
         Ok(node)
     }
 
@@ -251,7 +251,7 @@ impl IndexService<'_> {
 
         let mut current = first_address;
         while !current.is_empty() {
-            let node = accessor.get_node_mut(current).await?.into_node();
+            let node = accessor.get_node_mut(current).await?.into_value();
             current = node.next_node();
             result.push(node)
         }
@@ -271,7 +271,7 @@ impl IndexService<'_> {
             current = node.next_node();
 
             let index = indexes[node.slot() as usize].as_mut().unwrap();
-            if Self::delete_single_node(&mut accessor, node.into_node(), index).await? {
+            if Self::delete_single_node(&mut accessor, node.into_value(), index).await? {
                 *dirty = true;
             }
         }
@@ -299,7 +299,7 @@ impl IndexService<'_> {
             if to_delete.contains(&node.position()) {
                 let index = indexes[node.slot() as usize].as_mut().unwrap();
                 let position = node.next_node();
-                if Self::delete_single_node(&mut accessor, node.into_node(), index).await? {
+                if Self::delete_single_node(&mut accessor, node.into_value(), index).await? {
                     *dirty = true;
                 }
                 accessor.get_node_mut(last).await?.set_next_node(position);
@@ -308,7 +308,7 @@ impl IndexService<'_> {
             }
         }
 
-        Ok(accessor.get_node_mut(last).await?.into_node())
+        Ok(accessor.get_node_mut(last).await?.into_value())
     }
 
     /// Delete a single index node - fix tree double-linked list levels
@@ -335,7 +335,7 @@ impl IndexService<'_> {
         node.remove_from_page();
 
         accessor
-            .snapshot
+            .snapshot_mut()
             .add_or_remove_free_index_list(page_ptr, index.free_index_page_list_mut())
             .await
     }
@@ -362,7 +362,7 @@ impl IndexService<'_> {
 
                     last.set_next_node(node.next_node());
                 } else {
-                    last = node.into_node();
+                    last = node.into_value();
                 }
             }
         }
@@ -371,12 +371,12 @@ impl IndexService<'_> {
         accessor
             .get_node_mut(index.head())
             .await?
-            .into_node()
+            .into_value()
             .remove_from_page();
         accessor
             .get_node_mut(index.tail())
             .await?
-            .into_node()
+            .into_value()
             .remove_from_page();
 
         Ok(())
@@ -423,7 +423,7 @@ impl IndexService<'_> {
 
             current = cur.get_next_prev(0, order);
 
-            nodes.push(cur.into_node());
+            nodes.push(cur.into_value());
         }
 
         Ok(nodes)
@@ -432,7 +432,7 @@ impl IndexService<'_> {
     pub async fn find(
         &mut self,
         index: &CollectionIndex,
-        value: Value,
+        value: bson::Value,
         sibling: bool,
         order: Order,
     ) -> Result<Option<IndexNodeMut>> {
@@ -468,16 +468,19 @@ impl IndexService<'_> {
 
                 if order == diff && level == 0 && sibling {
                     // is head/tail?
-                    if matches!(right_node.key(), Value::MinValue | Value::MaxValue) {
+                    if matches!(
+                        right_node.key(),
+                        bson::Value::MinValue | bson::Value::MaxValue
+                    ) {
                         return Ok(None);
                     } else {
-                        return Ok(Some(right_node.into_node()));
+                        return Ok(Some(right_node.into_value()));
                     };
                 }
 
                 // if equals, return index node
                 if diff.is_eq() {
-                    return Ok(Some(right_node.into_node()));
+                    return Ok(Some(right_node.into_value()));
                 }
 
                 right = right_node.get_next_prev(level, order);
@@ -489,18 +492,21 @@ impl IndexService<'_> {
     }
 }
 
-/// The struct to safely partial borrow index node from snapshot.
 pub(crate) struct PartialIndexNodeAccessorMut<'snapshot> {
-    snapshot: &'snapshot mut SnapshotPages,
-    borrowed: Shared<HashSet<PageAddress>>,
+    inner: PartialBorrower<'snapshot, SnapshotPages, PageAddress>,
 }
+
+type IndexNodeMutRef<'snapshot> = PartialRefMut<IndexNodeMut<'snapshot>, PageAddress>;
 
 impl<'snapshot> PartialIndexNodeAccessorMut<'snapshot> {
     pub(crate) fn new(snapshot: &'snapshot mut SnapshotPages) -> Self {
         Self {
-            snapshot,
-            borrowed: Shared::new(HashSet::new()),
+            inner: PartialBorrower::new(snapshot),
         }
+    }
+
+    fn snapshot_mut(&mut self) -> &mut SnapshotPages {
+        self.inner.target_mut()
     }
 
     async fn insert_index_node(
@@ -512,26 +518,25 @@ impl<'snapshot> PartialIndexNodeAccessorMut<'snapshot> {
         data_block: PageAddress,
         length: usize,
     ) -> Result<IndexNodeMutRef<'snapshot>> {
-        let index_page = self
-            .snapshot
-            .get_free_index_page(length, free_index_page_list)
-            .await?;
-
-        let index_node = index_page.insert_index_node(slot, level, key, data_block, length);
-
-        let address = index_node.position();
-
-        self.borrowed.borrow_mut().insert(address);
-        Ok(IndexNodeMutRef {
-            node: unsafe { std::mem::transmute::<IndexNodeMut, IndexNodeMut>(index_node) },
-            address,
-            borrowed: self.borrowed.clone(),
-        })
+        unsafe {
+            self.inner
+                .try_create_borrow_async(
+                    async |snapshot: &mut SnapshotPages| {
+                        Ok(snapshot
+                            .get_free_index_page(length, free_index_page_list)
+                            .await?
+                            .insert_index_node(slot, level, key, data_block, length))
+                    },
+                    |s| s.position(),
+                )
+                .await
+        }
     }
 
     async fn get_node_mut(&mut self, address: PageAddress) -> Result<IndexNodeMutRef<'snapshot>> {
         Ok(self.get_node_mut_opt(address).await?.expect("not found"))
     }
+
     async fn get_node_mut_opt(
         &mut self,
         address: PageAddress,
@@ -539,57 +544,18 @@ impl<'snapshot> PartialIndexNodeAccessorMut<'snapshot> {
         if address.page_id() == u32::MAX {
             return Ok(None);
         }
-        assert!(
-            !self.borrowed.borrow().contains(&address),
-            "double reference"
-        ); // TODO: make non-hard error
 
-        let index_page = self
-            .snapshot
-            .get_page::<IndexPage>(address.page_id(), false)
-            .await?;
-        let index_node = index_page.get_index_node_mut(address.index())?;
-
-        self.borrowed.borrow_mut().insert(address);
-        Ok(Some(IndexNodeMutRef {
-            node: unsafe { std::mem::transmute::<IndexNodeMut, IndexNodeMut>(index_node) },
-            address,
-            borrowed: self.borrowed.clone(),
-        }))
-    }
-}
-
-into_non_drop! {
-    struct IndexNodeMutRef<'snapshot> {
-        node: IndexNodeMut<'snapshot>,
-        address: PageAddress,
-        borrowed: Shared<HashSet<PageAddress>>,
-    }
-}
-
-impl<'snapshot> IndexNodeMutRef<'snapshot> {
-    fn into_node(self) -> IndexNodeMut<'snapshot> {
-        let destruct = self.into_destruct();
-        destruct.node
-    }
-}
-
-impl Drop for IndexNodeMutRef<'_> {
-    fn drop(&mut self) {
-        self.borrowed.borrow_mut().remove(&self.address);
-    }
-}
-
-impl<'snapshot> Deref for IndexNodeMutRef<'snapshot> {
-    type Target = IndexNodeMut<'snapshot>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.node
-    }
-}
-
-impl DerefMut for IndexNodeMutRef<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.node
+        unsafe {
+            Ok(Some(
+                self.inner
+                    .try_get_borrow_async::<_, _, Error>(address, async |snapshot, address| {
+                        snapshot
+                            .get_page::<IndexPage>(address.page_id(), false)
+                            .await?
+                            .get_index_node_mut(address.index())
+                    })
+                    .await?,
+            ))
+        }
     }
 }

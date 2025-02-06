@@ -10,7 +10,9 @@ macro_rules! into_ok {
 macro_rules! into_non_drop {
     (
         $(#[$meta:meta])*
-        $struct_vis:vis struct $struct_name: ident $(< $($lifetime: lifetime),* $($generics: ident $(: $constraint0: path )? ),* >)? {
+        $struct_vis:vis struct $struct_name: ident $(< $($lifetime: lifetime),* $($generics: ident $(: $constraint0: path )? ),* >)?
+            $(where $where_type: ty : $bound: path)*
+        {
             $(
             $(#[$field_meta:meta])*
             $field_vis:vis $field_name:ident : $field_ty:ty
@@ -42,6 +44,17 @@ macro_rules! into_non_drop {
                 }
             }
         };
+    };
+}
+
+macro_rules! extend_lifetime {
+    ($($path: ident)::+) => {
+        unsafe impl<'a> $crate::engine::utils::ExtendLifetime<'a> for $($path)::+ <'_> {
+            type Extended = $($path)::+<'a>;
+            unsafe fn extend_lifetime(self) -> Self::Extended {
+                unsafe { std::mem::transmute::<Self, Self::Extended>(self) }
+            }
+        }
     };
 }
 

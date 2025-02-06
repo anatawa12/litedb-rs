@@ -22,6 +22,7 @@ mod sort_disk;
 mod transaction_monitor;
 mod transaction_pages;
 mod transaction_service;
+pub(crate) mod utils;
 mod wal_index_service;
 
 pub(crate) use super::Result;

@@ -29,6 +29,8 @@ pub(crate) struct IndexNodeShared<S, D> {
 pub(crate) type IndexNode<'a> = IndexNodeShared<&'a BufferSlice, ()>;
 pub(crate) type IndexNodeMut<'a> = IndexNodeShared<&'a mut BufferSlice, *mut IndexPage>;
 
+extend_lifetime!(IndexNodeMut);
+
 fn calc_key_ptr(levels: u8) -> usize {
     P_PREV_NEXT + levels as usize * PageAddress::SERIALIZED_SIZE * 2
 }
