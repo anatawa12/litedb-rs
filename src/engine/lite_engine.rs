@@ -1,5 +1,3 @@
-mod collection;
-
 use crate::engine::disk::DiskService;
 use crate::engine::lock_service::LockService;
 use crate::engine::pages::HeaderPage;
@@ -15,6 +13,34 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use std::pin::pin;
 use std::rc::Rc;
+
+macro_rules! auto_transaction {
+    ($this: expr, |$transaction: ident| $body: expr) => {{
+        let this = $this;
+        let mut $transaction = this.monitor.create_transaction(false).await?;
+
+        let result = $body;
+
+        {
+            $transaction.commit().await?;
+            if this.header.borrow().pragmas().checkpoint() > 0 {
+                if this.disk.get_file_length(crate::engine::FileOrigin::Log)
+                    > this.header.borrow().pragmas().checkpoint() as i64
+                        * crate::engine::PAGE_SIZE as i64
+                {
+                    this.wal_index
+                        .try_checkpoint(&this.disk, &this.locker)
+                        .await?;
+                }
+            }
+        }
+
+        result
+    }};
+}
+
+// method implementations
+mod collection;
 
 pub struct LiteSettings {
     pub data_stream: Box<dyn StreamFactory>,
