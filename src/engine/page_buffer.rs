@@ -87,6 +87,10 @@ impl PageBuffer {
         &mut self.buffer
     }
 
+    pub fn buffer_ptr(this: *mut Self) -> *mut u8 {
+        unsafe { &raw mut (*this).buffer as *mut _ }
+    }
+
     pub(super) fn update_time(&self) {
         // NO LRU for now
         // Interlocked.Exchange(ref page.Timestamp, DateTime.UtcNow.Ticks)

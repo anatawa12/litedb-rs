@@ -4,7 +4,9 @@ use crate::engine::{PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer};
 use crate::utils::BufferSlice;
 use std::cmp::Ordering;
 use std::fmt::Debug;
+use std::ops::{Add, DerefMut};
 use std::pin::Pin;
+use std::slice;
 // The common variables for each page
 
 const SLOT_SIZE: usize = 4;
@@ -345,15 +347,33 @@ impl BasePage {
         let position_addr = Self::calc_position_addr(index);
         let length_addr = Self::calc_length_addr(index);
 
-        let position = self.buffer.read_u16(position_addr) as usize;
-        let length = self.buffer.read_u16(length_addr) as usize;
+        // equivalent to this, but using unsafe for partial borrow
+        //let position = self.buffer.read_u16(position_addr) as usize;
+        //let length = self.buffer.read_u16(length_addr) as usize;
+        let (position, length) = unsafe {
+            let pointer = PageBuffer::buffer_ptr(&raw mut *self.buffer);
+            let position_slice = slice::from_raw_parts_mut(pointer.add(position_addr), 2);
+            let length_slice = slice::from_raw_parts_mut(pointer.add(length_addr), 2);
+            (
+                BufferSlice::new_mut(position_slice).read_u16(0) as usize,
+                BufferSlice::new_mut(length_slice).read_u16(0) as usize,
+            )
+        };
 
         assert!(
             self.valid_position(position, length),
             "invalid position or length"
         );
 
-        (self.buffer.slice_mut(position, length), &mut self.dirty)
+        // equivalent to this, but using unsafe for partial borrow
+        //let buffer = self.buffer.slice_mut(position, length);
+        let buffer = unsafe {
+            let pointer = PageBuffer::buffer_ptr(&raw mut *self.buffer);
+            let slice = slice::from_raw_parts_mut(pointer.add(position), length);
+            BufferSlice::new_mut(slice)
+        };
+
+        (buffer, &mut self.dirty)
     }
 
     pub fn insert(&mut self, length: usize) -> (&mut BufferSlice, u8) {
