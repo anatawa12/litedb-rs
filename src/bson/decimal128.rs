@@ -581,51 +581,72 @@ fn construct_test() {
     // The arguments are same as C# compiler generated one except for we use 128-bit integer
     // binary part is coming from C# with
     // Decimal.GetBits(value).SelectMany(BitConverter.GetBytes).ToArray()
-    construct_test!(5, 0, false, [
-        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    ]);
-    construct_test!(50, 1, false, [
-        50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0
-    ]);
-    construct_test!(51, 1, false, [
-        51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0
-    ]);
+    construct_test!(
+        5,
+        0,
+        false,
+        [5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+    construct_test!(
+        50,
+        1,
+        false,
+        [50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]
+    );
+    construct_test!(
+        51,
+        1,
+        false,
+        [51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]
+    );
 
     parse_test!("5", [5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     parse_test!("5.0", [50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]);
     parse_test!("5.1", [51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]);
     parse_test!("5.1", [51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]);
 
-    assert_eq!(decimal!(5).bytes(), [
-        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    ]);
-    assert_eq!(decimal!(5.).bytes(), [
-        5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    ]);
-    assert_eq!(decimal!(5.0).bytes(), [
-        50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0
-    ]);
-    assert_eq!(decimal!(5.1).bytes(), [
-        51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0
-    ]);
-    assert_eq!(decimal!(0.1).bytes(), [
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0
-    ]);
-    assert_eq!(decimal!(0.10).bytes(), [
-        10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0
-    ]);
+    assert_eq!(
+        decimal!(5).bytes(),
+        [5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+    assert_eq!(
+        decimal!(5.).bytes(),
+        [5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+    assert_eq!(
+        decimal!(5.0).bytes(),
+        [50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]
+    );
+    assert_eq!(
+        decimal!(5.1).bytes(),
+        [51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]
+    );
+    assert_eq!(
+        decimal!(0.1).bytes(),
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]
+    );
+    assert_eq!(
+        decimal!(0.10).bytes(),
+        [10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0]
+    );
 
     // max and min value
-    assert_eq!(Decimal128::MAX.bytes(), [
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0
-    ]);
+    assert_eq!(
+        Decimal128::MAX.bytes(),
+        [
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0
+        ]
+    );
     assert_eq!(
         Decimal128::MAX.bytes(),
         decimal!(79228162514264337593543950335).bytes()
     );
-    assert_eq!(Decimal128::MIN.bytes(), [
-        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 128
-    ]);
+    assert_eq!(
+        Decimal128::MIN.bytes(),
+        [
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 128
+        ]
+    );
     assert_eq!(
         Decimal128::MIN.bytes(),
         decimal!(-79228162514264337593543950335).bytes()
