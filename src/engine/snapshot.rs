@@ -782,7 +782,8 @@ impl Snapshot {
         let max_items_count = self.page_collection.disk.max_items_count();
         let indexer = IndexService::new(self, collation, max_items_count);
 
-        let (pages, collection_page) = indexer.snapshot.pages_and_collections();
+        let pages = &mut indexer.snapshot.page_collection;
+        let collection_page = indexer.snapshot.collection_page.as_mut().unwrap();
         let trans_pages_shared = pages.trans_pages.clone();
         {
             let mut trans_pages = trans_pages_shared.borrow_mut();
@@ -863,13 +864,30 @@ impl Snapshot {
 }
 // rust lifetime utilities
 impl Snapshot {
-    pub fn pages_and_collections(&mut self) -> (&mut SnapshotPages, &mut CollectionPage) {
-        (
-            &mut self.page_collection,
-            self.collection_page.as_mut().unwrap(),
-        )
+    pub fn pages(&mut self) -> &mut SnapshotPages {
+        &mut self.page_collection
+    }
+
+    pub fn as_parts(&mut self) -> SnapshotParts {
+        SnapshotParts {
+            data_pages: SnapshotDataPages {
+                inner: &mut self.page_collection as *mut _,
+                _phantom: PhantomData,
+            },
+            index_pages: SnapshotIndexPages {
+                inner: &mut self.page_collection as *mut _,
+                _phantom: PhantomData,
+            },
+            collection_page: self.collection_page.as_mut().unwrap(),
+        }
     }
 }
+pub(crate) struct SnapshotParts<'a> {
+    pub data_pages: SnapshotDataPages<'a>,
+    pub index_pages: SnapshotIndexPages<'a>,
+    pub collection_page: &'a mut CollectionPage,
+}
+
 impl<'a> SnapshotDataPages<'a> {
     pub fn new(pages: &'a mut SnapshotPages) -> Self {
         Self {

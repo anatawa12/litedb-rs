@@ -30,8 +30,8 @@ impl<'a> DataService<'a> {
             return Err(Error::document_size_exceed_limit());
         }
 
-        let (pages, collections_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialDataBlockAccessorMut::new(SnapshotDataPages::new(pages));
+        let parts = self.snapshot.as_parts();
+        let mut accessor = PartialDataBlockAccessorMut::new(parts.data_pages);
 
         let mut first_block = PageAddress::EMPTY;
 
@@ -45,7 +45,7 @@ impl<'a> DataService<'a> {
                     .insert_data_block(
                         bytes_to_copy,
                         block_index > 0,
-                        &mut collections_page.free_data_page_list,
+                        &mut parts.collection_page.free_data_page_list,
                     )
                     .await?;
                 block_index += 1;
@@ -62,8 +62,8 @@ impl<'a> DataService<'a> {
                     .snapshot_mut()
                     .add_or_remove_free_data_list(
                         data_block.position().page_id(),
-                        &mut collections_page.free_data_page_list,
-                        &collections_page.base.dirty,
+                        &mut parts.collection_page.free_data_page_list,
+                        &parts.collection_page.base.dirty,
                     )
                     .await?;
 
@@ -94,8 +94,8 @@ impl<'a> DataService<'a> {
             return Err(Error::document_size_exceed_limit());
         }
 
-        let (pages, collections_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialDataBlockAccessorMut::new(SnapshotDataPages::new(pages));
+        let parts = self.snapshot.as_parts();
+        let mut accessor = PartialDataBlockAccessorMut::new(parts.data_pages);
 
         let mut buffers = Vec::<DataBlockMutRef>::new();
 
@@ -119,8 +119,8 @@ impl<'a> DataService<'a> {
                         .snapshot_mut()
                         .add_or_remove_free_data_list(
                             update_block.position().page_id(),
-                            &mut collections_page.free_data_page_list,
-                            &collections_page.base.dirty,
+                            &mut parts.collection_page.free_data_page_list,
+                            &parts.collection_page.base.dirty,
                         )
                         .await?;
 
@@ -134,7 +134,7 @@ impl<'a> DataService<'a> {
                         .insert_data_block(
                             bytes_to_copy,
                             true,
-                            &mut collections_page.free_data_page_list,
+                            &mut parts.collection_page.free_data_page_list,
                         )
                         .await?;
 
@@ -146,8 +146,8 @@ impl<'a> DataService<'a> {
                         .snapshot_mut()
                         .add_or_remove_free_data_list(
                             insert_block.position().page_id(),
-                            &mut collections_page.free_data_page_list,
-                            &collections_page.base.dirty,
+                            &mut parts.collection_page.free_data_page_list,
+                            &parts.collection_page.base.dirty,
                         )
                         .await?;
 
@@ -167,8 +167,8 @@ impl<'a> DataService<'a> {
                     Self::delete(
                         &mut accessor,
                         next_block_address,
-                        &mut collections_page.free_data_page_list,
-                        &collections_page.base.dirty,
+                        &mut parts.collection_page.free_data_page_list,
+                        &parts.collection_page.base.dirty,
                     )
                     .await?;
                 }

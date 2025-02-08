@@ -43,17 +43,18 @@ impl IndexService<'_> {
         unique: bool,
     ) -> Result<&mut CollectionIndex> {
         let (length, _) = IndexNode::get_node_length(MAX_LEVEL_LENGTH, &bson::Value::MinValue);
-        let (pages, collection_page) = self.snapshot.pages_and_collections();
-        let mut pages = SnapshotIndexPages::new(pages);
+        let mut parts = self.snapshot.as_parts();
 
-        let index = collection_page.insert_collection_index(name, expression, unique)?;
+        let index = parts
+            .collection_page
+            .insert_collection_index(name, expression, unique)?;
         let index_slot = index.slot();
 
-        let mut index_page = pages.new_page().await?;
+        let mut index_page = parts.index_pages.new_page().await?;
         index_page.as_mut().as_base_mut().set_page_list_slot(0);
         let page_id = index_page.page_id();
 
-        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+        let mut accessor = PartialIndexNodeAccessorMut::new(parts.index_pages);
 
         let mut head = accessor
             .insert_index_node(
@@ -122,8 +123,8 @@ impl IndexService<'_> {
             return Err(Error::invalid_index_key("Index key too long"));
         }
 
-        let (pages, collections_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(pages));
+        let parts = self.snapshot.as_parts();
+        let mut accessor = PartialIndexNodeAccessorMut::new(parts.index_pages);
 
         let mut node = accessor
             .insert_index_node(
@@ -215,7 +216,7 @@ impl IndexService<'_> {
             .add_or_remove_free_index_list(
                 node.page_ptr(),
                 index.free_index_page_list_mut(),
-                collections_page.dirty_flag(),
+                parts.collection_page.dirty_flag(),
             )
             .await?;
 
@@ -240,8 +241,8 @@ impl IndexService<'_> {
     }
 
     pub async fn get_node_list(&mut self, first_address: PageAddress) -> Result<Vec<IndexNodeMut>> {
-        let (pages, _) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(pages));
+        let parts = self.snapshot.as_parts();
+        let mut accessor = PartialIndexNodeAccessorMut::new(parts.index_pages);
         let mut result = Vec::new();
 
         let mut current = first_address;
@@ -255,10 +256,12 @@ impl IndexService<'_> {
     }
 
     pub async fn delete_all(&mut self, first_address: PageAddress) -> Result<()> {
-        let (pages, collection_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(pages));
+        let parts = self.snapshot.as_parts();
+        let mut accessor = PartialIndexNodeAccessorMut::new(parts.index_pages);
         // Rust: no count check since we've checked recursion with PartialIndexNodeAccessorMut
-        let (mut indexes, dirty) = collection_page.get_collection_indexes_slots_mut_with_dirty();
+        let (mut indexes, dirty) = parts
+            .collection_page
+            .get_collection_indexes_slots_mut_with_dirty();
 
         let mut current = first_address;
         while !current.is_empty() {
@@ -277,11 +280,13 @@ impl IndexService<'_> {
         first_address: PageAddress,
         to_delete: HashSet<PageAddress>,
     ) -> Result<IndexNodeMut> {
-        let (pages, collection_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(pages));
+        let parts = self.snapshot.as_parts();
+        let mut accessor = PartialIndexNodeAccessorMut::new(parts.index_pages);
         let mut last = first_address;
         // Rust: no count check since we've checked recursion with PartialIndexNodeAccessorMut
-        let (mut indexes, dirty) = collection_page.get_collection_indexes_slots_mut_with_dirty();
+        let (mut indexes, dirty) = parts
+            .collection_page
+            .get_collection_indexes_slots_mut_with_dirty();
 
         let mut current = accessor.get_node_mut(last).await?.next_node(); // starts in first node after PK
 
@@ -333,11 +338,11 @@ impl IndexService<'_> {
     }
 
     pub async fn drop_index(&mut self, index: &CollectionIndex) -> Result<()> {
-        let (pages, collection_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(pages));
+        let parts = self.snapshot.as_parts();
+        let mut accessor = PartialIndexNodeAccessorMut::new(parts.index_pages);
 
         let slot = index.slot();
-        let pk_index = collection_page.pk_index();
+        let pk_index = parts.collection_page.pk_index();
 
         for pk_node in Self::find_all_accessor(&mut accessor, pk_index, Order::Ascending).await? {
             let mut next = pk_node.next_node();
@@ -382,10 +387,9 @@ impl IndexService<'_> {
         index: &CollectionIndex,
         order: Order,
     ) -> Result<Vec<IndexNodeMut>> {
+        let parts = self.snapshot.as_parts();
         Self::find_all_accessor(
-            &mut PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(
-                self.snapshot.pages_and_collections().0,
-            )),
+            &mut PartialIndexNodeAccessorMut::new(parts.index_pages),
             index,
             order,
         )
@@ -430,9 +434,8 @@ impl IndexService<'_> {
         sibling: bool,
         order: Order,
     ) -> Result<Option<IndexNodeMut>> {
-        let accessor = &mut PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(
-            self.snapshot.pages_and_collections().0,
-        ));
+        let parts = self.snapshot.as_parts();
+        let accessor = &mut PartialIndexNodeAccessorMut::new(parts.index_pages);
         let mut left_node = if order == Order::Ascending {
             accessor.get_node_mut(index.head()).await?
         } else {

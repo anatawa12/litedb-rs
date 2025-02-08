@@ -62,8 +62,7 @@ impl<'snapshot> CollectionService<'snapshot> {
         if page_id != u32::MAX {
             let page = self
                 .snapshot
-                .pages_and_collections()
-                .0
+                .pages()
                 .get_page::<CollectionPage>(page_id, false)
                 .await?;
             Ok((false, Some(page)))
@@ -77,12 +76,7 @@ impl<'snapshot> CollectionService<'snapshot> {
     pub async fn add(&mut self, name: &str) -> Result<Pin<&mut CollectionPage>> {
         Self::check_name(name, &self.snapshot.header().borrow())?;
 
-        let page = self
-            .snapshot
-            .pages_and_collections()
-            .0
-            .new_page::<CollectionPage>()
-            .await?;
+        let page = self.snapshot.pages().new_page::<CollectionPage>().await?;
         let page_id = page.page_id();
 
         self.snapshot.trans_pages().borrow_mut().on_commit({
@@ -97,8 +91,7 @@ impl<'snapshot> CollectionService<'snapshot> {
         indexer.create_index("_id", "$._id", true).await?;
 
         self.snapshot
-            .pages_and_collections()
-            .0
+            .pages()
             .get_page::<CollectionPage>(page_id, false)
             .await
     }
