@@ -45,50 +45,43 @@ impl IndexService<'_> {
         unique: bool,
     ) -> Result<&mut CollectionIndex> {
         let (length, _) = IndexNode::get_node_length(MAX_LEVEL_LENGTH, &bson::Value::MinValue);
+        let (pages, collection_page) = self.snapshot.pages_and_collections();
 
-        let index = self
-            .snapshot
-            .collection_page_mut()
-            .unwrap()
-            .insert_collection_index(name, expression, unique)?;
+        let index = collection_page.insert_collection_index(name, expression, unique)?;
         let index_slot = index.slot();
 
-        let mut index_page = self.snapshot.new_page::<IndexPage>().await?;
-        let head = index_page.as_mut().insert_index_node(
-            index_slot,
-            MAX_LEVEL_LENGTH,
-            bson::Value::MinValue,
-            PageAddress::default(),
-            length,
-        );
-        let head_position = head.position();
-        let mut tail = index_page.as_mut().insert_index_node(
-            index_slot,
-            MAX_LEVEL_LENGTH,
-            bson::Value::MaxValue,
-            PageAddress::default(),
-            length,
-        );
-        let tail_position = tail.position();
-        tail.set_prev(0, head_position);
-        let mut head = index_page
-            .as_mut()
-            .get_index_node_mut(head_position.index())
-            .unwrap();
-        head.set_prev(0, tail_position);
+        let mut index_page = pages.new_page::<IndexPage>().await?;
         index_page.as_mut().as_base_mut().set_page_list_slot(0);
-
         let page_id = index_page.page_id();
 
-        let index = self
-            .snapshot
-            .collection_page_mut()
-            .unwrap()
-            .get_collection_index_mut(name)
-            .unwrap();
+        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+
+        let mut head = accessor
+            .insert_index_node(
+                page_id,
+                index_slot,
+                MAX_LEVEL_LENGTH,
+                bson::Value::MinValue,
+                PageAddress::default(),
+                length,
+            )
+            .await?;
+        let mut tail = accessor
+            .insert_index_node(
+                page_id,
+                index_slot,
+                MAX_LEVEL_LENGTH,
+                bson::Value::MinValue,
+                PageAddress::default(),
+                length,
+            )
+            .await?;
+        tail.set_prev(0, head.position());
+        head.set_prev(0, tail.position());
+
         index.set_free_index_page_list(page_id);
-        index.set_head(head_position);
-        index.set_tail(head_position);
+        index.set_head(head.position());
+        index.set_tail(tail.position());
 
         Ok(index)
     }

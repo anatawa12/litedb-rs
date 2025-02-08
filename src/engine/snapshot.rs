@@ -380,40 +380,7 @@ impl SnapshotPages {
             })
         }
     }
-}
-impl Snapshot {
-    pub async fn get_page<T: Page>(
-        &mut self,
-        page_id: u32,
-        use_latest_version: bool, /* = false*/
-    ) -> Result<Pin<&mut T>> {
-        self.page_collection
-            .get_page::<T>(page_id, use_latest_version)
-            .await
-    }
 
-    pub async fn get_page_with_additional_info<T: Page>(
-        &mut self,
-        page_id: u32,
-        use_latest_version: bool,
-    ) -> Result<PageWithAdditionalInfo<Pin<&mut T>>> {
-        self.page_collection
-            .get_page_with_additional_info::<T>(page_id, use_latest_version)
-            .await
-    }
-
-    async fn read_page<T: Page>(
-        &mut self,
-        page_id: u32,
-        use_latest_version: bool,
-    ) -> Result<PageWithAdditionalInfo<T>> {
-        self.page_collection
-            .read_page(page_id, use_latest_version)
-            .await
-    }
-}
-
-impl SnapshotPages {
     pub async fn get_free_data_page(
         &mut self,
         length: usize,
@@ -466,23 +433,7 @@ impl SnapshotPages {
 
         Ok(page)
     }
-}
-impl Snapshot {
-    pub async fn new_page<T: Page>(&mut self) -> Result<Pin<&mut T>> {
-        if self.collection_page.is_none() {
-            debug_assert_eq!(
-                std::any::TypeId::of::<T>(),
-                std::any::TypeId::of::<CollectionPage>()
-            );
-        }
-        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<CollectionPage>() {
-            debug_assert!(self.collection_page.is_none())
-        }
 
-        self.page_collection.new_page().await
-    }
-}
-impl SnapshotPages {
     #[allow(clippy::await_holding_refcell_ref)]
     pub async fn new_page<T: Page>(&mut self) -> Result<Pin<&mut T>> {
         let page_id;
@@ -558,9 +509,7 @@ impl SnapshotPages {
             Ok(unsafe { Pin::new_unchecked(Box::leak(Box::new(page))) })
         }
     }
-}
 
-impl SnapshotPages {
     pub async fn add_or_remove_free_data_list(
         &mut self,
         page_id: u32,
