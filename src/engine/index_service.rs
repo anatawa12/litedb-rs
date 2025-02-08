@@ -418,7 +418,7 @@ impl IndexService<'_> {
     pub async fn find(
         &mut self,
         index: &CollectionIndex,
-        value: bson::Value,
+        value: &bson::Value,
         sibling: bool,
         order: Order,
     ) -> Result<Option<IndexNodeMut>> {
@@ -444,7 +444,7 @@ impl IndexService<'_> {
 
                 let right_node = self.index_nodes.get_node_mut(right).await?;
 
-                let diff = self.collation.compare(right_node.key(), &value);
+                let diff = self.collation.compare(right_node.key(), value);
 
                 if order == diff && (level > 0 || !sibling) {
                     break; // go down one level

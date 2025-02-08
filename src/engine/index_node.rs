@@ -145,6 +145,10 @@ impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
         self.next_node
     }
 
+    pub fn data_block(&self) -> PageAddress {
+        self.data_block
+    }
+
     // used when creating error
     pub(crate) fn into_key(self) -> bson::Value {
         self.key

@@ -14,6 +14,9 @@ use std::collections::HashMap;
 use std::pin::pin;
 use std::rc::Rc;
 
+// common imports for child modules
+use crate::bson;
+
 macro_rules! auto_transaction {
     ($this: expr, |$transaction: ident| $body: expr) => {{
         let this = $this;
@@ -41,6 +44,7 @@ macro_rules! auto_transaction {
 
 // method implementations
 mod collection;
+mod delete;
 
 pub struct LiteSettings {
     pub data_stream: Box<dyn StreamFactory>,
