@@ -1,11 +1,9 @@
 use crate::bson;
 use crate::engine::collection_index::CollectionIndex;
 use crate::engine::index_node::{IndexNode, IndexNodeMut};
-use crate::engine::snapshot::{Snapshot, SnapshotPages};
+use crate::engine::snapshot::{Snapshot, SnapshotIndexPages};
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
-use crate::engine::{
-    DirtyFlag, IndexPage, MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress,
-};
+use crate::engine::{DirtyFlag, MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress};
 use crate::utils::{Collation, Order};
 use crate::{Error, Result};
 use std::collections::HashSet;
@@ -46,11 +44,12 @@ impl IndexService<'_> {
     ) -> Result<&mut CollectionIndex> {
         let (length, _) = IndexNode::get_node_length(MAX_LEVEL_LENGTH, &bson::Value::MinValue);
         let (pages, collection_page) = self.snapshot.pages_and_collections();
+        let mut pages = SnapshotIndexPages::new(pages);
 
         let index = collection_page.insert_collection_index(name, expression, unique)?;
         let index_slot = index.slot();
 
-        let mut index_page = pages.new_page::<IndexPage>().await?;
+        let mut index_page = pages.new_page().await?;
         index_page.as_mut().as_base_mut().set_page_list_slot(0);
         let page_id = index_page.page_id();
 
@@ -124,7 +123,7 @@ impl IndexService<'_> {
         }
 
         let (pages, collections_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+        let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(pages));
 
         let mut node = accessor
             .insert_index_node(
@@ -242,7 +241,7 @@ impl IndexService<'_> {
 
     pub async fn get_node_list(&mut self, first_address: PageAddress) -> Result<Vec<IndexNodeMut>> {
         let (pages, _) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+        let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(pages));
         let mut result = Vec::new();
 
         let mut current = first_address;
@@ -257,7 +256,7 @@ impl IndexService<'_> {
 
     pub async fn delete_all(&mut self, first_address: PageAddress) -> Result<()> {
         let (pages, collection_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+        let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(pages));
         // Rust: no count check since we've checked recursion with PartialIndexNodeAccessorMut
         let (mut indexes, dirty) = collection_page.get_collection_indexes_slots_mut_with_dirty();
 
@@ -279,7 +278,7 @@ impl IndexService<'_> {
         to_delete: HashSet<PageAddress>,
     ) -> Result<IndexNodeMut> {
         let (pages, collection_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+        let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(pages));
         let mut last = first_address;
         // Rust: no count check since we've checked recursion with PartialIndexNodeAccessorMut
         let (mut indexes, dirty) = collection_page.get_collection_indexes_slots_mut_with_dirty();
@@ -335,7 +334,7 @@ impl IndexService<'_> {
 
     pub async fn drop_index(&mut self, index: &CollectionIndex) -> Result<()> {
         let (pages, collection_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialIndexNodeAccessorMut::new(pages);
+        let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(pages));
 
         let slot = index.slot();
         let pk_index = collection_page.pk_index();
@@ -384,7 +383,9 @@ impl IndexService<'_> {
         order: Order,
     ) -> Result<Vec<IndexNodeMut>> {
         Self::find_all_accessor(
-            &mut PartialIndexNodeAccessorMut::new(self.snapshot.pages_and_collections().0),
+            &mut PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(
+                self.snapshot.pages_and_collections().0,
+            )),
             index,
             order,
         )
@@ -429,8 +430,9 @@ impl IndexService<'_> {
         sibling: bool,
         order: Order,
     ) -> Result<Option<IndexNodeMut>> {
-        let accessor =
-            &mut PartialIndexNodeAccessorMut::new(self.snapshot.pages_and_collections().0);
+        let accessor = &mut PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(
+            self.snapshot.pages_and_collections().0,
+        ));
         let mut left_node = if order == Order::Ascending {
             accessor.get_node_mut(index.head()).await?
         } else {
@@ -486,19 +488,19 @@ impl IndexService<'_> {
 }
 
 pub(crate) struct PartialIndexNodeAccessorMut<'snapshot> {
-    inner: PartialBorrower<'snapshot, SnapshotPages, PageAddress>,
+    inner: PartialBorrower<SnapshotIndexPages<'snapshot>, PageAddress>,
 }
 
 type IndexNodeMutRef<'snapshot> = PartialRefMut<IndexNodeMut<'snapshot>, PageAddress>;
 
 impl<'snapshot> PartialIndexNodeAccessorMut<'snapshot> {
-    pub(crate) fn new(snapshot: &'snapshot mut SnapshotPages) -> Self {
+    pub(crate) fn new(snapshot: SnapshotIndexPages<'snapshot>) -> Self {
         Self {
             inner: PartialBorrower::new(snapshot),
         }
     }
 
-    fn snapshot_mut(&mut self) -> &mut SnapshotPages {
+    fn snapshot_mut(&mut self) -> &mut SnapshotIndexPages<'snapshot> {
         self.inner.target_mut()
     }
 
@@ -514,7 +516,7 @@ impl<'snapshot> PartialIndexNodeAccessorMut<'snapshot> {
         unsafe {
             self.inner
                 .try_create_borrow_async(
-                    async |snapshot: &mut SnapshotPages| {
+                    async |snapshot: &mut SnapshotIndexPages| {
                         Ok(snapshot
                             .get_free_index_page(length, free_index_page_list)
                             .await?
@@ -541,12 +543,15 @@ impl<'snapshot> PartialIndexNodeAccessorMut<'snapshot> {
         unsafe {
             Ok(Some(
                 self.inner
-                    .try_get_borrow_async::<_, _, Error>(address, async |snapshot, address| {
-                        snapshot
-                            .get_page::<IndexPage>(address.page_id(), false)
-                            .await?
-                            .get_index_node_mut(address.index())
-                    })
+                    .try_get_borrow_async::<_, IndexNodeMut<'snapshot>, Error>(
+                        address,
+                        async |snapshot, address| {
+                            snapshot
+                                .get_page(address.page_id())
+                                .await?
+                                .get_index_node_mut(address.index())
+                        },
+                    )
                     .await?,
             ))
         }

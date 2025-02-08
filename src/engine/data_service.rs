@@ -1,9 +1,9 @@
 use crate::engine::data_block::{DataBlock, DataBlockMut};
-use crate::engine::snapshot::{Snapshot, SnapshotPages};
+use crate::engine::snapshot::{Snapshot, SnapshotDataPages};
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
 use crate::engine::{
-    BasePage, BufferWriter, DataPage, DirtyFlag, FreeDataPageList, MAX_DOCUMENT_SIZE,
-    PAGE_HEADER_SIZE, PAGE_SIZE, PageAddress,
+    BasePage, BufferWriter, DirtyFlag, FreeDataPageList, MAX_DOCUMENT_SIZE, PAGE_HEADER_SIZE,
+    PAGE_SIZE, PageAddress,
 };
 use crate::{Error, Result, bson};
 use std::cmp::min;
@@ -31,7 +31,7 @@ impl<'a> DataService<'a> {
         }
 
         let (pages, collections_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialDataBlockAccessorMut::new(pages);
+        let mut accessor = PartialDataBlockAccessorMut::new(SnapshotDataPages::new(pages));
 
         let mut first_block = PageAddress::EMPTY;
 
@@ -95,7 +95,7 @@ impl<'a> DataService<'a> {
         }
 
         let (pages, collections_page) = self.snapshot.pages_and_collections();
-        let mut accessor = PartialDataBlockAccessorMut::new(pages);
+        let mut accessor = PartialDataBlockAccessorMut::new(SnapshotDataPages::new(pages));
 
         let mut buffers = Vec::<DataBlockMutRef>::new();
 
@@ -228,19 +228,19 @@ impl<'a> DataService<'a> {
 }
 
 pub(crate) struct PartialDataBlockAccessorMut<'snapshot> {
-    inner: PartialBorrower<'snapshot, SnapshotPages, PageAddress>,
+    inner: PartialBorrower<SnapshotDataPages<'snapshot>, PageAddress>,
 }
 
 type DataBlockMutRef<'snapshot> = PartialRefMut<DataBlockMut<'snapshot>, PageAddress>;
 
 impl<'snapshot> PartialDataBlockAccessorMut<'snapshot> {
-    pub(crate) fn new(snapshot: &'snapshot mut SnapshotPages) -> Self {
+    pub(crate) fn new(snapshot: SnapshotDataPages<'snapshot>) -> Self {
         Self {
             inner: PartialBorrower::new(snapshot),
         }
     }
 
-    fn snapshot_mut(&mut self) -> &mut SnapshotPages {
+    fn snapshot_mut(&mut self) -> &mut SnapshotDataPages<'snapshot> {
         self.inner.target_mut()
     }
 
@@ -253,7 +253,7 @@ impl<'snapshot> PartialDataBlockAccessorMut<'snapshot> {
         unsafe {
             self.inner
                 .try_create_borrow_async(
-                    async |snapshot: &mut SnapshotPages| {
+                    async |snapshot: &mut SnapshotDataPages<'snapshot>| {
                         Ok(snapshot
                             .get_free_data_page(length, free_data_page_list)
                             .await?
@@ -283,9 +283,9 @@ impl<'snapshot> PartialDataBlockAccessorMut<'snapshot> {
                 self.inner
                     .try_get_borrow_async::<_, _, Error>(
                         address,
-                        async |snapshot: &mut SnapshotPages, address| {
+                        async |snapshot: &mut SnapshotDataPages, address| {
                             Ok(snapshot
-                                .get_page::<DataPage>(address.page_id(), false)
+                                .get_page(address.page_id())
                                 .await?
                                 .get_mut()
                                 .get_data_block_mut(address.index()))
@@ -300,16 +300,16 @@ impl<'snapshot> PartialDataBlockAccessorMut<'snapshot> {
     async fn delete_block(&mut self, address: PageAddress) -> Result<PageAddress> {
         unsafe {
             self.inner
-                .try_delete_borrow_async(address, async |snapshot: &mut SnapshotPages, address| {
-                    let block = snapshot
-                        .get_page::<DataPage>(address.page_id(), false)
-                        .await?
-                        .get_mut();
+                .try_delete_borrow_async(
+                    address,
+                    async |snapshot: &mut SnapshotDataPages, address| {
+                        let block = snapshot.get_page(address.page_id()).await?.get_mut();
 
-                    let next_block = block.get_data_block(address.index()).next_block();
-                    block.delete_block(address.index());
-                    Ok(next_block)
-                })
+                        let next_block = block.get_data_block(address.index()).next_block();
+                        block.delete_block(address.index());
+                        Ok(next_block)
+                    },
+                )
                 .await
         }
     }

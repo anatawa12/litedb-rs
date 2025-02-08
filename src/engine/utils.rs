@@ -8,8 +8,8 @@ use std::ops::{AsyncFnOnce, Deref, DerefMut};
 /// This class is a helper for partial borrow that collision can be avoided by the Key.
 /// If double borrow is being happening, it will panic.
 // TODO? support read only borrows
-pub(crate) struct PartialBorrower<'target, Target, Key> {
-    target: &'target mut Target,
+pub(crate) struct PartialBorrower<TargetRef, Key> {
+    target: TargetRef,
     borrowed: Shared<HashSet<Key>>,
 }
 
@@ -20,31 +20,32 @@ pub(crate) unsafe trait ExtendLifetime<'target> {
     unsafe fn extend_lifetime(self) -> Self::Extended;
 }
 
-impl<'target, Target, Key: Hash + Eq + Copy> PartialBorrower<'target, Target, Key> {
-    pub fn new(target: &'target mut Target) -> Self {
+impl<TargetRef, Key: Hash + Eq + Copy> PartialBorrower<TargetRef, Key> {
+    pub fn new(target: TargetRef) -> Self {
         Self {
             target,
             borrowed: Shared::new(HashSet::new()),
         }
     }
 
-    pub fn target(&self) -> &Target {
-        self.target
+    pub fn target(&self) -> &TargetRef {
+        &self.target
     }
 
-    pub fn target_mut(&mut self) -> &mut Target {
-        self.target
+    pub fn target_mut(&mut self) -> &mut TargetRef {
+        &mut self.target
     }
 
-    pub async unsafe fn try_create_borrow_async<'s, ShortLives, Extended, Error>(
+    pub async unsafe fn try_create_borrow_async<'s, 'r, ShortLives, Extended, Error>(
         &'s mut self,
-        new: impl AsyncFnOnce(&'s mut Target) -> Result<ShortLives, Error>,
+        new: impl AsyncFnOnce(&'s mut TargetRef) -> Result<ShortLives, Error>,
         key: impl FnOnce(&ShortLives) -> Key,
     ) -> Result<PartialRefMut<Extended, Key>, Error>
     where
-        ShortLives: ExtendLifetime<'target, Extended = Extended>,
+        ShortLives: ExtendLifetime<'r, Extended = Extended>,
+        TargetRef: 'r,
     {
-        let value: ShortLives = new(self.target).await?;
+        let value: ShortLives = new(&mut self.target).await?;
         let key = key(&value);
         self.borrowed.borrow_mut().insert(key);
         Ok(PartialRefMut {
@@ -54,17 +55,18 @@ impl<'target, Target, Key: Hash + Eq + Copy> PartialBorrower<'target, Target, Ke
         })
     }
 
-    pub async unsafe fn try_get_borrow_async<'s, ShortLives, Extended, Error>(
+    pub async unsafe fn try_get_borrow_async<'s, 'r, ShortLives, Extended, Error>(
         &'s mut self,
         key: Key,
-        get: impl AsyncFnOnce(&'s mut Target, &Key) -> Result<ShortLives, Error>,
+        get: impl AsyncFnOnce(&'s mut TargetRef, &Key) -> Result<ShortLives, Error>,
     ) -> Result<PartialRefMut<Extended, Key>, Error>
     where
-        ShortLives: ExtendLifetime<'target, Extended = Extended>,
+        ShortLives: ExtendLifetime<'r, Extended = Extended>,
+        TargetRef: 'r,
     {
         assert!(!self.borrowed.borrow().contains(&key), "double reference"); // TODO: make non-hard error?
 
-        let value: ShortLives = get(self.target, &key).await?;
+        let value: ShortLives = get(&mut self.target, &key).await?;
         self.borrowed.borrow_mut().insert(key);
         Ok(PartialRefMut {
             value: unsafe { ShortLives::extend_lifetime(value) },
@@ -76,13 +78,13 @@ impl<'target, Target, Key: Hash + Eq + Copy> PartialBorrower<'target, Target, Ke
     pub async unsafe fn try_delete_borrow_async<'s, Result>(
         &'s mut self,
         key: Key,
-        delete: impl AsyncFnOnce(&'s mut Target, &Key) -> Result,
+        delete: impl AsyncFnOnce(&'s mut TargetRef, &Key) -> Result,
     ) -> Result {
         assert!(
             !self.borrowed.borrow().contains(&key),
             "removing using reference"
         ); // TODO: make non-hard error?
-        delete(self.target, &key).await
+        delete(&mut self.target, &key).await
     }
 }
 
