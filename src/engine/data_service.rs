@@ -1,8 +1,9 @@
 use crate::engine::data_block::{DataBlock, DataBlockMut};
-use crate::engine::snapshot::Snapshot;
+use crate::engine::snapshot::{Snapshot, SnapshotPages};
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
 use crate::engine::{
-    BasePage, BufferWriter, DataPage, MAX_DOCUMENT_SIZE, PAGE_HEADER_SIZE, PAGE_SIZE, PageAddress,
+    BasePage, BufferWriter, DataPage, DirtyFlag, FreeDataPageList, MAX_DOCUMENT_SIZE,
+    PAGE_HEADER_SIZE, PAGE_SIZE, PageAddress,
 };
 use crate::{Error, Result, bson};
 use std::cmp::min;
@@ -29,7 +30,8 @@ impl<'a> DataService<'a> {
             return Err(Error::document_size_exceed_limit());
         }
 
-        let mut accessor = PartialDataBlockAccessorMut::new(self.snapshot);
+        let (pages, collections_page) = self.snapshot.pages_and_collections();
+        let mut accessor = PartialDataBlockAccessorMut::new(pages);
 
         let mut first_block = PageAddress::EMPTY;
 
@@ -40,7 +42,11 @@ impl<'a> DataService<'a> {
             while bytes_left > 0 {
                 let bytes_to_copy = min(bytes_left, Self::MAX_DATA_BYTES_PER_PAGE);
                 let data_block = accessor
-                    .insert_data_block(bytes_to_copy, block_index > 0)
+                    .insert_data_block(
+                        bytes_to_copy,
+                        block_index > 0,
+                        &mut collections_page.free_data_page_list,
+                    )
                     .await?;
                 block_index += 1;
 
@@ -54,7 +60,11 @@ impl<'a> DataService<'a> {
 
                 accessor
                     .snapshot_mut()
-                    .add_or_remove_free_data_list(data_block.position().page_id())
+                    .add_or_remove_free_data_list(
+                        data_block.position().page_id(),
+                        &mut collections_page.free_data_page_list,
+                        &collections_page.base.dirty,
+                    )
                     .await?;
 
                 buffers.push(data_block);
@@ -84,7 +94,8 @@ impl<'a> DataService<'a> {
             return Err(Error::document_size_exceed_limit());
         }
 
-        let mut accessor = PartialDataBlockAccessorMut::new(self.snapshot);
+        let (pages, collections_page) = self.snapshot.pages_and_collections();
+        let mut accessor = PartialDataBlockAccessorMut::new(pages);
 
         let mut buffers = Vec::<DataBlockMutRef>::new();
 
@@ -106,7 +117,11 @@ impl<'a> DataService<'a> {
 
                     accessor
                         .snapshot_mut()
-                        .add_or_remove_free_data_list(update_block.position().page_id())
+                        .add_or_remove_free_data_list(
+                            update_block.position().page_id(),
+                            &mut collections_page.free_data_page_list,
+                            &collections_page.base.dirty,
+                        )
                         .await?;
 
                     // go to next address (if exists)
@@ -115,7 +130,13 @@ impl<'a> DataService<'a> {
                     buffers.push(update_block);
                 } else {
                     bytes_to_copy = min(bytes_left, DataService::MAX_DATA_BYTES_PER_PAGE);
-                    let insert_block = accessor.insert_data_block(bytes_to_copy, true).await?;
+                    let insert_block = accessor
+                        .insert_data_block(
+                            bytes_to_copy,
+                            true,
+                            &mut collections_page.free_data_page_list,
+                        )
+                        .await?;
 
                     if let Some(last_block) = buffers.last_mut() {
                         last_block.set_next_block(insert_block.position());
@@ -123,7 +144,11 @@ impl<'a> DataService<'a> {
 
                     accessor
                         .snapshot_mut()
-                        .add_or_remove_free_data_list(insert_block.position().page_id())
+                        .add_or_remove_free_data_list(
+                            insert_block.position().page_id(),
+                            &mut collections_page.free_data_page_list,
+                            &collections_page.base.dirty,
+                        )
                         .await?;
 
                     buffers.push(insert_block);
@@ -139,7 +164,13 @@ impl<'a> DataService<'a> {
 
                     last_block.set_next_block(PageAddress::EMPTY);
 
-                    Self::delete(&mut accessor, next_block_address).await?;
+                    Self::delete(
+                        &mut accessor,
+                        next_block_address,
+                        &mut collections_page.free_data_page_list,
+                        &collections_page.base.dirty,
+                    )
+                    .await?;
                 }
             }
         }
@@ -177,6 +208,8 @@ impl<'a> DataService<'a> {
     pub async fn delete(
         accessor: &mut PartialDataBlockAccessorMut<'_>,
         mut block_address: PageAddress,
+        free_data_page_list: &mut FreeDataPageList,
+        dirty: &DirtyFlag,
     ) -> Result<()> {
         while !block_address.is_empty() {
             let next_block = accessor.delete_block(block_address).await?;
@@ -184,7 +217,7 @@ impl<'a> DataService<'a> {
             // fix page empty list (or delete page)
             accessor
                 .snapshot_mut()
-                .add_or_remove_free_data_list(block_address.page_id())
+                .add_or_remove_free_data_list(block_address.page_id(), free_data_page_list, dirty)
                 .await?;
 
             block_address = next_block;
@@ -195,19 +228,19 @@ impl<'a> DataService<'a> {
 }
 
 pub(crate) struct PartialDataBlockAccessorMut<'snapshot> {
-    inner: PartialBorrower<'snapshot, Snapshot, PageAddress>,
+    inner: PartialBorrower<'snapshot, SnapshotPages, PageAddress>,
 }
 
 type DataBlockMutRef<'snapshot> = PartialRefMut<DataBlockMut<'snapshot>, PageAddress>;
 
 impl<'snapshot> PartialDataBlockAccessorMut<'snapshot> {
-    pub(crate) fn new(snapshot: &'snapshot mut Snapshot) -> Self {
+    pub(crate) fn new(snapshot: &'snapshot mut SnapshotPages) -> Self {
         Self {
             inner: PartialBorrower::new(snapshot),
         }
     }
 
-    fn snapshot_mut(&mut self) -> &mut Snapshot {
+    fn snapshot_mut(&mut self) -> &mut SnapshotPages {
         self.inner.target_mut()
     }
 
@@ -215,13 +248,14 @@ impl<'snapshot> PartialDataBlockAccessorMut<'snapshot> {
         &mut self,
         length: usize,
         extend: bool,
+        free_data_page_list: &mut FreeDataPageList,
     ) -> Result<DataBlockMutRef<'snapshot>> {
         unsafe {
             self.inner
                 .try_create_borrow_async(
-                    async |snapshot: &mut Snapshot| {
+                    async |snapshot: &mut SnapshotPages| {
                         Ok(snapshot
-                            .get_free_data_page(length)
+                            .get_free_data_page(length, free_data_page_list)
                             .await?
                             .get_mut()
                             .insert_block(length, extend))
@@ -249,7 +283,7 @@ impl<'snapshot> PartialDataBlockAccessorMut<'snapshot> {
                 self.inner
                     .try_get_borrow_async::<_, _, Error>(
                         address,
-                        async |snapshot: &mut Snapshot, address| {
+                        async |snapshot: &mut SnapshotPages, address| {
                             Ok(snapshot
                                 .get_page::<DataPage>(address.page_id(), false)
                                 .await?
@@ -266,7 +300,7 @@ impl<'snapshot> PartialDataBlockAccessorMut<'snapshot> {
     async fn delete_block(&mut self, address: PageAddress) -> Result<PageAddress> {
         unsafe {
             self.inner
-                .try_delete_borrow_async(address, async |snapshot: &mut Snapshot, address| {
+                .try_delete_borrow_async(address, async |snapshot: &mut SnapshotPages, address| {
                     let block = snapshot
                         .get_page::<DataPage>(address.page_id(), false)
                         .await?
