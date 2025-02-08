@@ -4,9 +4,10 @@ use crate::engine::{PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer};
 use crate::utils::BufferSlice;
 use std::cmp::Ordering;
 use std::fmt::Debug;
-use std::ops::{Add, DerefMut};
 use std::pin::Pin;
 use std::slice;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::Relaxed;
 // The common variables for each page
 
 const SLOT_SIZE: usize = 4;
@@ -44,9 +45,29 @@ pub(crate) struct BasePage {
     next_free_position: u16,
     highest_index: u8,
 
-    pub(crate) dirty: bool,
+    pub(crate) dirty: DirtyFlag,
     // cache for GetFreeIndex
     start_index: u8,
+}
+
+pub(crate) struct DirtyFlag(AtomicBool);
+
+impl DirtyFlag {
+    pub fn new() -> Self {
+        Self(AtomicBool::new(false))
+    }
+
+    pub fn set(&self) {
+        self.0.store(true, Relaxed);
+    }
+
+    pub fn is_set(&self) -> bool {
+        self.0.load(Relaxed)
+    }
+
+    pub fn reset(&self) {
+        self.0.store(false, Relaxed);
+    }
 }
 
 impl BasePage {
@@ -78,7 +99,7 @@ impl BasePage {
             next_free_position: PAGE_HEADER_SIZE as u16,
             highest_index: u8::MAX,
 
-            dirty: false,
+            dirty: DirtyFlag::new(),
             start_index: 0,
         }
     }
@@ -272,15 +293,11 @@ impl BasePage {
     }
 
     pub(crate) fn set_dirty(&mut self) {
-        self.dirty = true;
+        self.dirty.set()
     }
 
     pub(crate) fn is_dirty(&self) -> bool {
-        self.dirty
-    }
-
-    pub(crate) fn dirty_mut(&mut self) -> &mut bool {
-        &mut self.dirty
+        self.dirty.is_set()
     }
 
     pub(crate) fn free_bytes(&self) -> usize {
@@ -332,7 +349,7 @@ impl BasePage {
         self.get_mut_with_dirty(index).0
     }
 
-    pub fn get_mut_with_dirty(&mut self, index: u8) -> (&mut BufferSlice, &mut bool) {
+    pub fn get_mut_with_dirty(&mut self, index: u8) -> (&mut BufferSlice, &DirtyFlag) {
         assert!(self.items_count > 0, "should have items in this page");
         assert_ne!(
             self.highest_index,
@@ -381,7 +398,7 @@ impl BasePage {
         (slice, index)
     }
 
-    pub fn insert_with_dirty(&mut self, length: usize) -> (&mut BufferSlice, u8, &mut bool) {
+    pub fn insert_with_dirty(&mut self, length: usize) -> (&mut BufferSlice, u8, &DirtyFlag) {
         self.internal_insert(length, u8::MAX)
     }
 
@@ -389,7 +406,7 @@ impl BasePage {
         &mut self,
         length: usize,
         mut index: u8,
-    ) -> (&mut BufferSlice, u8, &mut bool) {
+    ) -> (&mut BufferSlice, u8, &DirtyFlag) {
         let is_new = index == u8::MAX;
 
         // assert!(self.buffer.writable)
@@ -471,7 +488,7 @@ impl BasePage {
         (
             self.buffer.slice_mut(position as usize, length),
             index,
-            &mut self.dirty,
+            &self.dirty,
         )
     }
 
@@ -538,7 +555,11 @@ impl BasePage {
         self.update_with_dirty(index, length).0
     }
 
-    pub fn update_with_dirty(&mut self, index: u8, length: usize) -> (&mut BufferSlice, &mut bool) {
+    pub fn update_with_dirty(
+        &mut self,
+        index: u8,
+        length: usize,
+    ) -> (&mut BufferSlice, &DirtyFlag) {
         // debug_assert!(this.buffer.writable)
         debug_assert!(length > 0, "length should be greater than 0");
 
@@ -559,7 +580,7 @@ impl BasePage {
         match length.cmp(&old_length) {
             Ordering::Equal => {
                 // length unchanged; nothing special to do
-                (self.buffer.slice_mut(position, old_length), &mut self.dirty)
+                (self.buffer.slice_mut(position, old_length), &self.dirty)
             }
             Ordering::Less => {
                 // if the new length is smaller than the old length,
@@ -580,7 +601,7 @@ impl BasePage {
                 // clear fragmented bytes
                 self.buffer.clear(position + length, diff);
 
-                (self.buffer.slice_mut(position, length), &mut self.dirty)
+                (self.buffer.slice_mut(position, length), &self.dirty)
             }
             Ordering::Greater => {
                 // if the new length is greater than the old length,

@@ -2,7 +2,9 @@ use crate::engine::buffer_reader::BufferReader;
 use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::collection_index::CollectionIndex;
 use crate::engine::pages::{BasePage, PageType};
-use crate::engine::{PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer};
+use crate::engine::{
+    DirtyFlag, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer,
+};
 use crate::{Error, Result};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
@@ -121,7 +123,7 @@ impl CollectionPage {
 
     pub fn get_collection_indexes_slots_mut_with_dirty(
         &mut self,
-    ) -> (Vec<Option<&mut CollectionIndex>>, &mut bool) {
+    ) -> (Vec<Option<&mut CollectionIndex>>, &DirtyFlag) {
         let len = self
             .indexes
             .values()
@@ -137,7 +139,7 @@ impl CollectionPage {
             indexes[slot as usize] = Some(index);
         }
 
-        (indexes, &mut self.base.dirty)
+        (indexes, &self.base.dirty)
     }
 
     pub fn insert_collection_index(

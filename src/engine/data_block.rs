@@ -1,3 +1,4 @@
+use crate::engine::DirtyFlag;
 use crate::engine::page_address::PageAddress;
 use crate::utils::BufferSlice;
 
@@ -55,7 +56,7 @@ pub(crate) struct DataBlockMut<'a> {
     position: PageAddress,
     extend: bool,
     next_block: PageAddress,
-    dirty_ptr: &'a mut bool,
+    dirty_ptr: &'a DirtyFlag,
 }
 
 extend_lifetime!(DataBlockMut);
@@ -63,7 +64,7 @@ extend_lifetime!(DataBlockMut);
 impl<'a> DataBlockMut<'a> {
     pub fn new(
         page_id: u32,
-        dirty_ptr: &'a mut bool,
+        dirty_ptr: &'a DirtyFlag,
         index: u8,
         segment: &'a mut BufferSlice,
         extend: bool,
@@ -74,7 +75,7 @@ impl<'a> DataBlockMut<'a> {
         segment.write_bool(P_EXTEND, extend);
         segment.write_page_address(P_NEXT_BLOCK, next_block);
 
-        *dirty_ptr = true;
+        dirty_ptr.set();
 
         Self {
             segment,
@@ -87,7 +88,7 @@ impl<'a> DataBlockMut<'a> {
 
     pub fn load(
         page_id: u32,
-        dirty_ptr: &'a mut bool,
+        dirty_ptr: &'a DirtyFlag,
         index: u8,
         segment: &'a mut BufferSlice,
     ) -> Self {
@@ -130,6 +131,6 @@ impl<'a> DataBlockMut<'a> {
     pub fn set_next_block(&mut self, next_block: PageAddress) {
         self.next_block = next_block;
         self.segment.write_page_address(P_NEXT_BLOCK, next_block);
-        *self.dirty_ptr = true;
+        self.dirty_ptr.set();
     }
 }

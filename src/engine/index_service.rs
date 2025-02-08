@@ -272,7 +272,7 @@ impl IndexService<'_> {
 
             let index = indexes[node.slot() as usize].as_mut().unwrap();
             if Self::delete_single_node(&mut accessor, node.into_value(), index).await? {
-                *dirty = true;
+                dirty.set()
             }
         }
 
@@ -300,7 +300,7 @@ impl IndexService<'_> {
                 let index = indexes[node.slot() as usize].as_mut().unwrap();
                 let position = node.next_node();
                 if Self::delete_single_node(&mut accessor, node.into_value(), index).await? {
-                    *dirty = true;
+                    dirty.set();
                 }
                 accessor.get_node_mut(last).await?.set_next_node(position);
             } else {

@@ -83,8 +83,7 @@ impl IndexPage {
         unsafe {
             // SAFETY: &raw mut (*ptr).base.dirty is just a pointer math
             // the ptr should have ownership for dirty
-            let dirty_ptr = &raw mut (*ptr).base.dirty;
-            *dirty_ptr = true;
+            (*ptr).base.dirty.set();
         }
     }
 }
