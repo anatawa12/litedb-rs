@@ -14,12 +14,14 @@ const P_INDEXES: usize = 96; // 96-8192 (64 + 32 header = 96)
 const P_INDEXES_COUNT: usize = PAGE_SIZE - P_INDEXES;
 
 pub(crate) type FreeDataPageList = [u32; PAGE_FREE_LIST_SLOTS];
+pub(crate) struct CollectionIndexes(HashMap<String, CollectionIndex>);
 
+// all fields are accessed by snapshot for partial borrowing
 pub(crate) struct CollectionPage {
-    pub(crate) base: BasePage, // for Dirty flag, temporary
+    pub base: BasePage, // for Dirty flag, temporary
 
     pub free_data_page_list: FreeDataPageList,
-    indexes: HashMap<String, CollectionIndex>,
+    pub indexes: CollectionIndexes,
 }
 
 impl CollectionPage {
@@ -30,7 +32,7 @@ impl CollectionPage {
         Self {
             base,
             free_data_page_list,
-            indexes: HashMap::new(),
+            indexes: CollectionIndexes(HashMap::new()),
         }
     }
 
@@ -64,7 +66,7 @@ impl CollectionPage {
         Ok(Self {
             base,
             free_data_page_list,
-            indexes,
+            indexes: CollectionIndexes(indexes),
         })
     }
 
@@ -91,7 +93,7 @@ impl CollectionPage {
     }
 
     pub fn pk_index(&self) -> &CollectionIndex {
-        &self.indexes["_id"]
+        self.indexes.pk_index()
     }
 
     pub fn get_collection_index(&self, name: &str) -> Option<&CollectionIndex> {
@@ -238,5 +240,25 @@ impl Page for CollectionPage {
 
     fn as_base_mut(self: Pin<&mut Self>) -> Pin<&mut BasePage> {
         unsafe { self.map_unchecked_mut(|page| &mut page.base) }
+    }
+}
+
+impl CollectionIndexes {
+    pub(crate) fn pk_index(&self) -> &CollectionIndex {
+        &self.0["_id"]
+    }
+}
+
+impl Deref for CollectionIndexes {
+    type Target = HashMap<String, CollectionIndex>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CollectionIndexes {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
