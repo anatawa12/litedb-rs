@@ -3,7 +3,9 @@ use crate::engine::collection_index::CollectionIndex;
 use crate::engine::index_node::{IndexNode, IndexNodeMut};
 use crate::engine::snapshot::{Snapshot, SnapshotPages};
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
-use crate::engine::{IndexPage, MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress};
+use crate::engine::{
+    DirtyFlag, IndexPage, MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress,
+};
 use crate::utils::{Collation, Order};
 use crate::{Error, Result};
 use std::collections::HashSet;
@@ -215,14 +217,15 @@ impl IndexService<'_> {
             last.set_next_node(node.position());
         }
 
-        if accessor
+        accessor
             .inner
             .target_mut()
-            .add_or_remove_free_index_list(node.page_ptr(), index.free_index_page_list_mut())
-            .await?
-        {
-            collections_page.set_dirty();
-        }
+            .add_or_remove_free_index_list(
+                node.page_ptr(),
+                index.free_index_page_list_mut(),
+                collections_page.dirty_flag(),
+            )
+            .await?;
 
         let node = node.into_value();
         Ok(node)
@@ -271,9 +274,7 @@ impl IndexService<'_> {
             current = node.next_node();
 
             let index = indexes[node.slot() as usize].as_mut().unwrap();
-            if Self::delete_single_node(&mut accessor, node.into_value(), index).await? {
-                dirty.set()
-            }
+            Self::delete_single_node(&mut accessor, node.into_value(), index, dirty).await?
         }
 
         Ok(())
@@ -299,9 +300,7 @@ impl IndexService<'_> {
             if to_delete.contains(&node.position()) {
                 let index = indexes[node.slot() as usize].as_mut().unwrap();
                 let position = node.next_node();
-                if Self::delete_single_node(&mut accessor, node.into_value(), index).await? {
-                    dirty.set();
-                }
+                Self::delete_single_node(&mut accessor, node.into_value(), index, dirty).await?;
                 accessor.get_node_mut(last).await?.set_next_node(position);
             } else {
                 last = node.position();
@@ -316,7 +315,8 @@ impl IndexService<'_> {
         accessor: &mut PartialIndexNodeAccessorMut<'_>,
         node: IndexNodeMut<'_>,
         index: &mut CollectionIndex,
-    ) -> Result<bool> {
+        dirty: &DirtyFlag,
+    ) -> Result<()> {
         for i in (0..node.levels()).rev() {
             // get previous and next nodes (between my deleted node)
             let prev_node = accessor.get_node_mut_opt(node.get_prev(i)).await?;
@@ -336,7 +336,7 @@ impl IndexService<'_> {
 
         accessor
             .snapshot_mut()
-            .add_or_remove_free_index_list(page_ptr, index.free_index_page_list_mut())
+            .add_or_remove_free_index_list(page_ptr, index.free_index_page_list_mut(), dirty)
             .await
     }
 

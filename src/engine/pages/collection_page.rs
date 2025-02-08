@@ -14,7 +14,7 @@ const P_INDEXES: usize = 96; // 96-8192 (64 + 32 header = 96)
 const P_INDEXES_COUNT: usize = PAGE_SIZE - P_INDEXES;
 
 pub(crate) struct CollectionPage {
-    base: BasePage,
+    pub(crate) base: BasePage, // for Dirty flag, temporary
 
     pub free_data_page_list: [u32; PAGE_FREE_LIST_SLOTS],
     indexes: HashMap<String, CollectionIndex>,

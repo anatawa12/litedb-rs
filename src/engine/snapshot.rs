@@ -7,7 +7,7 @@ use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::transaction_service::LockMode;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{
-    BasePage, CollectionPage, DataPage, FileOrigin, IndexPage, PAGE_SIZE, Page, PageType,
+    BasePage, CollectionPage, DataPage, DirtyFlag, FileOrigin, IndexPage, PAGE_SIZE, Page, PageType,
 };
 use crate::utils::{Order, Shared};
 use crate::{Error, Result};
@@ -584,21 +584,18 @@ impl Snapshot {
         if new_slot == initial_slot && page.items_count() > 0 {
             return Ok(());
         }
+        let collection_page = self.collection_page.as_mut().unwrap().as_mut().get_mut();
 
         // remove from intial slot
         #[allow(clippy::collapsible_if)]
         if initial_slot != u8::MAX {
-            if self
-                .page_collection
+            self.page_collection
                 .remove_free_list(
                     page,
-                    &mut self.collection_page.as_mut().unwrap().free_data_page_list
-                        [initial_slot as usize],
+                    &mut collection_page.free_data_page_list[initial_slot as usize],
+                    collection_page.base.dirty_flag(),
                 )
-                .await?
-            {
-                self.collection_page.as_mut().unwrap().set_dirty();
-            }
+                .await?;
         }
 
         // if there is no items, delete page
@@ -609,11 +606,10 @@ impl Snapshot {
             self.page_collection
                 .add_free_list(
                     page,
-                    &mut self.collection_page.as_mut().unwrap().free_data_page_list
-                        [new_slot as usize],
+                    &mut collection_page.free_data_page_list[new_slot as usize],
                 )
                 .await?;
-            self.collection_page.as_mut().unwrap().set_dirty();
+            collection_page.set_dirty();
 
             page.set_page_list_slot(new_slot);
         }
@@ -626,13 +622,13 @@ impl Snapshot {
         page: *mut IndexPage,
         start_page_id: &mut u32,
     ) -> Result<()> {
-        if self
-            .page_collection
-            .add_or_remove_free_index_list(page, start_page_id)
-            .await?
-        {
-            self.collection_page.as_mut().unwrap().set_dirty();
-        }
+        self.page_collection
+            .add_or_remove_free_index_list(
+                page,
+                start_page_id,
+                self.collection_page.as_ref().unwrap().dirty_flag(),
+            )
+            .await?;
         Ok(())
     }
 }
@@ -642,32 +638,27 @@ impl SnapshotPages {
         &mut self,
         page: *mut IndexPage,
         start_page_id: &mut u32,
-    ) -> Result<bool> {
+        dirty: &DirtyFlag, // TODO: make SnapshotPages hold dirty flag
+    ) -> Result<()> {
         let page = unsafe { &mut *page };
         let new_slot = IndexPage::free_index_slot(page.free_bytes());
         let is_on_list = page.page_list_slot() == 0;
         let must_keep = new_slot == 0;
 
-        let mut dirty = false;
-
         // first, test if page should be deleted
         if page.items_count() == 0 {
             #[allow(clippy::collapsible_if)]
             if is_on_list {
-                if self.remove_free_list(page, start_page_id).await? {
-                    dirty = true;
-                }
+                self.remove_free_list(page, start_page_id, dirty).await?;
             }
 
             self.delete_page(page);
         } else {
             if is_on_list && !must_keep {
-                if self.remove_free_list(page, start_page_id).await? {
-                    dirty = true;
-                }
+                self.remove_free_list(page, start_page_id, dirty).await?;
             } else if !is_on_list && must_keep {
                 self.add_free_list(page, start_page_id).await?;
-                dirty = true;
+                dirty.set()
             }
 
             page.set_page_list_slot(new_slot);
@@ -676,7 +667,7 @@ impl SnapshotPages {
             // otherwise, nothing was changed
         }
 
-        Ok(dirty)
+        Ok(())
     }
 
     async fn add_free_list<T: Page>(
@@ -716,13 +707,13 @@ impl SnapshotPages {
 
         Ok(())
     }
-}
-impl SnapshotPages {
+
     async fn remove_free_list<T: Page>(
         &mut self,
         page: &mut T,
         start_page_id: &mut u32,
-    ) -> Result<bool> {
+        dirty: &DirtyFlag,
+    ) -> Result<()> {
         // fix prev page
         if page.as_ref().prev_page_id() != u32::MAX {
             let prev = self
@@ -743,14 +734,13 @@ impl SnapshotPages {
             next.set_dirty();
         }
 
-        let mut set_dirty = false;
         // if page is first of the list set firstPage as next page
         if *start_page_id == page.as_ref().page_id() {
             *start_page_id = page.as_ref().next_page_id();
 
             //debug_assert!(page.as_ref().next_page_id() == u32::MAX || self.get_page::<BasePage>(page.NextPageID).PageType != PageType.Empty, "first page on free stack must be non empty page");
 
-            set_dirty = true;
+            dirty.set();
             //self.collection_page.as_mut().unwrap().set_dirty()
         }
 
@@ -760,7 +750,7 @@ impl SnapshotPages {
         //page.PrevPageID = page.NextPageID = uint.MaxValue;
         page.as_mut().set_dirty();
 
-        Ok(set_dirty)
+        Ok(())
     }
 
     fn delete_page<T: Page>(&mut self, page: &mut T) {

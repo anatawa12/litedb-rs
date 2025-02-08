@@ -300,6 +300,10 @@ impl BasePage {
         self.dirty.is_set()
     }
 
+    pub(crate) fn dirty_flag(&self) -> &DirtyFlag {
+        &self.dirty
+    }
+
     pub(crate) fn free_bytes(&self) -> usize {
         if self.items_count == u8::MAX {
             0
