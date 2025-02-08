@@ -775,12 +775,11 @@ impl Snapshot {
         &mut self,
         mut safe_point: impl AsyncFnMut() -> Result<()>,
     ) -> Result<()> {
-        let collation = self.page_collection.header.borrow().pragmas().collation();
-        let max_items_count = self.page_collection.disk.max_items_count();
-        let indexer = IndexService::new(self, collation, max_items_count);
+        //let collation = self.page_collection.header.borrow().pragmas().collation();
+        //let max_items_count = self.page_collection.disk.max_items_count();
 
-        let pages = &mut indexer.snapshot.page_collection;
-        let collection_page = indexer.snapshot.collection_page.as_mut().unwrap();
+        let pages = &mut self.page_collection;
+        let collection_page = self.collection_page.as_mut().unwrap();
         let trans_pages_shared = pages.trans_pages.clone();
         {
             let mut trans_pages = trans_pages_shared.borrow_mut();

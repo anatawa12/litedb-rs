@@ -1,5 +1,5 @@
 use crate::engine::data_block::{DataBlock, DataBlockMut};
-use crate::engine::snapshot::{Snapshot, SnapshotDataPages};
+use crate::engine::snapshot::SnapshotDataPages;
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
 use crate::engine::{
     BasePage, BufferWriter, MAX_DOCUMENT_SIZE, PAGE_HEADER_SIZE, PAGE_SIZE, PageAddress,
@@ -8,7 +8,7 @@ use crate::{Error, Result, bson};
 use std::cmp::min;
 
 pub(crate) struct DataService<'a> {
-    snapshot: &'a mut Snapshot,
+    data_blocks: PartialDataBlockAccessorMut<'a>,
     max_item_count: u32,
 }
 
@@ -16,9 +16,9 @@ impl<'a> DataService<'a> {
     pub const MAX_DATA_BYTES_PER_PAGE: usize =
         PAGE_SIZE - PAGE_HEADER_SIZE - BasePage::SLOT_SIZE - DataBlock::DATA_BLOCK_FIXED_SIZE;
 
-    pub fn new(snapshot: &'a mut Snapshot, max_item_count: u32) -> Self {
+    pub fn new(data_blocks: SnapshotDataPages<'a>, max_item_count: u32) -> Self {
         Self {
-            snapshot,
+            data_blocks: PartialDataBlockAccessorMut::new(data_blocks),
             max_item_count,
         }
     }
@@ -29,9 +29,6 @@ impl<'a> DataService<'a> {
             return Err(Error::document_size_exceed_limit());
         }
 
-        let parts = self.snapshot.as_parts();
-        let mut accessor = PartialDataBlockAccessorMut::new(parts.data_pages);
-
         let mut first_block = PageAddress::EMPTY;
 
         let mut buffers = Vec::<DataBlockMutRef>::new();
@@ -40,7 +37,8 @@ impl<'a> DataService<'a> {
 
             while bytes_left > 0 {
                 let bytes_to_copy = min(bytes_left, Self::MAX_DATA_BYTES_PER_PAGE);
-                let data_block = accessor
+                let data_block = self
+                    .data_blocks
                     .insert_data_block(bytes_to_copy, block_index > 0)
                     .await?;
                 block_index += 1;
@@ -53,7 +51,7 @@ impl<'a> DataService<'a> {
                     first_block = data_block.position();
                 }
 
-                accessor
+                self.data_blocks
                     .snapshot_mut()
                     .add_or_remove_free_data_list(data_block.position().page_id())
                     .await?;
@@ -85,9 +83,6 @@ impl<'a> DataService<'a> {
             return Err(Error::document_size_exceed_limit());
         }
 
-        let parts = self.snapshot.as_parts();
-        let mut accessor = PartialDataBlockAccessorMut::new(parts.data_pages);
-
         let mut buffers = Vec::<DataBlockMutRef>::new();
 
         {
@@ -97,7 +92,7 @@ impl<'a> DataService<'a> {
                 let bytes_to_copy;
                 // if last block contains new block sequence, continue updating
                 if !update_address.is_empty() {
-                    let mut current_block = accessor.get_block_mut(update_address).await?;
+                    let mut current_block = self.data_blocks.get_block_mut(update_address).await?;
 
                     // TODO(rust): due to implementation limitation, we removed extending existing blocks
                     // try get full page size content (do not add DATA_BLOCK_FIXED_SIZE because will be added in UpdateBlock)
@@ -106,7 +101,7 @@ impl<'a> DataService<'a> {
                     bytes_to_copy = current_block.buffer_mut().len();
                     let update_block = current_block;
 
-                    accessor
+                    self.data_blocks
                         .snapshot_mut()
                         .add_or_remove_free_data_list(update_block.position().page_id())
                         .await?;
@@ -117,13 +112,16 @@ impl<'a> DataService<'a> {
                     buffers.push(update_block);
                 } else {
                     bytes_to_copy = min(bytes_left, DataService::MAX_DATA_BYTES_PER_PAGE);
-                    let insert_block = accessor.insert_data_block(bytes_to_copy, true).await?;
+                    let insert_block = self
+                        .data_blocks
+                        .insert_data_block(bytes_to_copy, true)
+                        .await?;
 
                     if let Some(last_block) = buffers.last_mut() {
                         last_block.set_next_block(insert_block.position());
                     }
 
-                    accessor
+                    self.data_blocks
                         .snapshot_mut()
                         .add_or_remove_free_data_list(insert_block.position().page_id())
                         .await?;
@@ -141,7 +139,7 @@ impl<'a> DataService<'a> {
 
                     last_block.set_next_block(PageAddress::EMPTY);
 
-                    Self::delete(&mut accessor, next_block_address).await?;
+                    self.delete(next_block_address).await?;
                 }
             }
         }
@@ -156,10 +154,7 @@ impl<'a> DataService<'a> {
         Ok(())
     }
 
-    pub async fn read(
-        accessor: &mut PartialDataBlockAccessorMut<'a>,
-        mut address: PageAddress,
-    ) -> Result<Vec<DataBlockMutRef<'a>>> {
+    pub async fn read(&mut self, mut address: PageAddress) -> Result<Vec<DataBlockMutRef<'a>>> {
         let mut buffer = vec![];
         // recursive check with accessor
         //let mut counter = 0;
@@ -167,7 +162,7 @@ impl<'a> DataService<'a> {
         while !address.is_empty() {
             //debug_assert!(counter++ < _maxItemsCount, "Detected loop in data Read({0})", address);
 
-            let block = accessor.get_block_mut(address).await?;
+            let block = self.data_blocks.get_block_mut(address).await?;
 
             address = block.next_block();
             buffer.push(block);
@@ -176,15 +171,12 @@ impl<'a> DataService<'a> {
         Ok(buffer)
     }
 
-    pub async fn delete(
-        accessor: &mut PartialDataBlockAccessorMut<'_>,
-        mut block_address: PageAddress,
-    ) -> Result<()> {
+    pub async fn delete(&mut self, mut block_address: PageAddress) -> Result<()> {
         while !block_address.is_empty() {
-            let next_block = accessor.delete_block(block_address).await?;
+            let next_block = self.data_blocks.delete_block(block_address).await?;
 
             // fix page empty list (or delete page)
-            accessor
+            self.data_blocks
                 .snapshot_mut()
                 .add_or_remove_free_data_list(block_address.page_id())
                 .await?;

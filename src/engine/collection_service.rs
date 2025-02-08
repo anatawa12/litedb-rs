@@ -86,9 +86,12 @@ impl<'snapshot> CollectionService<'snapshot> {
 
         let collation = self.snapshot.header().borrow().pragmas().collation();
         let max_items_count = self.snapshot.disk().max_items_count();
-        let mut indexer = IndexService::new(self.snapshot, collation, max_items_count);
+        let mut parts = self.snapshot.as_parts();
+        let mut indexer = IndexService::new(parts.index_pages, collation, max_items_count);
 
-        indexer.create_index("_id", "$._id", true).await?;
+        indexer
+            .create_index("_id", "$._id", true, &mut parts.collection_page)
+            .await?;
 
         self.snapshot
             .pages()

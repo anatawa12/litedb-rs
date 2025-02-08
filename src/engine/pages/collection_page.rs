@@ -278,11 +278,11 @@ impl<'a> CollectionIndexesMut<'a> {
     }
 
     pub fn insert_collection_index(
-        self,
+        &mut self,
         name: &str,
         expr: &str,
         unique: bool,
-    ) -> Result<&'a mut CollectionIndex> {
+    ) -> Result<&mut CollectionIndex> {
         self.0.insert_collection_index(name, expr, unique, self.1)
     }
 }
