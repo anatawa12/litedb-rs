@@ -15,6 +15,7 @@ const P_INDEXES_COUNT: usize = PAGE_SIZE - P_INDEXES;
 
 pub(crate) type FreeDataPageList = [u32; PAGE_FREE_LIST_SLOTS];
 pub(crate) struct CollectionIndexes(HashMap<String, CollectionIndex>);
+pub(crate) struct CollectionIndexesMut<'a>(&'a mut CollectionIndexes, &'a DirtyFlag);
 
 // all fields are accessed by snapshot for partial borrowing
 pub(crate) struct CollectionPage {
@@ -107,10 +108,11 @@ impl CollectionPage {
     pub fn get_collection_indexes(&self) -> impl Iterator<Item = &CollectionIndex> {
         self.indexes.values()
     }
+}
 
+impl CollectionIndexes {
     pub fn get_collection_indexes_slots(&self) -> Vec<Option<&CollectionIndex>> {
         let len = self
-            .indexes
             .values()
             .map(|x| x.slot())
             .max()
@@ -118,18 +120,15 @@ impl CollectionPage {
             .unwrap_or(0);
         let mut indexes = vec![None; len];
 
-        for index in self.indexes.values() {
+        for index in self.values() {
             indexes[index.slot() as usize] = Some(index);
         }
 
         indexes
     }
 
-    pub fn get_collection_indexes_slots_mut_with_dirty(
-        &mut self,
-    ) -> (Vec<Option<&mut CollectionIndex>>, &DirtyFlag) {
+    pub fn get_collection_indexes_slots_mut(&mut self) -> Vec<Option<&mut CollectionIndex>> {
         let len = self
-            .indexes
             .values()
             .map(|x| x.slot())
             .max()
@@ -138,34 +137,33 @@ impl CollectionPage {
         let mut indexes = vec![];
         indexes.resize_with(len, || None);
 
-        for index in self.indexes.values_mut() {
+        for index in self.values_mut() {
             let slot = index.slot();
             indexes[slot as usize] = Some(index);
         }
 
-        (indexes, &self.base.dirty)
+        indexes
     }
 
-    pub fn insert_collection_index(
+    fn insert_collection_index(
         &mut self,
         name: &str,
         expr: &str,
         unique: bool,
+        dirty: &DirtyFlag,
     ) -> Result<&mut CollectionIndex> {
         let total_length = 1
             + self
-                .indexes
                 .values()
                 .map(CollectionIndex::get_length)
                 .sum::<usize>()
             + CollectionIndex::get_length_static(name, expr);
 
-        if self.indexes.len() == 255 || total_length >= P_INDEXES_COUNT {
+        if self.len() == 255 || total_length >= P_INDEXES_COUNT {
             return Err(Error::collection_index_limit_reached());
         }
 
         let next_slot = self
-            .indexes
             .values()
             .map(|x| x.slot())
             .max()
@@ -174,14 +172,39 @@ impl CollectionPage {
 
         let index = CollectionIndex::new(next_slot, 0, name.into(), expr.into(), unique);
 
-        let result = self
-            .indexes
-            .entry(name.into())
-            .insert_entry(index)
-            .into_mut();
-        self.base.set_dirty();
+        let result = self.entry(name.into()).insert_entry(index).into_mut();
+        dirty.set();
 
         Ok(result)
+    }
+}
+
+impl CollectionPage {
+    pub fn get_collection_indexes_slots(&self) -> Vec<Option<&CollectionIndex>> {
+        self.indexes.get_collection_indexes_slots()
+    }
+
+    pub fn get_collection_indexes_slots_mut_with_dirty(
+        &mut self,
+    ) -> (Vec<Option<&mut CollectionIndex>>, &DirtyFlag) {
+        (
+            self.indexes.get_collection_indexes_slots_mut(),
+            &self.base.dirty,
+        )
+    }
+
+    pub fn get_collection_indexes_slots_mut(&mut self) -> Vec<Option<&mut CollectionIndex>> {
+        self.indexes.get_collection_indexes_slots_mut()
+    }
+
+    pub fn insert_collection_index(
+        &mut self,
+        name: &str,
+        expr: &str,
+        unique: bool,
+    ) -> Result<&mut CollectionIndex> {
+        self.indexes
+            .insert_collection_index(name, expr, unique, &self.base.dirty)
     }
 
     pub fn update_collection_index(&mut self, name: &str) -> &mut CollectionIndex {
@@ -245,7 +268,22 @@ impl Page for CollectionPage {
 
 impl CollectionIndexes {
     pub(crate) fn pk_index(&self) -> &CollectionIndex {
-        &self.0["_id"]
+        &self["_id"]
+    }
+}
+
+impl<'a> CollectionIndexesMut<'a> {
+    pub fn new(indexes: &'a mut CollectionIndexes, dirty: &'a DirtyFlag) -> Self {
+        Self(indexes, dirty)
+    }
+
+    pub fn insert_collection_index(
+        self,
+        name: &str,
+        expr: &str,
+        unique: bool,
+    ) -> Result<&'a mut CollectionIndex> {
+        self.0.insert_collection_index(name, expr, unique, self.1)
     }
 }
 
@@ -260,5 +298,19 @@ impl Deref for CollectionIndexes {
 impl DerefMut for CollectionIndexes {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl Deref for CollectionIndexesMut<'_> {
+    type Target = CollectionIndexes;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl DerefMut for CollectionIndexesMut<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
     }
 }

@@ -2,8 +2,7 @@ use crate::engine::data_block::{DataBlock, DataBlockMut};
 use crate::engine::snapshot::{Snapshot, SnapshotDataPages};
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
 use crate::engine::{
-    BasePage, BufferWriter, DirtyFlag, FreeDataPageList, MAX_DOCUMENT_SIZE, PAGE_HEADER_SIZE,
-    PAGE_SIZE, PageAddress,
+    BasePage, BufferWriter, MAX_DOCUMENT_SIZE, PAGE_HEADER_SIZE, PAGE_SIZE, PageAddress,
 };
 use crate::{Error, Result, bson};
 use std::cmp::min;
@@ -42,11 +41,7 @@ impl<'a> DataService<'a> {
             while bytes_left > 0 {
                 let bytes_to_copy = min(bytes_left, Self::MAX_DATA_BYTES_PER_PAGE);
                 let data_block = accessor
-                    .insert_data_block(
-                        bytes_to_copy,
-                        block_index > 0,
-                        &mut parts.collection_page.free_data_page_list,
-                    )
+                    .insert_data_block(bytes_to_copy, block_index > 0)
                     .await?;
                 block_index += 1;
 
@@ -60,11 +55,7 @@ impl<'a> DataService<'a> {
 
                 accessor
                     .snapshot_mut()
-                    .add_or_remove_free_data_list(
-                        data_block.position().page_id(),
-                        &mut parts.collection_page.free_data_page_list,
-                        &parts.collection_page.base.dirty,
-                    )
+                    .add_or_remove_free_data_list(data_block.position().page_id())
                     .await?;
 
                 buffers.push(data_block);
@@ -117,11 +108,7 @@ impl<'a> DataService<'a> {
 
                     accessor
                         .snapshot_mut()
-                        .add_or_remove_free_data_list(
-                            update_block.position().page_id(),
-                            &mut parts.collection_page.free_data_page_list,
-                            &parts.collection_page.base.dirty,
-                        )
+                        .add_or_remove_free_data_list(update_block.position().page_id())
                         .await?;
 
                     // go to next address (if exists)
@@ -130,13 +117,7 @@ impl<'a> DataService<'a> {
                     buffers.push(update_block);
                 } else {
                     bytes_to_copy = min(bytes_left, DataService::MAX_DATA_BYTES_PER_PAGE);
-                    let insert_block = accessor
-                        .insert_data_block(
-                            bytes_to_copy,
-                            true,
-                            &mut parts.collection_page.free_data_page_list,
-                        )
-                        .await?;
+                    let insert_block = accessor.insert_data_block(bytes_to_copy, true).await?;
 
                     if let Some(last_block) = buffers.last_mut() {
                         last_block.set_next_block(insert_block.position());
@@ -144,11 +125,7 @@ impl<'a> DataService<'a> {
 
                     accessor
                         .snapshot_mut()
-                        .add_or_remove_free_data_list(
-                            insert_block.position().page_id(),
-                            &mut parts.collection_page.free_data_page_list,
-                            &parts.collection_page.base.dirty,
-                        )
+                        .add_or_remove_free_data_list(insert_block.position().page_id())
                         .await?;
 
                     buffers.push(insert_block);
@@ -164,13 +141,7 @@ impl<'a> DataService<'a> {
 
                     last_block.set_next_block(PageAddress::EMPTY);
 
-                    Self::delete(
-                        &mut accessor,
-                        next_block_address,
-                        &mut parts.collection_page.free_data_page_list,
-                        &parts.collection_page.base.dirty,
-                    )
-                    .await?;
+                    Self::delete(&mut accessor, next_block_address).await?;
                 }
             }
         }
@@ -208,8 +179,6 @@ impl<'a> DataService<'a> {
     pub async fn delete(
         accessor: &mut PartialDataBlockAccessorMut<'_>,
         mut block_address: PageAddress,
-        free_data_page_list: &mut FreeDataPageList,
-        dirty: &DirtyFlag,
     ) -> Result<()> {
         while !block_address.is_empty() {
             let next_block = accessor.delete_block(block_address).await?;
@@ -217,7 +186,7 @@ impl<'a> DataService<'a> {
             // fix page empty list (or delete page)
             accessor
                 .snapshot_mut()
-                .add_or_remove_free_data_list(block_address.page_id(), free_data_page_list, dirty)
+                .add_or_remove_free_data_list(block_address.page_id())
                 .await?;
 
             block_address = next_block;
@@ -248,14 +217,13 @@ impl<'snapshot> PartialDataBlockAccessorMut<'snapshot> {
         &mut self,
         length: usize,
         extend: bool,
-        free_data_page_list: &mut FreeDataPageList,
     ) -> Result<DataBlockMutRef<'snapshot>> {
         unsafe {
             self.inner
                 .try_create_borrow_async(
                     async |snapshot: &mut SnapshotDataPages<'snapshot>| {
                         Ok(snapshot
-                            .get_free_data_page(length, free_data_page_list)
+                            .get_free_data_page(length)
                             .await?
                             .get_mut()
                             .insert_block(length, extend))

@@ -3,7 +3,7 @@ use crate::engine::collection_index::CollectionIndex;
 use crate::engine::index_node::{IndexNode, IndexNodeMut};
 use crate::engine::snapshot::{Snapshot, SnapshotIndexPages};
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
-use crate::engine::{DirtyFlag, MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress};
+use crate::engine::{MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress};
 use crate::utils::{Collation, Order};
 use crate::{Error, Result};
 use std::collections::HashSet;
@@ -213,11 +213,7 @@ impl IndexService<'_> {
         accessor
             .inner
             .target_mut()
-            .add_or_remove_free_index_list(
-                node.page_ptr(),
-                index.free_index_page_list_mut(),
-                parts.collection_page.dirty_flag(),
-            )
+            .add_or_remove_free_index_list(node.page_ptr(), index.free_index_page_list_mut())
             .await?;
 
         let node = node.into_value();
@@ -256,12 +252,10 @@ impl IndexService<'_> {
     }
 
     pub async fn delete_all(&mut self, first_address: PageAddress) -> Result<()> {
-        let parts = self.snapshot.as_parts();
+        let mut parts = self.snapshot.as_parts();
         let mut accessor = PartialIndexNodeAccessorMut::new(parts.index_pages);
         // Rust: no count check since we've checked recursion with PartialIndexNodeAccessorMut
-        let (mut indexes, dirty) = parts
-            .collection_page
-            .get_collection_indexes_slots_mut_with_dirty();
+        let mut indexes = parts.collection_page.get_collection_indexes_slots_mut();
 
         let mut current = first_address;
         while !current.is_empty() {
@@ -269,7 +263,7 @@ impl IndexService<'_> {
             current = node.next_node();
 
             let index = indexes[node.slot() as usize].as_mut().unwrap();
-            Self::delete_single_node(&mut accessor, node.into_value(), index, dirty).await?
+            Self::delete_single_node(&mut accessor, node.into_value(), index).await?
         }
 
         Ok(())
@@ -280,13 +274,11 @@ impl IndexService<'_> {
         first_address: PageAddress,
         to_delete: HashSet<PageAddress>,
     ) -> Result<IndexNodeMut> {
-        let parts = self.snapshot.as_parts();
+        let mut parts = self.snapshot.as_parts();
         let mut accessor = PartialIndexNodeAccessorMut::new(parts.index_pages);
         let mut last = first_address;
         // Rust: no count check since we've checked recursion with PartialIndexNodeAccessorMut
-        let (mut indexes, dirty) = parts
-            .collection_page
-            .get_collection_indexes_slots_mut_with_dirty();
+        let mut indexes = parts.collection_page.get_collection_indexes_slots_mut();
 
         let mut current = accessor.get_node_mut(last).await?.next_node(); // starts in first node after PK
 
@@ -297,7 +289,7 @@ impl IndexService<'_> {
             if to_delete.contains(&node.position()) {
                 let index = indexes[node.slot() as usize].as_mut().unwrap();
                 let position = node.next_node();
-                Self::delete_single_node(&mut accessor, node.into_value(), index, dirty).await?;
+                Self::delete_single_node(&mut accessor, node.into_value(), index).await?;
                 accessor.get_node_mut(last).await?.set_next_node(position);
             } else {
                 last = node.position();
@@ -312,7 +304,6 @@ impl IndexService<'_> {
         accessor: &mut PartialIndexNodeAccessorMut<'_>,
         node: IndexNodeMut<'_>,
         index: &mut CollectionIndex,
-        dirty: &DirtyFlag,
     ) -> Result<()> {
         for i in (0..node.levels()).rev() {
             // get previous and next nodes (between my deleted node)
@@ -333,7 +324,7 @@ impl IndexService<'_> {
 
         accessor
             .snapshot_mut()
-            .add_or_remove_free_index_list(page_ptr, index.free_index_page_list_mut(), dirty)
+            .add_or_remove_free_index_list(page_ptr, index.free_index_page_list_mut())
             .await
     }
 

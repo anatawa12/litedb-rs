@@ -7,8 +7,8 @@ use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::transaction_service::LockMode;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{
-    BasePage, CollectionPage, DataPage, DirtyFlag, FileOrigin, FreeDataPageList, IndexPage,
-    PAGE_SIZE, Page, PageType,
+    BasePage, CollectionIndexesMut, CollectionPage, DataPage, DirtyFlag, FileOrigin,
+    FreeDataPageList, IndexPage, PAGE_SIZE, Page, PageType,
 };
 use crate::utils::{Order, Shared};
 use crate::{Error, Result};
@@ -53,11 +53,14 @@ pub(crate) struct SnapshotPages {
 
 pub(crate) struct SnapshotDataPages<'a> {
     inner: *mut SnapshotPages,
+    dirty: &'a DirtyFlag,
+    free_data_page_list: &'a mut FreeDataPageList,
     _phantom: PhantomData<&'a SnapshotPages>,
 }
 
 pub(crate) struct SnapshotIndexPages<'a> {
     inner: *mut SnapshotPages,
+    dirty: &'a DirtyFlag,
     _phantom: PhantomData<&'a SnapshotPages>,
 }
 
@@ -404,17 +407,13 @@ impl SnapshotPages {
 }
 
 impl SnapshotDataPages<'_> {
-    pub async fn get_free_data_page(
-        &mut self,
-        length: usize,
-        free_data_page_list: &mut FreeDataPageList,
-    ) -> Result<Pin<&mut DataPage>> {
+    pub async fn get_free_data_page(&mut self, length: usize) -> Result<Pin<&mut DataPage>> {
         let length = length + BasePage::SLOT_SIZE;
 
         let start_slot = DataPage::get_minimum_index_slot(length);
 
         for current_slot in (0..=start_slot).rev() {
-            let free_page_id = free_data_page_list[current_slot as usize];
+            let free_page_id = self.free_data_page_list[current_slot as usize];
             if free_page_id == u32::MAX {
                 continue;
             }
@@ -541,12 +540,7 @@ impl SnapshotPages {
 }
 
 impl SnapshotDataPages<'_> {
-    pub async fn add_or_remove_free_data_list(
-        &mut self,
-        page_id: u32,
-        free_data_page_list: &mut FreeDataPageList,
-        dirty: &DirtyFlag,
-    ) -> Result<()> {
+    pub async fn add_or_remove_free_data_list(&mut self, page_id: u32) -> Result<()> {
         // TODO: safety with partial borrow
         let mut page = inner!(self).get_page::<DataPage>(page_id, false).await?;
         let page = unsafe {
@@ -567,7 +561,11 @@ impl SnapshotDataPages<'_> {
         #[allow(clippy::collapsible_if)]
         if initial_slot != u8::MAX {
             inner!(self)
-                .remove_free_list(page, &mut free_data_page_list[initial_slot as usize], dirty)
+                .remove_free_list(
+                    page,
+                    &mut self.free_data_page_list[initial_slot as usize],
+                    self.dirty,
+                )
                 .await?;
         }
 
@@ -577,9 +575,9 @@ impl SnapshotDataPages<'_> {
         } else {
             // add into current slot
             inner!(self)
-                .add_free_list(page, &mut free_data_page_list[new_slot as usize])
+                .add_free_list(page, &mut self.free_data_page_list[new_slot as usize])
                 .await?;
-            dirty.set();
+            self.dirty.set();
 
             page.set_page_list_slot(new_slot);
         }
@@ -593,7 +591,6 @@ impl SnapshotIndexPages<'_> {
         &mut self,
         page: *mut IndexPage,
         start_page_id: &mut u32,
-        dirty: &DirtyFlag, // TODO: make SnapshotPages hold dirty flag
     ) -> Result<()> {
         let page = unsafe { &mut *page };
         let new_slot = IndexPage::free_index_slot(page.free_bytes());
@@ -605,7 +602,7 @@ impl SnapshotIndexPages<'_> {
             #[allow(clippy::collapsible_if)]
             if is_on_list {
                 inner!(self)
-                    .remove_free_list(page, start_page_id, dirty)
+                    .remove_free_list(page, start_page_id, self.dirty)
                     .await?;
             }
 
@@ -613,11 +610,11 @@ impl SnapshotIndexPages<'_> {
         } else {
             if is_on_list && !must_keep {
                 inner!(self)
-                    .remove_free_list(page, start_page_id, dirty)
+                    .remove_free_list(page, start_page_id, self.dirty)
                     .await?;
             } else if !is_on_list && must_keep {
                 inner!(self).add_free_list(page, start_page_id).await?;
-                dirty.set()
+                self.dirty.set()
             }
 
             page.set_page_list_slot(new_slot);
@@ -804,7 +801,12 @@ impl Snapshot {
             // add head/tail (same page) to be deleted
             index_pages.insert(index.head().page_id());
 
-            let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages::new(pages));
+            let dirty = DirtyFlag::new();
+            let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages {
+                inner: pages as *mut _,
+                dirty: &dirty,
+                _phantom: PhantomData,
+            });
             for node in
                 IndexService::find_all_accessor(&mut accessor, index, Order::Ascending).await?
             {
@@ -869,33 +871,33 @@ impl Snapshot {
     }
 
     pub fn as_parts(&mut self) -> SnapshotParts {
+        let collection_page = self.collection_page.as_mut().unwrap().as_mut().get_mut();
         SnapshotParts {
             data_pages: SnapshotDataPages {
                 inner: &mut self.page_collection as *mut _,
+                dirty: &collection_page.base.dirty,
+                free_data_page_list: &mut collection_page.free_data_page_list,
                 _phantom: PhantomData,
             },
             index_pages: SnapshotIndexPages {
                 inner: &mut self.page_collection as *mut _,
+                dirty: &collection_page.base.dirty,
                 _phantom: PhantomData,
             },
-            collection_page: self.collection_page.as_mut().unwrap(),
+            collection_page: CollectionIndexesMut::new(
+                &mut collection_page.indexes,
+                &collection_page.base.dirty,
+            ),
         }
     }
 }
 pub(crate) struct SnapshotParts<'a> {
     pub data_pages: SnapshotDataPages<'a>,
     pub index_pages: SnapshotIndexPages<'a>,
-    pub collection_page: &'a mut CollectionPage,
+    pub collection_page: CollectionIndexesMut<'a>,
 }
 
-impl<'a> SnapshotDataPages<'a> {
-    pub fn new(pages: &'a mut SnapshotPages) -> Self {
-        Self {
-            inner: pages as *mut _,
-            _phantom: PhantomData,
-        }
-    }
-
+impl SnapshotDataPages<'_> {
     pub async fn get_page(&mut self, page_id: u32) -> Result<Pin<&mut DataPage>> {
         inner!(self).get_page(page_id, false).await
     }
@@ -904,14 +906,7 @@ impl<'a> SnapshotDataPages<'a> {
         inner!(self).new_page().await
     }
 }
-impl<'a> SnapshotIndexPages<'a> {
-    pub fn new(pages: &'a mut SnapshotPages) -> Self {
-        Self {
-            inner: pages as *mut _,
-            _phantom: PhantomData,
-        }
-    }
-
+impl SnapshotIndexPages<'_> {
     pub async fn get_page(&mut self, page_id: u32) -> Result<Pin<&mut IndexPage>> {
         inner!(self).get_page(page_id, false).await
     }
