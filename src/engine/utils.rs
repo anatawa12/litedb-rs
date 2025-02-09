@@ -1,5 +1,6 @@
 use crate::utils::Shared;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::{AsyncFnOnce, Deref, DerefMut};
 
@@ -22,7 +23,7 @@ pub(crate) unsafe trait ExtendLifetime<'target> {
     unsafe fn extend_lifetime(self) -> Self::Extended;
 }
 
-impl<TargetRef, Key: Hash + Eq + Copy> PartialBorrower<TargetRef, Key> {
+impl<TargetRef, Key: Hash + Eq + Copy + Debug> PartialBorrower<TargetRef, Key> {
     pub fn new(target: TargetRef) -> Self {
         Self {
             target,
@@ -49,7 +50,9 @@ impl<TargetRef, Key: Hash + Eq + Copy> PartialBorrower<TargetRef, Key> {
     {
         let value: ShortLives = new(&mut self.target).await?;
         let key = key(&value);
-        self.borrowed.borrow_mut().insert(key, borrow_status::BorrowStatus::new());
+        self.borrowed
+            .borrow_mut()
+            .insert(key, borrow_status::BorrowStatus::new());
         Ok(PartialRefMut {
             value: unsafe { ShortLives::extend_lifetime(value) },
             key,
@@ -67,11 +70,13 @@ impl<TargetRef, Key: Hash + Eq + Copy> PartialBorrower<TargetRef, Key> {
         TargetRef: 'r,
     {
         if let Some(borrow) = self.borrowed.borrow().get(&key) {
-            panic!("double reference. previous reference is {borrow}"); // TODO: make non-hard error?
+            panic!("double reference with key {key:?}. previous reference is {borrow}"); // TODO: make non-hard error?
         }
 
         let value: ShortLives = get(&mut self.target, &key).await?;
-        self.borrowed.borrow_mut().insert(key, borrow_status::BorrowStatus::new());
+        self.borrowed
+            .borrow_mut()
+            .insert(key, borrow_status::BorrowStatus::new());
         Ok(PartialRefMut {
             value: unsafe { ShortLives::extend_lifetime(value) },
             key,
@@ -85,7 +90,7 @@ impl<TargetRef, Key: Hash + Eq + Copy> PartialBorrower<TargetRef, Key> {
         delete: impl AsyncFnOnce(&'s mut TargetRef, &Key) -> Result,
     ) -> Result {
         if let Some(borrow) = self.borrowed.borrow().get(&key) {
-            panic!("removing using reference. previous reference is {borrow}"); // TODO: make non-hard error?
+            panic!("removing using reference {key:?}. previous reference is {borrow}"); // TODO: make non-hard error?
         }
 
         delete(&mut self.target, &key).await
@@ -94,8 +99,9 @@ impl<TargetRef, Key: Hash + Eq + Copy> PartialBorrower<TargetRef, Key> {
 
 into_non_drop! {
     pub(crate) struct PartialRefMut<Value, Key>
-        where Key : Hash
-        where Key : Eq
+        where
+            Key : Hash,
+            Key : Eq,
     {
         value: Value,
         key: Key,
@@ -106,12 +112,26 @@ into_non_drop! {
 impl<Value, Key: Hash + Eq> PartialRefMut<Value, Key> {
     pub fn into_value(self) -> Value {
         let destruct = self.into_destruct();
-        destruct.borrowed.borrow_mut().get_mut(&destruct.key).map(|x| x.leak());
+        if let Some(status) = destruct.borrowed.borrow_mut().get_mut(&destruct.key) {
+            status.leak();
+        }
         destruct.value
+    }
+
+    pub fn removing(self, delete: impl FnOnce(Value)) {
+        let destruct = self.into_destruct();
+        // _defers is used to run self.borrowed.borrow_mut().remove(&self.key)
+        // when exiting this function, even when panics
+        let _defers = PartialRefMut {
+            value: (),
+            key: destruct.key,
+            borrowed: destruct.borrowed,
+        };
+        delete(destruct.value);
     }
 }
 
-impl<Value, Key: Hash + Eq> PartialRefMut<Value, Key> {
+impl<Value, Key: Hash + Eq> Drop for PartialRefMut<Value, Key> {
     fn drop(&mut self) {
         self.borrowed.borrow_mut().remove(&self.key);
     }

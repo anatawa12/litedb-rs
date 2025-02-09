@@ -11,7 +11,7 @@ macro_rules! into_non_drop {
     (
         $(#[$meta:meta])*
         $struct_vis:vis struct $struct_name: ident $(< $($lifetime: lifetime),* $($generics: ident $(: $constraint0: path )? ),* >)?
-            $(where $where_type: ty : $bound: path)*
+            $(where $($where_type: ty : $bound: path),+$(,)?)?
         {
             $(
             $(#[$field_meta:meta])*
@@ -21,7 +21,9 @@ macro_rules! into_non_drop {
         }
     ) => {
         $(#[$meta])*
-        $struct_vis struct $struct_name $(< $($lifetime),* $($generics $(: $constraint0 )*),* >)? {
+        $struct_vis struct $struct_name $(< $($lifetime),* $($generics $(: $constraint0 )*),* >)?
+            $(where $($where_type : $bound,)+)?
+        {
             $($(#[$field_meta])* $field_vis $field_name: $field_ty,)*
         }
 
@@ -30,7 +32,8 @@ macro_rules! into_non_drop {
                 $($(#[$field_meta])* $field_vis $field_name: $field_ty,)*
             }
 
-            impl  $(< $($lifetime),* $($generics $(: $constraint0 )*),* >)? $struct_name $(< $($lifetime),* $($generics),* >)? {
+            impl  $(< $($lifetime),* $($generics $(: $constraint0 )*),* >)? $struct_name $(< $($lifetime),* $($generics),* >)?
+                $(where $($where_type : $bound,)+)? {
                 /// Converts this to destructed struct which does not implement drop
 
                 fn into_destruct(self) -> Destructed $(< $($lifetime),* $($generics),*>)?  {
