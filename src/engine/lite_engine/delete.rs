@@ -60,6 +60,7 @@ impl LiteEngine {
 
                     count += 1;
                 }
+                transaction.safe_point().await?;
 
                 Ok(count)
             }
