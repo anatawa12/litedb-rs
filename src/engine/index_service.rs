@@ -91,7 +91,7 @@ impl IndexService<'_> {
         index: &mut CollectionIndex,
         key: bson::Value,
         data_block: PageAddress,
-        last: Option<&IndexNode<'a>>,
+        last: Option<&IndexNode>,
     ) -> Result<IndexNodeMutRef<'a>> {
         // RustChange: Document is valid since its order is not determinable
         if key == bson::Value::MinValue
@@ -115,7 +115,7 @@ impl IndexService<'_> {
         key: bson::Value,
         data_block: PageAddress,
         insert_levels: u8,
-        last: Option<&IndexNode<'a>>,
+        last: Option<&IndexNode>,
     ) -> Result<IndexNodeMutRef<'a>> {
         let (bytes_length, key_length) = IndexNode::get_node_length(insert_levels, &key);
 

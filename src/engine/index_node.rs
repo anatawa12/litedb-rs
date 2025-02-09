@@ -26,7 +26,7 @@ pub(crate) struct IndexNodeShared<S, D> {
     ptr: D,
 }
 
-pub(crate) type IndexNode<'a> = IndexNodeShared<&'a BufferSlice, ()>;
+pub(crate) type IndexNode = IndexNodeShared<(), ()>;
 pub(crate) type IndexNodeMut<'a> = IndexNodeShared<&'a mut BufferSlice, *mut IndexPage>;
 
 extend_lifetime!(IndexNodeMut);
@@ -35,8 +35,17 @@ fn calc_key_ptr(levels: u8) -> usize {
     P_PREV_NEXT + levels as usize * PageAddress::SERIALIZED_SIZE * 2
 }
 
-impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
-    fn load_inner(page_id: u32, index: u8, segment: S, dirty_ptr: D) -> Result<Self> {
+impl<S, D> IndexNodeShared<S, D> {
+    fn load_inner<Seg>(
+        page_id: u32,
+        index: u8,
+        segment: Seg,
+        store_segment: impl FnOnce(Seg) -> S,
+        dirty_ptr: D,
+    ) -> Result<Self>
+    where
+        Seg: Deref<Target = BufferSlice>,
+    {
         let position = PageAddress::new(page_id, index);
         let slot = segment.read_u8(P_SLOT);
         let levels = segment.read_u8(P_LEVELS);
@@ -60,7 +69,7 @@ impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
         let key = segment.read_index_key(key_ptr)?;
 
         Ok(Self {
-            segment,
+            segment: store_segment(segment),
             position,
             slot,
             levels,
@@ -73,6 +82,23 @@ impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
         })
     }
 
+    fn copy_data<S1, D1>(base: IndexNodeShared<S1, D1>, segment: S, dirty_ptr: D) -> Self {
+        Self {
+            segment,
+            position: base.position,
+            slot: base.slot,
+            levels: base.levels,
+            key: base.key,
+            data_block: base.data_block,
+            next_node: base.next_node,
+            prev: base.prev,
+            next: base.next,
+            ptr: dirty_ptr,
+        }
+    }
+}
+
+impl<S, D> IndexNodeShared<S, D> {
     pub fn position(&self) -> PageAddress {
         self.position
     }
@@ -155,9 +181,9 @@ impl<S: Deref<Target = BufferSlice>, D> IndexNodeShared<S, D> {
     }
 }
 
-impl<'a> IndexNode<'a> {
-    pub fn load(page_id: u32, index: u8, segment: &'a BufferSlice) -> Result<Self> {
-        Self::load_inner(page_id, index, segment, ())
+impl IndexNode {
+    pub fn load(page_id: u32, index: u8, segment: &BufferSlice) -> Result<Self> {
+        Self::load_inner(page_id, index, segment, |_| (), ())
     }
 }
 
@@ -168,7 +194,7 @@ impl<'a> IndexNodeMut<'a> {
         index: u8,
         segment: &'a mut BufferSlice,
     ) -> Result<Self> {
-        Self::load_inner(page_id, index, segment, dirty_ptr)
+        Self::load_inner(page_id, index, segment, |s| s, dirty_ptr)
     }
 
     pub fn new(
