@@ -92,7 +92,7 @@ impl IndexService<'_> {
         key: bson::Value,
         data_block: PageAddress,
         last: Option<&IndexNode<'a>>,
-    ) -> Result<IndexNodeMut<'a>> {
+    ) -> Result<IndexNodeMutRef<'a>> {
         // RustChange: Document is valid since its order is not determinable
         if key == bson::Value::MinValue
             || key == bson::Value::MaxValue
@@ -116,7 +116,7 @@ impl IndexService<'_> {
         data_block: PageAddress,
         insert_levels: u8,
         last: Option<&IndexNode<'a>>,
-    ) -> Result<IndexNodeMut<'a>> {
+    ) -> Result<IndexNodeMutRef<'a>> {
         let (bytes_length, key_length) = IndexNode::get_node_length(insert_levels, &key);
 
         if key_length > MAX_INDEX_KEY_LENGTH {
@@ -214,7 +214,6 @@ impl IndexService<'_> {
             .add_or_remove_free_index_list(node.page_ptr(), index.free_index_page_list_mut())
             .await?;
 
-        let node = node.into_value();
         Ok(node)
     }
 
@@ -234,12 +233,15 @@ impl IndexService<'_> {
         levels
     }
 
-    pub async fn get_node_list(&mut self, first_address: PageAddress) -> Result<Vec<IndexNodeMut>> {
+    pub async fn get_node_list(
+        &mut self,
+        first_address: PageAddress,
+    ) -> Result<Vec<IndexNodeMutRef>> {
         let mut result = Vec::new();
 
         let mut current = first_address;
         while !current.is_empty() {
-            let node = self.index_nodes.get_node_mut(current).await?.into_value();
+            let node = self.index_nodes.get_node_mut(current).await?;
             current = node.next_node();
             result.push(node)
         }
@@ -261,7 +263,7 @@ impl IndexService<'_> {
             current = node.next_node();
 
             let index = indexes[node.slot() as usize].as_mut().unwrap();
-            Self::delete_single_node(&mut self.index_nodes, node.into_value(), index).await?
+            Self::delete_single_node(&mut self.index_nodes, node, index).await?
         }
 
         Ok(())
@@ -272,7 +274,7 @@ impl IndexService<'_> {
         first_address: PageAddress,
         to_delete: HashSet<PageAddress>,
         collection_page: &mut CollectionIndexesMut<'_>,
-    ) -> Result<IndexNodeMut> {
+    ) -> Result<IndexNodeMutRef> {
         let mut last = first_address;
         // Rust: no count check since we've checked recursion with PartialIndexNodeAccessorMut
         let mut indexes = collection_page.get_collection_indexes_slots_mut();
@@ -286,7 +288,7 @@ impl IndexService<'_> {
             if to_delete.contains(&node.position()) {
                 let index = indexes[node.slot() as usize].as_mut().unwrap();
                 let position = node.next_node();
-                Self::delete_single_node(&mut self.index_nodes, node.into_value(), index).await?;
+                Self::delete_single_node(&mut self.index_nodes, node, index).await?;
                 self.index_nodes
                     .get_node_mut(last)
                     .await?
@@ -296,13 +298,13 @@ impl IndexService<'_> {
             }
         }
 
-        Ok(self.index_nodes.get_node_mut(last).await?.into_value())
+        self.index_nodes.get_node_mut(last).await
     }
 
     /// Delete a single index node - fix tree double-linked list levels
     async fn delete_single_node(
         accessor: &mut PartialIndexNodeAccessorMut<'_>,
-        node: IndexNodeMut<'_>,
+        node: IndexNodeMutRef<'_>,
         index: &mut CollectionIndex,
     ) -> Result<()> {
         for i in (0..node.levels()).rev() {
@@ -320,7 +322,7 @@ impl IndexService<'_> {
 
         let page_ptr = node.page_ptr();
 
-        node.remove_from_page();
+        node.removing(|x| x.remove_from_page());
 
         accessor
             .snapshot_mut()
@@ -353,7 +355,7 @@ impl IndexService<'_> {
 
                     last.set_next_node(node.next_node());
                 } else {
-                    last = node.into_value();
+                    last = node;
                 }
             }
         }
@@ -362,13 +364,11 @@ impl IndexService<'_> {
         self.index_nodes
             .get_node_mut(index.head())
             .await?
-            .into_value()
-            .remove_from_page();
+            .removing(|x| x.remove_from_page());
         self.index_nodes
             .get_node_mut(index.tail())
             .await?
-            .into_value()
-            .remove_from_page();
+            .removing(|x| x.remove_from_page());
 
         Ok(())
     }
@@ -380,14 +380,14 @@ impl IndexService<'_> {
         &mut self,
         index: &CollectionIndex,
         order: Order,
-    ) -> Result<Vec<IndexNodeMut>> {
+    ) -> Result<Vec<IndexNodeMutRef>> {
         Self::find_all_accessor(&mut self.index_nodes, index, order).await
     }
     pub async fn find_all_accessor<'s>(
         accessor: &mut PartialIndexNodeAccessorMut<'s>,
         index: &CollectionIndex,
         order: Order,
-    ) -> Result<Vec<IndexNodeMut<'s>>> {
+    ) -> Result<Vec<IndexNodeMutRef<'s>>> {
         let mut cur = if order == Order::Ascending {
             accessor.get_node_mut(index.head()).await?
         } else {
@@ -409,7 +409,7 @@ impl IndexService<'_> {
 
             current = cur.get_next_prev(0, order);
 
-            nodes.push(cur.into_value());
+            nodes.push(cur);
         }
 
         Ok(nodes)
@@ -421,7 +421,7 @@ impl IndexService<'_> {
         value: &bson::Value,
         sibling: bool,
         order: Order,
-    ) -> Result<Option<IndexNodeMut>> {
+    ) -> Result<Option<IndexNodeMutRef>> {
         let mut left_node = if order == Order::Ascending {
             self.index_nodes.get_node_mut(index.head()).await?
         } else {
@@ -458,13 +458,13 @@ impl IndexService<'_> {
                     ) {
                         return Ok(None);
                     } else {
-                        return Ok(Some(right_node.into_value()));
+                        return Ok(Some(right_node));
                     };
                 }
 
                 // if equals, return index node
                 if diff.is_eq() {
-                    return Ok(Some(right_node.into_value()));
+                    return Ok(Some(right_node));
                 }
 
                 right = right_node.get_next_prev(level, order);
@@ -480,7 +480,7 @@ pub(crate) struct PartialIndexNodeAccessorMut<'snapshot> {
     inner: PartialBorrower<SnapshotIndexPages<'snapshot>, PageAddress>,
 }
 
-type IndexNodeMutRef<'snapshot> = PartialRefMut<IndexNodeMut<'snapshot>, PageAddress>;
+pub(crate) type IndexNodeMutRef<'snapshot> = PartialRefMut<IndexNodeMut<'snapshot>, PageAddress>;
 
 impl<'snapshot> PartialIndexNodeAccessorMut<'snapshot> {
     pub(crate) fn new(snapshot: SnapshotIndexPages<'snapshot>) -> Self {

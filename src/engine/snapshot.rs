@@ -871,15 +871,16 @@ impl Snapshot {
 
     pub fn as_parts(&mut self) -> SnapshotParts {
         let collection_page = self.collection_page.as_mut().unwrap().as_mut().get_mut();
+        let page_collection_pointer = &mut self.page_collection as *mut _;
         SnapshotParts {
             data_pages: SnapshotDataPages {
-                inner: &mut self.page_collection as *mut _,
+                inner: page_collection_pointer,
                 dirty: &collection_page.base.dirty,
                 free_data_page_list: &mut collection_page.free_data_page_list,
                 _phantom: PhantomData,
             },
             index_pages: SnapshotIndexPages {
-                inner: &mut self.page_collection as *mut _,
+                inner: page_collection_pointer,
                 dirty: &collection_page.base.dirty,
                 _phantom: PhantomData,
             },

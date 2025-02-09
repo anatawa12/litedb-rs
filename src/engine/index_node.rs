@@ -256,7 +256,9 @@ impl<'a> IndexNodeMut<'a> {
 // lifetime utility
 impl IndexNodeMut<'_> {
     pub(crate) fn remove_from_page(self) {
-        unsafe { Pin::new_unchecked(&mut *self.page_ptr()) }
-            .delete_index_node(self.position().index());
+        let page = unsafe { Pin::new_unchecked(&mut *self.page_ptr()) };
+        let page_index = self.position().index();
+        drop(self);
+        page.delete_index_node(page_index);
     }
 }

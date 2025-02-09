@@ -87,7 +87,11 @@ impl PageBuffer {
         &mut self.buffer
     }
 
-    pub fn buffer_ptr(this: *mut Self) -> *mut u8 {
+    pub fn buffer_ptr(this: *const Self) -> *const u8 {
+        unsafe { &raw const (*this).buffer as *const _ }
+    }
+
+    pub fn buffer_ptr_mut(this: *mut Self) -> *mut u8 {
         unsafe { &raw mut (*this).buffer as *mut _ }
     }
 

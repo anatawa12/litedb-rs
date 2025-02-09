@@ -48,6 +48,9 @@ impl LiteEngine {
 
                     data.delete(pk_node.data_block()).await?;
                     let index_position = pk_node.position();
+
+                    drop(pk_node);
+
                     indexer
                         .delete_all(index_position, &mut parts.collection_page)
                         .await?;

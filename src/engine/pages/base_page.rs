@@ -321,6 +321,26 @@ impl BasePage {
     }
 }
 
+// We often do partial borrow so macro here
+macro_rules! partial_slice {
+    ($this: expr, $offset: expr, $len: expr) => {
+        unsafe {
+            let pointer = PageBuffer::buffer_ptr(&raw const *$this.buffer);
+            let slice = slice::from_raw_parts(pointer.add($offset), $len);
+            BufferSlice::new(slice)
+        }
+    };
+}
+macro_rules! partial_slice_mut {
+    ($this: expr, $offset: expr, $len: expr) => {
+        unsafe {
+            let pointer = PageBuffer::buffer_ptr_mut(&raw mut *$this.buffer);
+            let slice = slice::from_raw_parts_mut(pointer.add($offset), $len);
+            BufferSlice::new_mut(slice)
+        }
+    };
+}
+
 // Access/Manipulate PageSegments
 impl BasePage {
     pub fn get(&self, index: u8) -> &BufferSlice {
@@ -338,15 +358,15 @@ impl BasePage {
         let position_addr = Self::calc_position_addr(index);
         let length_addr = Self::calc_length_addr(index);
 
-        let position = self.buffer.read_u16(position_addr) as usize;
-        let length = self.buffer.read_u16(length_addr) as usize;
+        let position = partial_slice!(self, position_addr, 2).read_u16(0) as usize;
+        let length = partial_slice!(self, length_addr, 2).read_u16(0) as usize;
 
         assert!(
             self.valid_position(position, length),
             "invalid position or length"
         );
 
-        self.buffer.slice(position, length)
+        partial_slice!(self, position, length)
     }
 
     pub fn get_mut(&mut self, index: u8) -> &mut BufferSlice {
@@ -368,18 +388,8 @@ impl BasePage {
         let position_addr = Self::calc_position_addr(index);
         let length_addr = Self::calc_length_addr(index);
 
-        // equivalent to this, but using unsafe for partial borrow
-        //let position = self.buffer.read_u16(position_addr) as usize;
-        //let length = self.buffer.read_u16(length_addr) as usize;
-        let (position, length) = unsafe {
-            let pointer = PageBuffer::buffer_ptr(&raw mut *self.buffer);
-            let position_slice = slice::from_raw_parts_mut(pointer.add(position_addr), 2);
-            let length_slice = slice::from_raw_parts_mut(pointer.add(length_addr), 2);
-            (
-                BufferSlice::new_mut(position_slice).read_u16(0) as usize,
-                BufferSlice::new_mut(length_slice).read_u16(0) as usize,
-            )
-        };
+        let position = partial_slice_mut!(self, position_addr, 2).read_u16(0) as usize;
+        let length = partial_slice_mut!(self, length_addr, 2).read_u16(0) as usize;
 
         assert!(
             self.valid_position(position, length),
@@ -387,16 +397,12 @@ impl BasePage {
         );
 
         // equivalent to this, but using unsafe for partial borrow
-        //let buffer = self.buffer.slice_mut(position, length);
-        let buffer = unsafe {
-            let pointer = PageBuffer::buffer_ptr(&raw mut *self.buffer);
-            let slice = slice::from_raw_parts_mut(pointer.add(position), length);
-            BufferSlice::new_mut(slice)
-        };
+        let buffer = partial_slice_mut!(self, position, length);
 
         (buffer, &mut self.dirty)
     }
 
+    // safety conserns: insert may move existing nodes; we may have to restrict having node on same page on insert / update
     pub fn insert(&mut self, length: usize) -> (&mut BufferSlice, u8) {
         let (slice, index, _) = self.internal_insert(length, u8::MAX);
         (slice, index)
@@ -470,18 +476,18 @@ impl BasePage {
         let length_addr = Self::calc_length_addr(index);
 
         debug_assert!(
-            self.buffer.read_u16(position_addr) == 0,
+            partial_slice_mut!(self, position_addr, 2).read_u16(0) == 0,
             "slot position should be 0 before use"
         );
         debug_assert!(
-            self.buffer.read_u16(length_addr) == 0,
+            partial_slice_mut!(self, length_addr, 2).read_u16(0) == 0,
             "slot length should be 0 before use"
         );
 
         let position = self.next_free_position;
 
-        self.buffer.write_u16(position_addr, position);
-        self.buffer.write_u16(length_addr, length as u16);
+        partial_slice_mut!(self, position_addr, 2).write_u16(0, position);
+        partial_slice_mut!(self, length_addr, 2).write_u16(0, length as u16);
 
         self.items_count += 1;
         self.used_bytes += length as u16;
@@ -490,7 +496,7 @@ impl BasePage {
         self.set_dirty();
 
         (
-            self.buffer.slice_mut(position as usize, length),
+            partial_slice_mut!(self, position as usize, length),
             index,
             &self.dirty,
         )
@@ -502,21 +508,21 @@ impl BasePage {
         let position_addr = Self::calc_position_addr(index);
         let length_addr = Self::calc_length_addr(index);
 
-        let position = self.buffer.read_u16(position_addr) as usize;
-        let length = self.buffer.read_u16(length_addr) as usize;
+        let position = partial_slice_mut!(self, position_addr, 2).read_u16(0) as usize;
+        let length = partial_slice_mut!(self, length_addr, 2).read_u16(0) as usize;
 
         assert!(
             self.valid_position(position, length),
             "invalid position or length: {position}, {length}"
         );
 
-        self.buffer.write_u16(position_addr, 0);
-        self.buffer.write_u16(length_addr, 0);
+        partial_slice_mut!(self, position_addr, 2).write_u16(0, 0);
+        partial_slice_mut!(self, length_addr, 2).write_u16(0, 0);
 
         self.items_count -= 1;
         self.used_bytes -= length as u16;
 
-        self.buffer.clear(position, length);
+        partial_slice_mut!(self, position, length).clear(0, length);
 
         let is_last_segment = position + length == self.next_free_position as usize;
 
@@ -540,8 +546,7 @@ impl BasePage {
             );
             debug_assert_eq!(self.used_bytes, 0, "should be no bytes used in clean page");
             debug_assert!(
-                self.buffer
-                    .slice(PAGE_HEADER_SIZE, PAGE_SIZE - PAGE_HEADER_SIZE - 1)
+                partial_slice_mut!(self, PAGE_HEADER_SIZE, PAGE_SIZE - PAGE_HEADER_SIZE - 1)
                     .as_bytes()
                     .iter()
                     .all(|&x| x == 0),
@@ -570,8 +575,8 @@ impl BasePage {
         let position_addr = Self::calc_position_addr(index);
         let length_addr = Self::calc_length_addr(index);
 
-        let position = self.buffer.read_u16(position_addr) as usize;
-        let old_length = self.buffer.read_u16(length_addr) as usize;
+        let position = partial_slice_mut!(self, position_addr, 2).read_u16(0) as usize;
+        let old_length = partial_slice_mut!(self, length_addr, 2).read_u16(0) as usize;
 
         assert!(
             self.valid_position(position, old_length),
@@ -584,7 +589,7 @@ impl BasePage {
         match length.cmp(&old_length) {
             Ordering::Equal => {
                 // length unchanged; nothing special to do
-                (self.buffer.slice_mut(position, old_length), &self.dirty)
+                (partial_slice_mut!(self, position, old_length), &self.dirty)
             }
             Ordering::Less => {
                 // if the new length is smaller than the old length,
@@ -600,18 +605,19 @@ impl BasePage {
 
                 self.used_bytes -= diff as u16;
 
-                self.buffer.write_u16(length_addr, length as u16);
+                partial_slice_mut!(self, length_addr, 2).write_u16(0, length as u16);
 
                 // clear fragmented bytes
-                self.buffer.clear(position + length, diff);
+                partial_slice_mut!(self, position + length, diff).clear(0, diff);
 
-                (self.buffer.slice_mut(position, length), &self.dirty)
+                (partial_slice_mut!(self, position, length), &self.dirty)
             }
             Ordering::Greater => {
                 // if the new length is greater than the old length,
                 // remove the old segment, and insert a new one
+                // RustNote: in this case
 
-                self.buffer.clear(position, old_length);
+                partial_slice_mut!(self, position, old_length).clear(0, old_length);
 
                 self.items_count -= 1;
                 self.used_bytes -= old_length as u16;
@@ -622,8 +628,8 @@ impl BasePage {
                     self.fragmented_bytes += old_length as u16;
                 }
 
-                self.buffer.write_u16(position_addr, 0);
-                self.buffer.write_u16(length_addr, 0);
+                partial_slice_mut!(self, position_addr, 2).write_u16(0, 0);
+                partial_slice_mut!(self, length_addr, 2).write_u16(0, 0);
 
                 let (slice, _, dirty) = self.internal_insert(length, index);
                 (slice, dirty)
@@ -691,7 +697,7 @@ impl BasePage {
     fn get_free_index(&mut self) -> u8 {
         for index in self.start_index..=self.highest_index {
             let position_addr = Self::calc_position_addr(index);
-            let position = self.buffer.read_u16(position_addr) as usize;
+            let position = partial_slice!(self, position_addr, 2).read_u16(0) as usize;
 
             if position == 0 {
                 self.start_index = index + 1;
@@ -705,7 +711,7 @@ impl BasePage {
     pub fn get_used_indices(&self) -> impl Iterator<Item = u8> {
         (0..=self.highest_index).filter(move |&index| {
             let position_addr = Self::calc_position_addr(index);
-            let position = self.buffer.read_u16(position_addr) as usize;
+            let position = partial_slice!(self, position_addr, 2).read_u16(0) as usize;
             position != 0
         })
     }
