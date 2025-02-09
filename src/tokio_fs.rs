@@ -1,7 +1,7 @@
-use std::pin::Pin;
-use tokio_util::compat::TokioAsyncReadCompatExt;
 use crate::engine::Stream;
 use futures::prelude::*;
+use std::pin::Pin;
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
 struct TokioStreamFactory {
     path: std::path::PathBuf,
@@ -51,7 +51,7 @@ impl crate::engine::StreamFactory for TokioStreamFactory {
 }
 
 impl Stream for tokio_util::compat::Compat<tokio::fs::File> {
-    fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output =crate::Result<()>> + '_>> {
+    fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output = crate::Result<()>> + '_>> {
         Box::pin(async move { Ok(self.get_ref().set_len(len).await?) })
     }
 }
