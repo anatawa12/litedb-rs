@@ -349,11 +349,13 @@ impl IndexService<'_> {
                 next = node.next_node();
 
                 if node.slot() == slot {
-                    // delete node from page (mark as dirty)
-                    unsafe { Pin::new_unchecked(&mut *node.page_ptr()) }
-                        .delete_index_node(node.position().index());
-
                     last.set_next_node(node.next_node());
+
+                    // delete node from page (mark as dirty)
+                    node.removing(|node| {
+                        unsafe { Pin::new_unchecked(&mut *node.page_ptr()) }
+                            .delete_index_node_with_buffer(node)
+                    })
                 } else {
                     last = node;
                 }

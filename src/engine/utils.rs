@@ -118,7 +118,7 @@ impl<Value, Key: Hash + Eq> PartialRefMut<Value, Key> {
         destruct.value
     }
 
-    pub fn removing(self, delete: impl FnOnce(Value)) {
+    pub fn removing<R>(self, delete: impl FnOnce(Value) -> R) -> R {
         let destruct = self.into_destruct();
         // _defers is used to run self.borrowed.borrow_mut().remove(&self.key)
         // when exiting this function, even when panics
@@ -127,7 +127,7 @@ impl<Value, Key: Hash + Eq> PartialRefMut<Value, Key> {
             key: destruct.key,
             borrowed: destruct.borrowed,
         };
-        delete(destruct.value);
+        delete(destruct.value)
     }
 }
 

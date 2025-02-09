@@ -277,14 +277,20 @@ impl<'a> IndexNodeMut<'a> {
     pub fn page_ptr(&self) -> *mut IndexPage {
         self.ptr
     }
+
+    pub fn into_segment(self) -> &'a mut BufferSlice {
+        self.segment
+    }
+
+    pub fn into_read_only(self) -> IndexNode {
+        IndexNode::copy_data(self, (), ())
+    }
 }
 
 // lifetime utility
 impl IndexNodeMut<'_> {
     pub(crate) fn remove_from_page(self) {
         let page = unsafe { Pin::new_unchecked(&mut *self.page_ptr()) };
-        let page_index = self.position().index();
-        drop(self);
-        page.delete_index_node(page_index);
+        page.delete_index_node_with_buffer(self);
     }
 }

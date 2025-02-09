@@ -68,6 +68,11 @@ impl IndexPage {
         self.base().delete(index);
     }
 
+    pub fn delete_index_node_with_buffer(self: Pin<&mut Self>, index: IndexNodeMut<'_>) {
+        self.base()
+            .delete_with_buffer(index.position().index(), index.into_segment());
+    }
+
     pub fn get_index_nodes(&self) -> impl Iterator<Item = Result<IndexNode>> {
         self.base.get_used_indices().map(|i| self.get_index_node(i))
     }

@@ -503,6 +503,16 @@ impl BasePage {
     }
 
     pub fn delete(&mut self, index: u8) {
+        self.delete_inner(index, |this, position, length| {
+            partial_slice_mut!(this, position, length).clear(0, length)
+        });
+    }
+
+    pub fn delete_with_buffer(&mut self, index: u8, buffer: &mut BufferSlice) {
+        self.delete_inner(index, |_, _, _| buffer.clear(0, buffer.len()));
+    }
+
+    fn delete_inner(&mut self, index: u8, clear_buffer: impl FnOnce(&mut Self, usize, usize)) {
         // assert!(this.buffer.writable)
 
         let position_addr = Self::calc_position_addr(index);
@@ -522,7 +532,7 @@ impl BasePage {
         self.items_count -= 1;
         self.used_bytes -= length as u16;
 
-        partial_slice_mut!(self, position, length).clear(0, length);
+        clear_buffer(self, position, length);
 
         let is_last_segment = position + length == self.next_free_position as usize;
 

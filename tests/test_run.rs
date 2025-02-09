@@ -1,8 +1,8 @@
 mod memory_stream;
 
-use std::sync::{Arc, Mutex};
-use litedb::bson;
 use crate::memory_stream::MemoryStreamFactory;
+use litedb::bson;
+use std::sync::{Arc, Mutex};
 
 fn new_database_buffer() -> Arc<Mutex<Vec<u8>>> {
     let data = include_bytes!("vcc.liteDb");
@@ -39,7 +39,17 @@ async fn run_test() {
         engine.get_collection_names()
     );
 
-    let deleted = engine.delete("unityVersions", &[bson::ObjectId::from_bytes(*b"\x66\x33\xbc\x66\x8a\x6a\x1d\x23\x2a\xb0\x13\x71").into()]).await.unwrap();
+    let deleted = engine
+        .delete(
+            "unityVersions",
+            &[
+                bson::ObjectId::from_bytes(*b"\x66\x33\xbc\x66\x8a\x6a\x1d\x23\x2a\xb0\x13\x71")
+                    .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    println!("deleted: {deleted}");
 
     engine.checkpoint().await.unwrap();
 
