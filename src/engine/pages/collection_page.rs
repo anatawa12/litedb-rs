@@ -75,7 +75,10 @@ impl CollectionPage {
         if self.page_type() == PageType::Empty {
             return self.base.update_buffer();
         }
-        let buffer = self.base.buffer_mut();
+        let buffer = self
+            .base
+            .buffer_mut()
+            .slice_mut(PAGE_HEADER_SIZE, PAGE_SIZE - PAGE_HEADER_SIZE);
         let mut writer = BufferWriter::single(buffer);
 
         for i in 0..PAGE_FREE_LIST_SLOTS {

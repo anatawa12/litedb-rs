@@ -108,7 +108,7 @@ impl TransactionService {
     ) -> Result<&'a mut Snapshot> {
         //debug_assert_eq!(self.state, TransactionState::Active);
 
-        match self.snapshots.entry(collection.to_string()) {
+        let node = match self.snapshots.entry(collection.to_string()) {
             Entry::Occupied(mut o) => {
                 if mode == LockMode::Write && o.get().mode() == LockMode::Read
                     || add_if_not_exists && o.get().collection_page().is_none()
@@ -130,7 +130,7 @@ impl TransactionService {
                     o.insert(new);
                 }
 
-                Ok(o.into_mut())
+                o.into_mut()
             }
             Entry::Vacant(v) => {
                 let new = Snapshot::new(
@@ -146,9 +146,15 @@ impl TransactionService {
                 )
                 .await?;
 
-                Ok(v.insert(new))
+                v.insert(new)
             }
+        };
+
+        if mode == LockMode::Write {
+            self.mode = LockMode::Write;
         }
+
+        Ok(node)
     }
 
     pub async fn safe_point(&mut self) -> Result<()> {

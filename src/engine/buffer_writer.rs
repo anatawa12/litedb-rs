@@ -42,6 +42,7 @@ impl<'a> BufferWriter<'a> {
                 self.position_in_slice += bytes;
                 self.global_position += bytes;
                 assert!(self.position_in_slice > 0 && self.position_in_slice <= current.len());
+                bytes = 0;
             } else {
                 // use current slice fully
                 self.global_position += current_remaining;
