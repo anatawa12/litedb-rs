@@ -1,7 +1,9 @@
 use crate::utils::Shared;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::{AsyncFnOnce, Deref, DerefMut};
+
+type BorrowChecker<Key> = Shared<HashMap<Key, borrow_status::BorrowStatus>>;
 
 /// Safe Partial Borrow Helper
 ///
@@ -10,7 +12,7 @@ use std::ops::{AsyncFnOnce, Deref, DerefMut};
 // TODO? support read only borrows
 pub(crate) struct PartialBorrower<TargetRef, Key> {
     target: TargetRef,
-    borrowed: Shared<HashSet<Key>>,
+    borrowed: BorrowChecker<Key>,
 }
 
 /// # Safety
@@ -24,7 +26,7 @@ impl<TargetRef, Key: Hash + Eq + Copy> PartialBorrower<TargetRef, Key> {
     pub fn new(target: TargetRef) -> Self {
         Self {
             target,
-            borrowed: Shared::new(HashSet::new()),
+            borrowed: Shared::new(HashMap::new()),
         }
     }
 
@@ -47,7 +49,7 @@ impl<TargetRef, Key: Hash + Eq + Copy> PartialBorrower<TargetRef, Key> {
     {
         let value: ShortLives = new(&mut self.target).await?;
         let key = key(&value);
-        self.borrowed.borrow_mut().insert(key);
+        self.borrowed.borrow_mut().insert(key, borrow_status::BorrowStatus::new());
         Ok(PartialRefMut {
             value: unsafe { ShortLives::extend_lifetime(value) },
             key,
@@ -64,10 +66,12 @@ impl<TargetRef, Key: Hash + Eq + Copy> PartialBorrower<TargetRef, Key> {
         ShortLives: ExtendLifetime<'r, Extended = Extended>,
         TargetRef: 'r,
     {
-        assert!(!self.borrowed.borrow().contains(&key), "double reference"); // TODO: make non-hard error?
+        if let Some(borrow) = self.borrowed.borrow().get(&key) {
+            panic!("double reference. previous reference is {borrow}"); // TODO: make non-hard error?
+        }
 
         let value: ShortLives = get(&mut self.target, &key).await?;
-        self.borrowed.borrow_mut().insert(key);
+        self.borrowed.borrow_mut().insert(key, borrow_status::BorrowStatus::new());
         Ok(PartialRefMut {
             value: unsafe { ShortLives::extend_lifetime(value) },
             key,
@@ -80,10 +84,10 @@ impl<TargetRef, Key: Hash + Eq + Copy> PartialBorrower<TargetRef, Key> {
         key: Key,
         delete: impl AsyncFnOnce(&'s mut TargetRef, &Key) -> Result,
     ) -> Result {
-        assert!(
-            !self.borrowed.borrow().contains(&key),
-            "removing using reference"
-        ); // TODO: make non-hard error?
+        if let Some(borrow) = self.borrowed.borrow().get(&key) {
+            panic!("removing using reference. previous reference is {borrow}"); // TODO: make non-hard error?
+        }
+
         delete(&mut self.target, &key).await
     }
 }
@@ -95,13 +99,14 @@ into_non_drop! {
     {
         value: Value,
         key: Key,
-        borrowed: Shared<HashSet<Key>>,
+        borrowed: BorrowChecker<Key>,
     }
 }
 
 impl<Value, Key: Hash + Eq> PartialRefMut<Value, Key> {
     pub fn into_value(self) -> Value {
         let destruct = self.into_destruct();
+        destruct.borrowed.borrow_mut().get_mut(&destruct.key).map(|x| x.leak());
         destruct.value
     }
 }
@@ -123,5 +128,39 @@ impl<Value, Key: Hash + Eq> Deref for PartialRefMut<Value, Key> {
 impl<Value, Key: Hash + Eq> DerefMut for PartialRefMut<Value, Key> {
     fn deref_mut(&mut self) -> &mut Value {
         &mut self.value
+    }
+}
+
+// TODO: option to disable backtrace check
+mod borrow_status {
+    use std::backtrace::Backtrace;
+    use std::fmt::{Display, Formatter};
+
+    pub(super) struct BorrowStatus {
+        borrowed: Backtrace,
+        leaked: Option<Backtrace>,
+    }
+
+    impl BorrowStatus {
+        pub fn new() -> Self {
+            Self {
+                borrowed: Backtrace::capture(),
+                leaked: None,
+            }
+        }
+
+        pub fn leak(&mut self) {
+            self.leaked = Some(Backtrace::capture());
+        }
+    }
+
+    impl Display for BorrowStatus {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            if let Some(leaked) = &self.leaked {
+                write!(f, "borrowed at {} and leaked at {}", self.borrowed, leaked)
+            } else {
+                write!(f, "borrowed at {} and still in track", self.borrowed)
+            }
+        }
     }
 }
