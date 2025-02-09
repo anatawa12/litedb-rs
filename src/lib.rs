@@ -19,6 +19,9 @@ pub mod bson;
 pub mod engine;
 mod utils;
 
+#[cfg(feature = "tokio-fs")]
+mod tokio_fs;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
