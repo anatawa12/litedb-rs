@@ -392,7 +392,7 @@ impl<T> Clone for Shared<T> {
 #[repr(transparent)]
 pub(crate) struct CaseInsensitiveStr(str);
 #[derive(Clone)]
-pub(crate) struct CaseInsensitiveString(String);
+pub(crate) struct CaseInsensitiveString(pub String);
 
 impl Debug for CaseInsensitiveString {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

@@ -1,4 +1,4 @@
-use crate::expression::{Token, TokenType};
+use crate::expression::{Error, Token, TokenType};
 use std::borrow::Cow;
 
 pub(super) struct Tokenizer<'a> {
@@ -60,6 +60,18 @@ fn is_word_char(c: char, first: bool) -> bool {
 }
 
 impl<'a> Tokenizer<'a> {
+    pub fn eof(&self) -> bool {
+        self.ahead.is_none() && self.parser.source.len() <= self.parser.position
+    }
+
+    pub fn check_eof(&self) -> Result<bool, Error> {
+        if self.parser.source.len() <= self.parser.position {
+            return Err(Error::unexpected_token("unexpected eof", self.current()));
+        }
+
+        Ok(false)
+    }
+
     pub fn current(&self) -> &Token<'a> {
         self.current.as_ref().unwrap()
     }
@@ -503,7 +515,8 @@ mod tests {
     #[test]
     fn basic_test() {
         use TokenType::*;
-        let mut tokenizer = Tokenizer::new(r###"
+        let mut tokenizer = Tokenizer::new(
+            r###"
         word 123 0.123 123e123 123e+123 123e-123 "string" 'string'
         "escaped\" string with \u0000 \u1paF \r 'test \n\_\\\/\b\f\t"
         token1 -- comment
@@ -511,7 +524,8 @@ mod tests {
         $dallerWord
         { } [ ] ( ) , : ; @ # ~ . & $ ! != = > >= < <= - + * / \ %
         whitespace0 whitespace1 whitespace2 whitespace3
-        "###);
+        "###,
+        );
 
         macro_rules! check_token {
             ($typ: expr, $value: expr) => {
@@ -532,7 +546,10 @@ mod tests {
         check_token!(Double, "123e-123");
         check_token!(String, "string");
         check_token!(String, "string");
-        check_token!(String, "escaped\" string with \0 \u{10aF} \r 'test \n\\/\x08\x0c\t");
+        check_token!(
+            String,
+            "escaped\" string with \0 \u{10aF} \r 'test \n\\/\x08\x0c\t"
+        );
         check_token!(Word, "token1");
         check_token!(Word, "token2");
         check_token!(String, "-- comment in string");
@@ -568,15 +585,33 @@ mod tests {
 
         // whitespace parsing checks
         check_token!(Word, "whitespace0");
-        assert_eq!(tokenizer.look_ahead_with_whitespace(), &Token::new(Whitespace, " ", 0));
-        assert_eq!(tokenizer.look_ahead_with_whitespace(), &Token::new(Whitespace, " ", 0));
+        assert_eq!(
+            tokenizer.look_ahead_with_whitespace(),
+            &Token::new(Whitespace, " ", 0)
+        );
+        assert_eq!(
+            tokenizer.look_ahead_with_whitespace(),
+            &Token::new(Whitespace, " ", 0)
+        );
         assert_eq!(tokenizer.look_ahead(), &Token::new(Word, "whitespace1", 0));
         assert_eq!(tokenizer.look_ahead(), &Token::new(Word, "whitespace1", 0));
         assert_eq!(tokenizer.read_token(), &Token::new(Word, "whitespace1", 0));
-        assert_eq!(tokenizer.read_token_with_whitespace(), &Token::new(Whitespace, " ", 0));
-        assert_eq!(tokenizer.read_token_with_whitespace(), &Token::new(Word, "whitespace2", 0));
-        assert_eq!(tokenizer.look_ahead_with_whitespace(), &Token::new(Whitespace, " ", 0));
-        assert_eq!(tokenizer.look_ahead_with_whitespace(), &Token::new(Whitespace, " ", 0));
+        assert_eq!(
+            tokenizer.read_token_with_whitespace(),
+            &Token::new(Whitespace, " ", 0)
+        );
+        assert_eq!(
+            tokenizer.read_token_with_whitespace(),
+            &Token::new(Word, "whitespace2", 0)
+        );
+        assert_eq!(
+            tokenizer.look_ahead_with_whitespace(),
+            &Token::new(Whitespace, " ", 0)
+        );
+        assert_eq!(
+            tokenizer.look_ahead_with_whitespace(),
+            &Token::new(Whitespace, " ", 0)
+        );
         assert_eq!(tokenizer.read_token(), &Token::new(Word, "whitespace3", 0));
         assert_eq!(tokenizer.read_token(), &Token::new(Eof, "", 0));
     }
