@@ -17,6 +17,7 @@ use std::fmt::Display;
 #[macro_use]
 pub mod bson;
 pub mod engine;
+pub mod expression;
 mod utils;
 
 #[cfg(feature = "tokio-fs")]
