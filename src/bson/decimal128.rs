@@ -553,6 +553,24 @@ impl TryFrom<f64> for Decimal128 {
     }
 }
 
+impl Display for Decimal128 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let sign = if self.is_negative() { "-" } else { "" };
+        let mantissa = self.mantissa().to_string();
+        let exponent = self.exponent();
+        if exponent == 0 {
+            // no decimals
+            write!(f, "{}{}", sign, mantissa)
+        } else {
+            // otherwise, insert '.' to proper position
+            let dot = mantissa.len() - exponent as usize;
+            f.write_str(&mantissa[..dot])?;
+            f.write_str(".")?;
+            f.write_str(&mantissa[dot..])
+        }
+    }
+}
+
 #[test]
 fn construct_test() {
     macro_rules! construct_test {
@@ -761,4 +779,20 @@ fn cmp_test() {
     );
 }
 
-// TODO: implement display for better visibility
+#[test]
+fn display_test() {
+    macro_rules! display_test {
+        ($value: literal) => {
+            let decimal = decimal!($value);
+            let text = stringify!($value);
+            assert_eq!(decimal.to_string(), text);
+        };
+    }
+    display_test!(0);
+    display_test!(1);
+    display_test!(100);
+    display_test!(1.0);
+    display_test!(1.000);
+    display_test!(7922816251426433.7593543950335);
+    display_test!(79228162514264337593543950335);
+}
