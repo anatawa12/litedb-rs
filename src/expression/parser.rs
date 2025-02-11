@@ -159,29 +159,25 @@ fn inner(expression: BsonExpression) -> Option<Box<BsonExpression>> {
 /// <summary>
 /// Operation definition by methods with defined expression type (operators are in precedence order)
 /// </summary>
-static OPERATORS: &[(&str, &str, BsonBinaryExpression, BsonExpressionType)] = &[
+static OPERATORS: &[(&str, BsonBinaryExpression, BsonExpressionType)] = &[
     // arithmetic
     (
-        "%",
         "%",
         BsonBinaryExpression::Mod,
         BsonExpressionType::Modulo,
     ),
     (
         "/",
-        "/",
         BsonBinaryExpression::Divide,
         BsonExpressionType::Divide,
     ),
     (
         "*",
-        "*",
         BsonBinaryExpression::Multiply,
         BsonExpressionType::Multiply,
     ),
-    ("+", "+", BsonBinaryExpression::Add, BsonExpressionType::Add),
+    ("+", BsonBinaryExpression::Add, BsonExpressionType::Add),
     (
-        "-",
         "-",
         BsonBinaryExpression::Minus,
         BsonExpressionType::Subtract,
@@ -189,176 +185,147 @@ static OPERATORS: &[(&str, &str, BsonBinaryExpression, BsonExpressionType)] = &[
     // predicate
     (
         "LIKE",
-        " LIKE ",
         BsonBinaryExpression::Like,
         BsonExpressionType::Like,
     ),
     (
         "BETWEEN",
-        " BETWEEN ",
         BsonBinaryExpression::Between,
         BsonExpressionType::Between,
     ),
     (
         "IN",
-        " IN ",
         BsonBinaryExpression::In,
         BsonExpressionType::In,
     ),
     (
-        ">",
         ">",
         BsonBinaryExpression::Gt,
         BsonExpressionType::GreaterThan,
     ),
     (
         ">=",
-        ">=",
         BsonBinaryExpression::Gte,
         BsonExpressionType::GreaterThanOrEqual,
     ),
     (
-        "<",
         "<",
         BsonBinaryExpression::Lt,
         BsonExpressionType::LessThan,
     ),
     (
         "<=",
-        "<=",
         BsonBinaryExpression::Lte,
         BsonExpressionType::LessThanOrEqual,
     ),
     (
-        "!=",
         "!=",
         BsonBinaryExpression::Neq,
         BsonExpressionType::NotEqual,
     ),
     (
         "=",
-        "=",
         BsonBinaryExpression::Eq,
         BsonExpressionType::Equal,
     ),
     (
         "ANY LIKE",
-        " ANY LIKE ",
         BsonBinaryExpression::LikeAny,
         BsonExpressionType::Like,
     ),
     (
         "ANY BETWEEN",
-        " ANY BETWEEN ",
         BsonBinaryExpression::BetweenAny,
         BsonExpressionType::Between,
     ),
     (
         "ANY IN",
-        " ANY IN ",
         BsonBinaryExpression::InAny,
         BsonExpressionType::In,
     ),
     (
-        "ANY >",
-        " ANY>",
+        "ANY>",
         BsonBinaryExpression::GtAny,
         BsonExpressionType::GreaterThan,
     ),
     (
-        "ANY >=",
-        " ANY>=",
+        "ANY>=",
         BsonBinaryExpression::GteAny,
         BsonExpressionType::GreaterThanOrEqual,
     ),
     (
-        "ANY <",
-        " ANY<",
+        "ANY<",
         BsonBinaryExpression::LtAny,
         BsonExpressionType::LessThan,
     ),
     (
-        "ANY <=",
-        " ANY<=",
+        "ANY<=",
         BsonBinaryExpression::LteAny,
         BsonExpressionType::LessThanOrEqual,
     ),
     (
-        "ANY !=",
-        " ANY!=",
+        "ANY!=",
         BsonBinaryExpression::NeqAny,
         BsonExpressionType::NotEqual,
     ),
     (
-        "ANY =",
-        " ANY=",
+        "ANY=",
         BsonBinaryExpression::EqAny,
         BsonExpressionType::Equal,
     ),
     (
         "ALL LIKE",
-        " ALL LIKE ",
         BsonBinaryExpression::LikeAll,
         BsonExpressionType::Like,
     ),
     (
         "ALL BETWEEN",
-        " ALL BETWEEN ",
         BsonBinaryExpression::BetweenAll,
         BsonExpressionType::Between,
     ),
     (
         "ALL IN",
-        " ALL IN ",
         BsonBinaryExpression::InAll,
         BsonExpressionType::In,
     ),
     (
-        "ALL >",
-        " ALL>",
+        "ALL>",
         BsonBinaryExpression::GtAll,
         BsonExpressionType::GreaterThan,
     ),
     (
-        "ALL >=",
-        " ALL>=",
+        "ALL>=",
         BsonBinaryExpression::GteAll,
         BsonExpressionType::GreaterThanOrEqual,
     ),
     (
-        "ALL <",
-        " ALL<",
+        "ALL<",
         BsonBinaryExpression::LtAll,
         BsonExpressionType::LessThan,
     ),
     (
-        "ALL <=",
-        " ALL<=",
+        "ALL<=",
         BsonBinaryExpression::LteAll,
         BsonExpressionType::LessThanOrEqual,
     ),
     (
-        "ALL !=",
-        " ALL!=",
+        "ALL!=",
         BsonBinaryExpression::NeqAll,
         BsonExpressionType::NotEqual,
     ),
     (
-        "ALL =",
-        " ALL=",
+        "ALL=",
         BsonBinaryExpression::EqAll,
         BsonExpressionType::Equal,
     ),
     // logic (will use Expression.AndAlso|OrElse)
     (
         "AND",
-        " AND ",
         BsonBinaryExpression::Mod,
         BsonExpressionType::And,
     ),
     (
         "OR",
-        " OR ",
         BsonBinaryExpression::Mod,
         BsonExpressionType::Or,
     ),
@@ -419,20 +386,16 @@ pub fn parse_full_expression(
 
     // now, process operator in correct order
     while values.len() >= 2 {
-        let op = &OPERATORS[order];
+        let &(op, method, r#type) = &OPERATORS[order];
         //let n = ops.iter().position(|o| o == op.0);
 
-        if let Some(n) = ops.iter().position(|o| o == op.0) {
+        if let Some(n) = ops.iter().position(|o| o == op) {
             // get left/right values to execute operator
             let mut left = values.remove(n);
             let right = values.remove(n);
 
-            let src = op.1;
-            let method = op.2;
-            let r#type = op.3;
-
             // test left/right scalar
-            let is_left_enum = op.0.starts_with("ALL") || op.0.starts_with("ANY");
+            let is_left_enum = op.starts_with("ALL") || op.starts_with("ANY");
 
             if is_left_enum && left.is_scalar {
                 left = convert_to_enumerable(left);
@@ -464,6 +427,9 @@ pub fn parse_full_expression(
             } else {
                 // method call parameters
 
+                let pre_space = if op.as_bytes()[0].is_ascii_alphabetic() { " " } else {""};
+                let post_space = if op.as_bytes()[op.len() - 1].is_ascii_alphabetic() { " " } else {""};
+
                 // process result in a single value
                 BsonExpression {
                     r#type,
@@ -482,7 +448,7 @@ pub fn parse_full_expression(
                         Box::new(left.expression.clone()),
                         Box::new(right.expression.clone()),
                     ),
-                    source: format!("{} {} {}", left.source, src, right.source),
+                    source: format!("{}{}{}{}{}", left.source, pre_space, op, post_space, right.source),
                     left: inner(left),
                     right: inner(right),
                 }
@@ -1872,7 +1838,11 @@ fn read_operant(tokenizer: &mut Tokenizer) -> Result<Option<String>> {
             ));
         }
 
-        return Ok(Some(format!("{} {}", key, token.value.to_uppercase())));
+        if token.value.starts_with(|x: char| x.is_ascii_alphabetic()) {
+            return Ok(Some(format!("{} {}", key, token.value.to_uppercase())));
+        } else {
+            return Ok(Some(format!("{}{}", key, token.value)));
+        }
     }
 
     Ok(None)
