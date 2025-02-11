@@ -1,6 +1,7 @@
 use super::utils::ToHex;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::{Add, Neg, Sub};
 
 /// Microsoft's decimal128
 ///
@@ -46,6 +47,8 @@ const POWERS_10: &[u128; 29] = &[
     10000000000000000000000000000,
 ];
 
+const DEC_SCALE_MAX: u32 = 28;
+
 impl Decimal128 {
     pub const ZERO: Decimal128 = Decimal128 { repr: 0u128 };
     pub const MAX: Decimal128 = Decimal128::new(79228162514264337593543950335, 0, false);
@@ -90,13 +93,29 @@ impl Decimal128 {
     #[inline]
     pub const fn new(mantissa: u128, exponent: u32, is_negative: bool) -> Decimal128 {
         assert!(mantissa <= Self::MANTISSA_MASK, "Mantissa is too big");
-        assert!(exponent <= 28, "Exponent is too big");
+        assert!(exponent <= DEC_SCALE_MAX, "Exponent is too big");
 
         let repr = mantissa
             | ((exponent as u128) << Self::EXPONENT_SHIFT)
             | (if is_negative { Self::SIGN_MASK } else { 0 });
 
         Decimal128 { repr }
+    }
+
+    /// Construct a new decimal128 from raw parts with mantissa and exponent
+    ///
+    /// The result value would be
+    /// `mantissa` * 10 ^ -`exponent` \* (if `is_negative` { -1 } else { 1 }) where ^ is power
+    ///
+    /// ### Panics
+    /// This function panics if:
+    /// - mantissa is greater than 1 << 96
+    /// - exponent is greater than 28
+    #[inline]
+    pub const fn new_signed(mantissa: i128, exponent: u32) -> Decimal128 {
+        let is_negative = mantissa < 0;
+        let mantissa = mantissa.unsigned_abs();
+        Self::new(mantissa, exponent, is_negative)
     }
 
     /// Parses the string and converts to Decimal128.
@@ -131,7 +150,7 @@ impl Decimal128 {
             // XXX.YYY, .YYY, XXX.
             let before_dot = split_at(s, dot).0;
             let after_dot = split_at(s, dot + 1).1;
-            if after_dot.len() > 28 {
+            if after_dot.len() > DEC_SCALE_MAX as usize {
                 return None; // too precise
             }
             let before_dot_u128 = if !before_dot.is_empty() {
@@ -238,6 +257,19 @@ impl Decimal128 {
     #[inline]
     const fn mantissa(&self) -> u128 {
         self.repr & Self::MANTISSA_MASK
+    }
+
+    #[inline]
+    const fn mantissa_signed(&self) -> i128 {
+        self.mantissa() as i128 * if self.is_negative() { -1 } else { 1 }
+    }
+
+    pub fn to_i64(&self) -> Option<i64> {
+        let mut mantissa = self.mantissa_signed();
+
+        mantissa /= POWERS_10[self.exponent() as usize] as i128;
+
+        mantissa.try_into().ok()
     }
 }
 
@@ -415,8 +447,6 @@ impl TryFrom<f64> for Decimal128 {
                 1e71, 1e72, 1e73, 1e74, 1e75, 1e76, 1e77, 1e78, 1e79, 1e80,
             ];
 
-            const DEC_SCALE_MAX: i32 = 28;
-
             // The most we can scale by is 10^28, which is just slightly more
             // than 2^93.  So a float with an exponent of -94 could just
             // barely reach 0.5, but smaller exponents will always round to zero.
@@ -453,8 +483,8 @@ impl TryFrom<f64> for Decimal128 {
             if power >= 0 {
                 // We have less than 15 digits, scale input up.
                 //
-                if power > DEC_SCALE_MAX {
-                    power = DEC_SCALE_MAX;
+                if power > DEC_SCALE_MAX as i32 {
+                    power = DEC_SCALE_MAX as i32;
                 }
 
                 dbl *= DOUBLE_POWERS10[power as usize];
@@ -467,7 +497,7 @@ impl TryFrom<f64> for Decimal128 {
             }
 
             debug_assert!(dbl < 1E15);
-            if dbl < 1E14 && power < DEC_SCALE_MAX {
+            if dbl < 1E14 && power < DEC_SCALE_MAX as i32 {
                 dbl *= 10.0;
                 power += 1;
                 debug_assert!(dbl >= 1E14);
@@ -568,6 +598,373 @@ impl Display for Decimal128 {
             f.write_str(".")?;
             f.write_str(&mantissa[dot..])
         }
+    }
+}
+
+impl Neg for Decimal128 {
+    type Output = Decimal128;
+    fn neg(self) -> Self::Output {
+        Self::new(self.mantissa(), self.exponent() as u32, !self.is_negative())
+    }
+}
+
+impl Add for Decimal128 {
+    type Output = Decimal128;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let mut mantissa1 = self.mantissa_signed();
+        let mut exponent1 = self.exponent();
+        let mut mantissa2 = rhs.mantissa_signed();
+        let mut exponent2 = rhs.exponent();
+
+        let mut scale = exponent2 as i8 - exponent1 as i8;
+
+        if scale == 0 {
+            // Scale factors are equal, no alignment necessary.
+            let mut exponent = exponent1;
+            let mut mantissa = mantissa1 + mantissa2;
+            if mantissa.unsigned_abs() > Self::MANTISSA_MASK {
+                if exponent == 0 {
+                    panic!("decimal overflows");
+                }
+                mantissa /= 10;
+                exponent -= 1;
+            }
+            Self::new_signed(mantissa, exponent as u32)
+        } else {
+            // Scale factors are not equal.  Assume that a larger scale
+            // factor (more decimal places) is likely to mean that number
+            // is smaller.  Start by guessing that the right operand has
+            // the larger scale factor.  The result will have the larger
+            // scale factor.
+            //
+
+            if scale < 0 {
+                // Guessed scale factor wrong. Swap operands.
+                (mantissa1, mantissa2) = (mantissa2, mantissa1);
+                (exponent1, exponent2) = (exponent2, exponent1);
+                scale = -scale;
+            }
+
+            debug_assert!(scale > 0);
+            debug_assert!(exponent1 < exponent2);
+
+            if let Some(mantissa1) = mantissa1.checked_mul(POWERS_10[scale as usize] as i128) {
+                // not overflows
+
+                let mut exponent = exponent2;
+                let mut mantissa = mantissa1.checked_add(mantissa2).unwrap_or_else(|| {
+                    // overflow wadding two mantissa. divide by 10 to avoid overflow
+                    exponent -= 1;
+                    mantissa1 / 10 + mantissa2 / 10
+                });
+
+                // if mantissa is too big, fix
+                while mantissa.unsigned_abs() > Self::MANTISSA_MASK {
+                    mantissa /= 10;
+                    exponent -= 1;
+                }
+                Self::new_signed(mantissa, exponent as u32)
+            } else {
+                // The mantissa overflow.
+
+                // factor * mantissa1 as 192-bit integer.
+                //
+                // We won't overflow mantissa1 * factor since
+                // max value of POWERS_10 is 10000000000000000000000000000,
+                // and log2(79228162514264337593543950335 * 10000000000000000000000000000)
+                // is 189.01 which means 190 bit is enough
+
+                let factor = POWERS_10[scale as usize];
+                let mantissa = I192::mul_u96(factor, mantissa1.unsigned_abs());
+                let mantissa = if mantissa1 < 0 { mantissa.neg() } else { mantissa };
+                let mantissa = mantissa.add_i128(mantissa2);
+
+                // Scale until we get mantissa less than max mantissa.
+                // For simpler implementation, we split the sign flag and actual data.
+                let (negative, mantissa) = if mantissa.is_negative() {
+                    (true, mantissa.neg())
+                } else {
+                    (false, mantissa)
+                };
+
+                let (mid_low, exponent) = scale_result(mantissa, exponent2 as u32);
+
+                Self::new(mid_low, exponent, negative)
+            }
+        }
+    }
+}
+
+fn scale_result(mut mantissa: I192, scale: u32) -> (u128, u32) {
+    let mut scale = scale as i32;
+    // based on ScaleResult
+    // https://github.com/dotnet/runtime/blob/ec118c7e798862fd69dc7fa6544c0d9849d32488/src/libraries/System.Private.CoreLib/src/System/Decimal.DecCalc.cs#L607-L765
+
+    // See if we need to scale the result. The combined scale must
+    // be <= DEC_SCALE_MAX and the upper 96 bits must be zero.
+    //
+    // Start by figuring a lower bound on the scaling needed to make
+    // the upper 96 bits zero.  hiRes is the index into result[]
+    // of the highest non-zero uint.
+    //
+    let mut new_scale: i32;
+    {
+        let zeros = mantissa.leading_zeros();
+        new_scale = 5 * 32 - 64 - 1 - zeros as i32;
+
+        // Multiply bit position by log10(2) to figure it's power of 10.
+        // We scale the log by 256.  log(2) = .30103, * 256 = 77.  Doing this
+        // with a multiply saves a 96-byte lookup table.  The power returned
+        // is <= the power of the number, so we must add one power of 10
+        // to make it's integer part zero after dividing by 256.
+        //
+        // Note: the result of this multiplication by an approximation of
+        // log10(2) have been exhaustively checked to verify it gives the
+        // correct result.  (There were only 95 to check...)
+        //
+        new_scale = ((new_scale * 77) >> 8) + 1;
+
+        // new_scale = min scale factor to make high 96 bits zero, 0 - 29.
+        // This reduces the scale factor of the result.  If it exceeds the
+        // current scale of the result, we'll overflow.
+        //
+        if new_scale > scale {
+            panic!("decimal overflow");
+        }
+    }
+
+    // Make sure we scale by enough to bring the current scale factor
+    // into valid range.
+    //
+    if new_scale < scale - DEC_SCALE_MAX as i32 {
+        new_scale = scale - DEC_SCALE_MAX as i32;
+    }
+
+    if new_scale != 0 {
+        // Scale by the power of 10 given by new_scale.  Note that this is
+        // NOT guaranteed to bring the number within 96 bits -- it could
+        // be 1 power of 10 short.
+        //
+        scale -= new_scale;
+        let mut sticky = 0;
+        let mut remainder = 0;
+
+        loop {
+            sticky |= remainder; // record remainder as sticky bit
+
+            let mut power;
+            // Scaling loop specialized for each power of 10 because division by constant is an order of magnitude faster (especially for 64-bit division that's actually done by 128bit DIV on x64)
+            #[allow(clippy::inconsistent_digit_grouping)]
+            match new_scale {
+                1_ => (mantissa, remainder, power) = mantissa.div(10),
+                2_ => (mantissa, remainder, power) = mantissa.div(100),
+                3_ => (mantissa, remainder, power) = mantissa.div(1000),
+                4_ => (mantissa, remainder, power) = mantissa.div(10000),
+                5_ => (mantissa, remainder, power) = mantissa.div(100000),
+                6_ => (mantissa, remainder, power) = mantissa.div(1000000),
+                7_ => (mantissa, remainder, power) = mantissa.div(10000000),
+                8_ => (mantissa, remainder, power) = mantissa.div(100000000),
+                9_ => (mantissa, remainder, power) = mantissa.div(1000000000),
+                10 => (mantissa, remainder, power) = mantissa.div(10000000000),
+                11 => (mantissa, remainder, power) = mantissa.div(100000000000),
+                12 => (mantissa, remainder, power) = mantissa.div(1000000000000),
+                13 => (mantissa, remainder, power) = mantissa.div(10000000000000),
+                14 => (mantissa, remainder, power) = mantissa.div(100000000000000),
+                15 => (mantissa, remainder, power) = mantissa.div(1000000000000000),
+                16 => (mantissa, remainder, power) = mantissa.div(10000000000000000),
+                17 => (mantissa, remainder, power) = mantissa.div(100000000000000000),
+                18 => (mantissa, remainder, power) = mantissa.div(1000000000000000000),
+                _ => (mantissa, remainder, power) = mantissa.div(10000000000000000000),
+            }
+
+            new_scale -= 19;
+            if new_scale > 0 {
+                continue; // scale some more
+            }
+
+            // If we scaled enough, hiRes would be 2 or less.  If not,
+            // divide by 10 more.
+            //
+            if mantissa > const { I192::from_u128(Decimal128::MANTISSA_MASK) } {
+                if scale == 0 {
+                    panic!("decimal overflow");
+                }
+                new_scale = 1;
+                scale -= 1;
+                continue; // scale by 10
+            }
+
+            // Round final result.  See if remainder >= 1/2 of divisor.
+            // If remainder == 1/2 divisor, round up if odd or sticky bit set.
+            //
+            power >>= 1; // power of 10 always even
+            if power <= remainder && (power < remainder || ((mantissa.low & 1) | sticky) != 0) {
+                mantissa = mantissa.add_i128(1);
+                if mantissa > const { I192::from_u128(Decimal128::MANTISSA_MASK) } {
+                    // The rounding caused us to carry beyond 96 bits.
+                    // Scale by 10 more.
+                    //
+                    if scale == 0 {
+                        panic!("decimal overflow");
+                    }
+                    sticky = 0; // no sticky bit
+                    remainder = 0; // or remainder
+                    new_scale = 1;
+                    scale -= 1;
+                    continue; // scale by 10
+                }
+            }
+
+            break;
+        } // while (true)
+    }
+
+    (mantissa.to_u128(), scale as u32)
+}
+
+impl Sub for Decimal128 {
+    type Output = Decimal128;
+
+    fn sub(self, rhs: Decimal128) -> Decimal128 {
+        self + -rhs
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+struct I192 {
+    high: u64,
+    mid: u64,
+    low: u64,
+}
+
+impl I192 {
+    const fn from_u128(value: u128) -> I192 {
+        Self {
+            high: 0,
+            mid: (value >> 64) as u64,
+            low: (value & u64::MAX as u128) as u64,
+        }
+    }
+
+    fn is_negative(self) -> bool {
+        (self.high & 0x80000000_00000000) != 0
+    }
+
+    fn leading_zeros(self) -> u32 {
+        if self.high != 0 {
+            self.high.leading_zeros()
+        } else if self.mid != 0 {
+            self.mid.leading_zeros() + 64
+        } else {
+            self.low.leading_zeros() + 64 * 2
+        }
+    }
+
+    fn mul_u96(left: u128, right: u128) -> Self {
+        //
+        //                 l_m       l_l
+        //  X              r_m       r_l
+        // ----------------------------------
+        //              ======l_l*r_l======
+        //  ======l_m*r_l======
+        //  ======l_l*r_m======
+        //   l_m*r_m
+        // ----------------------------------
+        //  ======mid_high=====      =low=
+        //
+
+        let l_l = left & (u64::MAX as u128);
+        let l_m = (left >> 64) & (u64::MAX as u128);
+
+        let r_l = right & (u64::MAX as u128);
+        let r_m = (right >> 64) & (u64::MAX as u128);
+
+        let low_mid = l_l * r_l;
+        let low = (low_mid & (u64::MAX as u128)) as u64;
+
+        let mid_high = (low_mid >> 64) + l_l * r_m + l_m * r_l + ((l_m * r_m) << 64);
+
+        let mid = (mid_high & (u64::MAX as u128)) as u64;
+        let high = (mid_high >> 64) as u64;
+
+        Self { high, mid, low }
+    }
+
+    fn add_i128(self, value: i128) -> Self {
+        let u_value = value as u128;
+        let low = (u_value & u64::MAX as u128) as u64;
+        let mid = (u_value >> 64) as u64;
+        let high = if value < 0 { u64::MAX } else { 0 };
+
+        fn full_adder(a: u64, b: u64, carry: bool) -> (u64, bool) {
+            let (tmp, c0) = a.overflowing_add(b);
+            let (tmp, c1) = tmp.overflowing_add(carry as u64);
+            (tmp, c0 || c1)
+        }
+
+        let (new_low, mid_carry) = full_adder(self.low, low, false);
+        let (new_mid, high_carry) = full_adder(self.mid, mid, mid_carry);
+        let (new_high, _) = full_adder(self.high, high, high_carry);
+        Self {
+            low: new_low,
+            mid: new_mid,
+            high: new_high,
+        }
+    }
+
+    fn neg(self) -> Self {
+        let (low, mid_carry) = (!self.low).overflowing_add(1);
+        let (mid, high_carry) = (!self.mid).overflowing_add(mid_carry as u64);
+        let (high, carry) = (!self.high).overflowing_add(high_carry as u64);
+        let _ = carry;
+
+        Self { low, mid, high }
+    }
+
+    fn to_u128(self) -> u128 {
+        self.low as u128 | ((self.mid as u128) << 64)
+    }
+
+    #[inline]
+    fn div(self, power: u64) -> (Self, u64, u64) {
+        let mut remainder;
+
+        let (high, mid, low);
+
+        high = self.high / power;
+        remainder = self.high % power;
+
+        {
+            let num = self.mid as u128 + ((remainder as u128) << 64);
+            let tmp = (num / power as u128) as u64;
+            mid = tmp;
+            remainder = self.mid.wrapping_sub(tmp.wrapping_mul(power));
+        }
+
+        {
+            let num = self.low as u128 + ((remainder as u128) << 64);
+            let tmp = (num / power as u128) as u64;
+            low = tmp;
+            remainder = self.low.wrapping_sub(tmp.wrapping_mul(power));
+        }
+
+        (Self { high, mid, low }, remainder, power)
+    }
+}
+
+impl PartialOrd for I192 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for I192 {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.is_negative().cmp(&other.is_negative()).reverse())
+            .then_with(|| self.high.cmp(&other.high))
+            .then_with(|| self.mid.cmp(&other.mid))
+            .then_with(|| self.low.cmp(&other.low))
     }
 }
 
@@ -795,4 +1192,42 @@ fn display_test() {
     display_test!(1.000);
     display_test!(7922816251426433.7593543950335);
     display_test!(79228162514264337593543950335);
+}
+
+#[test]
+fn math_test() {
+    fn eq_bitwise(left: Decimal128, right: Decimal128) {
+        assert_eq!(left.cmp(&right), Ordering::Equal, "{left} and {right}");
+        assert_eq!(left, right, "{left} and {right}");
+        assert_eq!(left.repr, right.repr, "{left} and {right}");
+    }
+
+    // neg
+    eq_bitwise(-decimal!(1.0), decimal!(-1.0));
+
+    // add
+    // basic
+    eq_bitwise(decimal!(1) + decimal!(1), decimal!(2));
+    // overflow
+    eq_bitwise(decimal!(7922816251426433759354395033.5) + decimal!(7922816251426433759354395033.5), decimal!(15845632502852867518708790067));
+    // fit size
+    eq_bitwise(decimal!(1.0) + decimal!(2), decimal!(3.0));
+    eq_bitwise(decimal!(1) + decimal!(2.0), decimal!(3.0));
+    // overflow after fit
+    eq_bitwise(decimal!(7922816251426433759354395033.0) + decimal!(7922816251426433759354395033), decimal!(15845632502852867518708790066));
+    // 128-bit overflow on fit
+    eq_bitwise(decimal!(1701411834604692317316873037) + decimal!(123213213.43176821145), decimal!(1701411834604692317440086250.4));
+    // fit size very big amount
+    eq_bitwise(decimal!(79228162514260000000000000000) + decimal!(2.00000000000000), decimal!(79228162514260000000000000002));
+    eq_bitwise(decimal!(-79228162514260000000000000000) + decimal!(2.00000000000000), decimal!(-79228162514259999999999999998));
+    // fit size very big amount (more than 19)
+    eq_bitwise(decimal!(-79228162514260000000000000000) + decimal!(2.00000000000000000000000000), decimal!(-79228162514259999999999999998));
+    // round to even
+    eq_bitwise(decimal!(79228162514260000000000000000) + decimal!(2.50000000000000), decimal!(79228162514260000000000000002));
+    eq_bitwise(decimal!(79228162514260000000000000000) + decimal!(3.50000000000000), decimal!(79228162514260000000000000004));
+    // overflow on round to even
+    eq_bitwise(decimal!(792281625142643375935439503) + decimal!(0.35500000000000), decimal!(792281625142643375935439503.4));
+
+    // some other crash cases
+    eq_bitwise(decimal!(340282366920938463463374607) + decimal!(1.431768211456), decimal!(340282366920938463463374608.43));
 }
