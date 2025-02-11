@@ -27,7 +27,8 @@ struct MethodInfo {
 }
 
 fn get_method(name: &str, params: usize) -> Option<&MethodInfo> {
-    todo!()
+    // TODO: currently removed support for method
+    None
 }
 
 #[derive(Debug, Copy, Clone)]
