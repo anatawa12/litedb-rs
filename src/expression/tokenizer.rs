@@ -26,39 +26,6 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-fn is_letter(c: char) -> bool {
-    use unicode_properties::*;
-    matches!(
-        c.general_category(),
-        GeneralCategory::UppercaseLetter
-            | GeneralCategory::LowercaseLetter
-            | GeneralCategory::TitlecaseLetter
-            | GeneralCategory::ModifierLetter
-            | GeneralCategory::OtherLetter
-    )
-}
-
-fn is_letter_or_digit(c: char) -> bool {
-    use unicode_properties::*;
-    matches!(
-        c.general_category(),
-        GeneralCategory::UppercaseLetter
-            | GeneralCategory::LowercaseLetter
-            | GeneralCategory::TitlecaseLetter
-            | GeneralCategory::ModifierLetter
-            | GeneralCategory::OtherLetter
-            | GeneralCategory::DecimalNumber
-    )
-}
-
-fn is_word_char(c: char, first: bool) -> bool {
-    if first {
-        is_letter(c) || c == '_' || c == '$'
-    } else {
-        is_letter_or_digit(c) || c == '_' || c == '$'
-    }
-}
-
 impl<'a> Tokenizer<'a> {
     pub fn eof(&self) -> bool {
         self.ahead.is_none() && self.parser.source.len() <= self.parser.position
@@ -205,7 +172,7 @@ impl<'a> TokenizeParser<'a> {
                 self.read_char(c);
                 if self
                     .cur_char()
-                    .map(|c| is_word_char(c, true))
+                    .map(|c| super::is_word_char(c, true))
                     .unwrap_or(false)
                 {
                     token = Token::new(TokenType::Word, self.read_word(begin), self.position);
@@ -318,7 +285,7 @@ impl<'a> TokenizeParser<'a> {
 
             c => {
                 // test if first char is an word
-                if is_word_char(c, true) {
+                if super::is_word_char(c, true) {
                     let begin = self.position;
                     token = Token::new(TokenType::Word, self.read_word(self.position), begin);
                 } else {
@@ -343,7 +310,7 @@ impl<'a> TokenizeParser<'a> {
         self.read_char(self.cur_char().unwrap());
 
         while let Some(c) = self.cur_char() {
-            if !is_word_char(c, false) {
+            if !super::is_word_char(c, false) {
                 break;
             }
             self.read_char(c);

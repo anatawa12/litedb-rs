@@ -82,7 +82,7 @@ impl<T> TryOrElse<T> for Option<T> {
 trait StrExtension {
     fn as_str(&self) -> &str;
     fn is_word(&self) -> bool {
-        self.as_str().starts_with("_")
+        self.as_str().chars().enumerate().all(|(i, c)| super::is_word_char(c, i == 0))
     }
 }
 

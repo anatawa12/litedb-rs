@@ -234,3 +234,36 @@ impl PartialEq for Token<'_> {
         self.typ == other.typ && self.value == other.value
     }
 }
+
+fn is_letter(c: char) -> bool {
+    use unicode_properties::*;
+    matches!(
+        c.general_category(),
+        GeneralCategory::UppercaseLetter
+            | GeneralCategory::LowercaseLetter
+            | GeneralCategory::TitlecaseLetter
+            | GeneralCategory::ModifierLetter
+            | GeneralCategory::OtherLetter
+    )
+}
+
+fn is_letter_or_digit(c: char) -> bool {
+    use unicode_properties::*;
+    matches!(
+        c.general_category(),
+        GeneralCategory::UppercaseLetter
+            | GeneralCategory::LowercaseLetter
+            | GeneralCategory::TitlecaseLetter
+            | GeneralCategory::ModifierLetter
+            | GeneralCategory::OtherLetter
+            | GeneralCategory::DecimalNumber
+    )
+}
+
+fn is_word_char(c: char, first: bool) -> bool {
+    if first {
+        is_letter(c) || c == '_' || c == '$'
+    } else {
+        is_letter_or_digit(c) || c == '_' || c == '$'
+    }
+}
