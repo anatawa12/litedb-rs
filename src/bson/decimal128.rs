@@ -696,6 +696,14 @@ impl Add for Decimal128 {
     }
 }
 
+impl Sub for Decimal128 {
+    type Output = Decimal128;
+
+    fn sub(self, rhs: Decimal128) -> Decimal128 {
+        self + -rhs
+    }
+}
+
 fn scale_result(mut mantissa: I192, scale: u32) -> (u128, u32) {
     let mut scale = scale as i32;
     // based on ScaleResult
@@ -821,14 +829,6 @@ fn scale_result(mut mantissa: I192, scale: u32) -> (u128, u32) {
     }
 
     (mantissa.to_u128(), scale as u32)
-}
-
-impl Sub for Decimal128 {
-    type Output = Decimal128;
-
-    fn sub(self, rhs: Decimal128) -> Decimal128 {
-        self + -rhs
-    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
