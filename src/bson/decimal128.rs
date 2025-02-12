@@ -1,7 +1,7 @@
 use super::utils::ToHex;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::{Add, Mul, Neg, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
 /// Microsoft's decimal128
 ///
@@ -46,6 +46,8 @@ const POWERS_10: &[u128; 29] = &[
     1000000000000000000000000000,
     10000000000000000000000000000,
 ];
+
+const MAX_POWERS_10: u128 = 10000000000000000000000000000;
 
 const DEC_SCALE_MAX: u32 = 28;
 
@@ -688,7 +690,7 @@ impl Add for Decimal128 {
                 } else {
                     mantissa
                 };
-                let mantissa = mantissa.add_i128(mantissa2);
+                let mantissa = mantissa.add_i128(mantissa2).0;
 
                 // Scale until we get mantissa less than max mantissa.
                 // For simpler implementation, we split the sign flag and actual data.
@@ -737,6 +739,95 @@ impl Mul for Decimal128 {
         };
 
         Self::new(mantissa, exponent, sign)
+    }
+}
+
+impl Div for Decimal128 {
+    type Output = Decimal128;
+
+    fn div(self, rhs: Decimal128) -> Decimal128 {
+        //uint power;
+        //let mut curScale;
+
+        let sign = self.is_negative() ^ rhs.is_negative();
+        let mut scale = self.exponent() as i32 - rhs.exponent() as i32;
+
+        if rhs.mantissa() == 0 {
+            panic!("divide by zero")
+        }
+
+        let r_mantissa = rhs.mantissa();
+
+        let quotient = self.mantissa() / r_mantissa;
+        let reminder = self.mantissa() % r_mantissa;
+
+        if reminder == 0 {
+            // very simple! we've divided successfully
+            if scale < 0 {
+                // scale < 0 means the result is big. we have to upscale the value.
+
+                let factor = POWERS_10[-scale as usize];
+                let Some(mantissa) = quotient.checked_mul(factor) else {
+                    panic!("decimal overflow");
+                };
+                if mantissa > Self::MANTISSA_MASK {
+                    panic!("decimal overflow");
+                }
+
+                Self::new(mantissa, 0, sign)
+            } else {
+                Self::new(quotient, scale as u32, sign)
+            }
+        } else {
+            // we have a reminder so we continue for remaining bits.
+            let (lower96, mut reminder) = I192::div_shifted_u96(reminder, r_mantissa);
+
+            // quotient express fixed point at 96 bit
+            let mut quotient = I192::from_u92_pair(quotient, lower96);
+
+            // scale up to scale = 0
+            while scale < DEC_SCALE_MAX as i32 && (scale < 0 || quotient.low96() != 0) {
+                let Some(quotient1) = quotient.checked_mul_u96(10) else {
+                    break;
+                };
+                let lower = reminder * 10 / r_mantissa;
+                let reminder1 = reminder * 10 % r_mantissa;
+                let (quotient1, overflow) = quotient1.add_i128(lower as i128);
+                if overflow {
+                    break;
+                }
+
+                quotient = quotient1;
+                reminder = reminder1;
+                scale += 1;
+            }
+
+            if scale < 0 {
+                panic!("scale overflow");
+            }
+
+            let mut mantissa = quotient.high96();
+
+            if quotient.low96() > 0x80000000_00000000_00000000
+                || (quotient.low96() == 0x80000000_00000000_00000000 && mantissa & 1 != 0)
+            {
+                if let Some(mantissa_new) = mantissa.checked_add(1) {
+                    mantissa = mantissa_new;
+                } else {
+                    // the mantissa overflows. scale down by one
+                    mantissa /= 10;
+                    scale -= 1;
+                }
+            }
+
+            // remove trailing zero
+            while mantissa % 10 == 0 && scale > 0 {
+                mantissa /= 10;
+                scale -= 1;
+            }
+
+            Self::new(mantissa, scale as u32, sign)
+        }
     }
 }
 
@@ -844,7 +935,7 @@ fn scale_result(mut mantissa: I192, scale: u32) -> (u128, u32) {
             //
             power >>= 1; // power of 10 always even
             if power <= remainder && (power < remainder || ((mantissa.low & 1) | sticky) != 0) {
-                mantissa = mantissa.add_i128(1);
+                mantissa = mantissa.add_i128(1).0;
                 if mantissa > const { I192::from_u128(Decimal128::MANTISSA_MASK) } {
                     // The rounding caused us to carry beyond 96 bits.
                     // Scale by 10 more.
@@ -880,6 +971,14 @@ impl I192 {
             high: 0,
             mid: (value >> 64) as u64,
             low: (value & u64::MAX as u128) as u64,
+        }
+    }
+
+    fn from_u92_pair(high: u128, low: u128) -> I192 {
+        Self {
+            high: (high >> 32) as u64,
+            mid: (((high & u32::MAX as u128) as u64) << 32) | ((low >> 64) as u64),
+            low: (low & u64::MAX as u128) as u64,
         }
     }
 
@@ -927,7 +1026,126 @@ impl I192 {
         Self { high, mid, low }
     }
 
-    fn add_i128(self, value: i128) -> Self {
+    fn checked_mul_u96(self, right: u128) -> Option<Self> {
+        //
+        //                              s_h       s_m       s_l
+        //  X                                     r_m       r_l
+        // ---------------------------------------------------------
+        //                                     ======s_l*r_l======  |               mid0, low0 |
+        //                           ======s_m*r_l======            |        high1, mid1       |
+        //                           ======s_l*r_m======            |        high2, mid2       |
+        //                 ======s_h*r_l======                      | over3, high3             |
+        //                 ======s_m*r_m======                      | over4, high4             |
+        //       ======s_h*r_m======              <=== this is overflow so either must have zero
+        //
+
+        let r_l = right & (u64::MAX as u128);
+        let r_m = (right >> 64) & (u64::MAX as u128);
+
+        let s_h = self.high as u128;
+        let s_m = self.mid as u128;
+        let s_l = self.low as u128;
+
+        if s_h != 0 && r_m != 0 {
+            return None; // overflow
+        }
+
+        #[inline]
+        fn split(v: u128) -> (u64, u64) {
+            ((v >> 64) as u64, (v & u64::MAX as u128) as u64)
+        }
+
+        let (mid0, low0) = split(s_l * r_l);
+        let (high1, mid1) = split(s_m * r_l);
+        let (high2, mid2) = split(s_l * r_m);
+        let (over3, high3) = split(s_h * r_l);
+        let (over4, high4) = split(s_m * r_m);
+
+        if over3 != 0 || over4 != 0 {
+            return None; // overflow
+        }
+
+        let low = low0;
+        let (carry_to_high, mid) = {
+            let (tmp, carry0) = mid0.overflowing_add(mid1);
+            let (tmp, carry1) = tmp.overflowing_add(mid2);
+            let carry = carry0 as u64 + carry1 as u64;
+            (carry, tmp)
+        };
+        let (carry, high) = {
+            let (tmp, carry0) = high1.overflowing_add(high2);
+            let (tmp, carry1) = tmp.overflowing_add(high3);
+            let (tmp, carry2) = tmp.overflowing_add(high4);
+            let (tmp, carry3) = tmp.overflowing_add(carry_to_high);
+            let carry = carry0 as u64 + carry1 as u64 + carry2 as u64 + carry3 as u64;
+            (carry, tmp)
+        };
+        if carry != 0 {
+            return None; // overflow
+        }
+        Some(Self { low, mid, high })
+    }
+
+    fn add_overflowing(self, rhs: Self) -> (Self, bool) {
+        fn full_adder(a: u64, b: u64, carry: bool) -> (u64, bool) {
+            let (tmp, c0) = a.overflowing_add(b);
+            let (tmp, c1) = tmp.overflowing_add(carry as u64);
+            (tmp, c0 || c1)
+        }
+
+        let (low, mid_carry) = full_adder(self.low, rhs.low, false);
+        let (mid, high_carry) = full_adder(self.mid, rhs.mid, mid_carry);
+        let (high, carry) = full_adder(self.high, rhs.high, high_carry);
+        (Self { low, mid, high }, carry)
+    }
+
+    fn div_shifted_u96(reminder: u128, right: u128) -> (u128, u128) {
+        if reminder < u32::MAX as u128 {
+            // we can shift 96 bit without overflow; we can process at once.
+            let tmp = reminder << 96;
+            let lower96 = tmp / right;
+            let reminder = tmp % right;
+
+            (lower96, reminder)
+        } else if reminder < u64::MAX as u128 {
+            // we shift 64 bit, and then process lower 32bit.
+            let tmp = reminder << 64;
+            let mid64 = tmp / right;
+            let reminder = tmp % right;
+
+            let tmp = reminder << 32;
+            let low32 = tmp / right;
+            let reminder = tmp % right;
+
+            debug_assert!(mid64 <= u64::MAX as u128);
+            debug_assert!(low32 <= u32::MAX as u128);
+
+            let lower96 = (mid64 << 32) | low32;
+            (lower96, reminder)
+        } else {
+            // we process 32bit at one time.
+            let tmp = reminder << 32;
+            let high32 = tmp / right;
+            let reminder = tmp % right;
+
+            let tmp = reminder << 32;
+            let mid32 = tmp / right;
+            let reminder = tmp % right;
+
+            let tmp = reminder << 32;
+            let low32 = tmp / right;
+            let reminder = tmp % right;
+
+            debug_assert!(high32 <= u32::MAX as u128);
+            debug_assert!(mid32 <= u32::MAX as u128);
+            debug_assert!(low32 <= u32::MAX as u128);
+
+            let lower96 = (high32 << 64) | (mid32 << 32) | low32;
+            (lower96, reminder)
+        }
+    }
+
+    fn add_i128(self, value: i128) -> (Self, bool) {
         let u_value = value as u128;
         let low = (u_value & u64::MAX as u128) as u64;
         let mid = (u_value >> 64) as u64;
@@ -941,12 +1159,15 @@ impl I192 {
 
         let (new_low, mid_carry) = full_adder(self.low, low, false);
         let (new_mid, high_carry) = full_adder(self.mid, mid, mid_carry);
-        let (new_high, _) = full_adder(self.high, high, high_carry);
-        Self {
-            low: new_low,
-            mid: new_mid,
-            high: new_high,
-        }
+        let (new_high, carry) = full_adder(self.high, high, high_carry);
+        (
+            Self {
+                low: new_low,
+                mid: new_mid,
+                high: new_high,
+            },
+            carry,
+        )
     }
 
     fn neg(self) -> Self {
@@ -960,6 +1181,14 @@ impl I192 {
 
     fn to_u128(self) -> u128 {
         self.low as u128 | ((self.mid as u128) << 64)
+    }
+
+    fn high96(self) -> u128 {
+        ((self.high as u128) << 32) | ((self.mid as u128) >> 32)
+    }
+
+    fn low96(self) -> u128 {
+        self.low as u128 | ((self.mid as u128 & u32::MAX as u128) << 64)
     }
 
     #[inline]
@@ -1303,7 +1532,7 @@ fn math_test() {
     eq_bitwise(decimal!(0.1111111111111111111111111111) - decimal!(0.1111111111111111111111111111), decimal!(0.0000000000000000000000000000));
     eq_bitwise(decimal!(0.2222222222222222222222222222) - decimal!(0.1111111111111111111111111111), decimal!(0.1111111111111111111111111111));
     eq_bitwise(decimal!(1.1111111111111111111111111110) - decimal!(0.5555555555555555555555555555), decimal!(0.5555555555555555555555555555));
-    
+
     // multiply
     // copied from .NET
     eq_bitwise(decimal!(1) * decimal!(1), decimal!(1));
@@ -1318,4 +1547,69 @@ fn math_test() {
     eq_bitwise(decimal!(-79228162514264337593543950335) * decimal!(0.9), decimal!(-71305346262837903834189555302));
     eq_bitwise(decimal!(-79228162514264337593543950335) * decimal!(0.99), decimal!(-78435880889121694217608510832));
     eq_bitwise(decimal!(-79228162514264337593543950335) * decimal!(0.9999999999999999999999999999), decimal!(-79228162514264337593543950327));
+
+    // divide
+    // divisible
+    eq_bitwise(decimal!(1.50) / decimal!(2), decimal!(0.75));
+    eq_bitwise(decimal!(1.5) / decimal!(0.01), decimal!(150));
+    eq_bitwise(decimal!(1) / decimal!(0.03), decimal!(33.333333333333333333333333333));
+    eq_bitwise(decimal!(1) / decimal!(0.06), decimal!(16.666666666666666666666666667));
+    // copied from .NET
+    eq_bitwise(decimal!(1) / decimal!(1), decimal!(1));
+    eq_bitwise(decimal!(-1) / decimal!(-1), decimal!(1));
+    eq_bitwise(decimal!(15) / decimal!(2), decimal!(7.5));
+    eq_bitwise(decimal!(10) / decimal!(2), decimal!(5));
+    eq_bitwise(decimal!(-10) / decimal!(-2), decimal!(5));
+    eq_bitwise(decimal!(10) / decimal!(-2), decimal!(-5));
+    eq_bitwise(decimal!(-10) / decimal!(2), decimal!(-5));
+    eq_bitwise(decimal!(0.9214206543486529434634231456) / Decimal128::MAX, Decimal128::ZERO);
+    eq_bitwise(decimal!(38214206543486529434634231456) / decimal!(0.4921420654348652943463423146), decimal!( 77648730371625094566866001277));
+    eq_bitwise(decimal!(-78228162514264337593543950335) / Decimal128::MAX, decimal!(-0.987378225516463811113412343));
+    eq_bitwise(Decimal128::MAX / decimal!(-1), Decimal128::MIN);
+    eq_bitwise(Decimal128::MIN / Decimal128::MAX, decimal!(-1));
+    eq_bitwise(Decimal128::MAX / Decimal128::MAX, decimal!(1));
+    eq_bitwise(Decimal128::MIN / Decimal128::MIN, decimal!(1));
+    // copied from .NET: Tests near MaxValue
+    eq_bitwise(decimal!(792281625142643375935439503.4) / decimal!(0.1), decimal!(7922816251426433759354395034));
+    eq_bitwise(decimal!(79228162514264337593543950.34) / decimal!(0.1), decimal!(792281625142643375935439503.4));
+    eq_bitwise(decimal!(7922816251426433759354395.034) / decimal!(0.1), decimal!(79228162514264337593543950.34));
+    eq_bitwise(decimal!(792281625142643375935439.5034) / decimal!(0.1), decimal!(7922816251426433759354395.034));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(10), decimal!(7922816251426433759354395033.5));
+    eq_bitwise(decimal!(79228162514264337567774146561) / decimal!(10), decimal!(7922816251426433756777414656.1));
+    eq_bitwise(decimal!(79228162514264337567774146560) / decimal!(10), decimal!(7922816251426433756777414656));
+    eq_bitwise(decimal!(79228162514264337567774146559) / decimal!(10), decimal!(7922816251426433756777414655.9));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.1), decimal!(72025602285694852357767227577));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.01), decimal!(78443725261647859003508861718));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.001), decimal!(79149013500763574019524425909));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.0001), decimal!(79220240490215316061937756559));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.00001), decimal!(79227370240561931974224208093));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.000001), decimal!(79228083286181051412492537842));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.0000001), decimal!(79228154591448878448656105469));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.00000001), decimal!(79228161721982720373716746598));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.000000001), decimal!(79228162435036175158507775176));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.0000000001), decimal!(79228162506341521342909798201));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.00000000001), decimal!(79228162513472055968409229775));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.000000000001), decimal!(79228162514185109431029765226));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.0000000000001), decimal!(79228162514256414777292524694));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.00000000000001), decimal!(79228162514263545311918807700));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.000000000000001), decimal!(79228162514264258365381436071));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.0000000000000001), decimal!(79228162514264329670727698909));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.00000000000000001), decimal!(79228162514264336801262325192));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.000000000000000001), decimal!(79228162514264337514315787821));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.0000000000000000001), decimal!(79228162514264337585621134084));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.00000000000000000001), decimal!(79228162514264337592751668710));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.000000000000000000001), decimal!(79228162514264337593464722172));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.0000000000000000000001), decimal!(79228162514264337593536027519));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.00000000000000000000001), decimal!(79228162514264337593543158053));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.000000000000000000000001), decimal!(79228162514264337593543871107));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.0000000000000000000000001), decimal!(79228162514264337593543942412));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.00000000000000000000000001), decimal!(79228162514264337593543949543));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.000000000000000000000000001), decimal!(79228162514264337593543950256));
+    eq_bitwise(decimal!(7922816251426433759354395033.5) / decimal!( 0.9999999999999999999999999999), decimal!(7922816251426433759354395034));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(10000000), decimal!(7922816251426433759354.3950335));
+    eq_bitwise(decimal!(7922816251426433759354395033.5) / decimal!( 1.000001), decimal!(7922808328618105141249253784.2));
+    eq_bitwise(decimal!(7922816251426433759354395033.5) / decimal!( 1.0000000000000000000000000001), decimal!(7922816251426433759354395032.7));
+    eq_bitwise(decimal!(7922816251426433759354395033.5) / decimal!( 1.0000000000000000000000000002), decimal!(7922816251426433759354395031.9));
+    eq_bitwise(decimal!(7922816251426433759354395033.5) / decimal!( 0.9999999999999999999999999999), decimal!(7922816251426433759354395034));
+    eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.0000000000000000000000000001), decimal!(79228162514264337593543950327));
 }
