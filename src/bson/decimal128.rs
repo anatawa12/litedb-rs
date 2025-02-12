@@ -591,12 +591,18 @@ impl Display for Decimal128 {
         if exponent == 0 {
             // no decimals
             write!(f, "{}{}", sign, mantissa)
-        } else {
-            // otherwise, insert '.' to proper position
+        } else if mantissa.len() > exponent as usize {
+            // insert '.' to proper position
             let dot = mantissa.len() - exponent as usize;
             f.write_str(&mantissa[..dot])?;
             f.write_str(".")?;
             f.write_str(&mantissa[dot..])
+        } else {
+            // print 0.0... and then mantissa
+            let zero_len = exponent as usize - mantissa.len();
+            let zeros = "0.0000000000000000000000000000";
+            f.write_str(&zeros[..(zero_len + 2)])?;
+            f.write_str(&mantissa)
         }
     }
 }
@@ -1192,6 +1198,8 @@ fn display_test() {
     display_test!(1.000);
     display_test!(7922816251426433.7593543950335);
     display_test!(79228162514264337593543950335);
+    display_test!(0.1);
+    display_test!(0.01);
 }
 
 #[test]
