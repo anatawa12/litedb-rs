@@ -1,7 +1,7 @@
 use super::utils::ToHex;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::{Add, Neg, Sub};
+use std::ops::{Add, Mul, Neg, Sub};
 
 /// Microsoft's decimal128
 ///
@@ -683,7 +683,11 @@ impl Add for Decimal128 {
 
                 let factor = POWERS_10[scale as usize];
                 let mantissa = I192::mul_u96(factor, mantissa1.unsigned_abs());
-                let mantissa = if mantissa1 < 0 { mantissa.neg() } else { mantissa };
+                let mantissa = if mantissa1 < 0 {
+                    mantissa.neg()
+                } else {
+                    mantissa
+                };
                 let mantissa = mantissa.add_i128(mantissa2);
 
                 // Scale until we get mantissa less than max mantissa.
@@ -707,6 +711,32 @@ impl Sub for Decimal128 {
 
     fn sub(self, rhs: Decimal128) -> Decimal128 {
         self + -rhs
+    }
+}
+
+impl Mul for Decimal128 {
+    type Output = Decimal128;
+
+    fn mul(self, rhs: Decimal128) -> Decimal128 {
+        // self = l_sign * l_mantissa * 10^-l_exponent
+        // rhs  = r_sign * r_mantissa * 10^-r_exponent
+        // self * rhs = (l_sign * r_sign)
+        //            * (l_mantissa * r_mantissa)
+        //            * 10^-(l_exponent + r_exponent)
+
+        let sign = self.is_negative() ^ rhs.is_negative();
+        let mantissa = I192::mul_u96(self.mantissa(), rhs.mantissa());
+        let exponent = (self.exponent() + rhs.exponent()) as u32;
+
+        let (mantissa, exponent) = if mantissa <= const { I192::from_u128(Self::MANTISSA_MASK) }
+            && exponent < DEC_SCALE_MAX
+        {
+            (mantissa.to_u128(), exponent)
+        } else {
+            scale_result(mantissa, exponent)
+        };
+
+        Self::new(mantissa, exponent, sign)
     }
 }
 
@@ -1203,6 +1233,7 @@ fn display_test() {
 }
 
 #[test]
+#[rustfmt::skip]
 fn math_test() {
     fn eq_bitwise(left: Decimal128, right: Decimal128) {
         assert_eq!(left.cmp(&right), Ordering::Equal, "{left} and {right}");
@@ -1272,4 +1303,19 @@ fn math_test() {
     eq_bitwise(decimal!(0.1111111111111111111111111111) - decimal!(0.1111111111111111111111111111), decimal!(0.0000000000000000000000000000));
     eq_bitwise(decimal!(0.2222222222222222222222222222) - decimal!(0.1111111111111111111111111111), decimal!(0.1111111111111111111111111111));
     eq_bitwise(decimal!(1.1111111111111111111111111110) - decimal!(0.5555555555555555555555555555), decimal!(0.5555555555555555555555555555));
+    
+    // multiply
+    // copied from .NET
+    eq_bitwise(decimal!(1) * decimal!(1), decimal!(1));
+    eq_bitwise(decimal!(7922816251426433759354395033.5) * decimal!(10), Decimal128::MAX);
+    eq_bitwise(decimal!(0.2352523523423422342354395033) * decimal!(56033525474612414574574757495), decimal!(13182018677937129120135020796));
+    eq_bitwise(decimal!(46161363632634613634.093453337) * decimal!(461613636.32634613634083453337), decimal!(21308714924243214928823669051));
+    eq_bitwise(decimal!(0.0000000000000345435353453563) * decimal!(0.0000000000000023525235234234), decimal!(0.0000000000000000000000000001));
+    // copied from .NET: Near decimal.MaxValue
+    eq_bitwise(decimal!(79228162514264337593543950335) * decimal!(0.9), decimal!(71305346262837903834189555302));
+    eq_bitwise(decimal!(79228162514264337593543950335) * decimal!(0.99), decimal!(78435880889121694217608510832));
+    eq_bitwise(decimal!(79228162514264337593543950335) * decimal!(0.9999999999999999999999999999), decimal!(79228162514264337593543950327));
+    eq_bitwise(decimal!(-79228162514264337593543950335) * decimal!(0.9), decimal!(-71305346262837903834189555302));
+    eq_bitwise(decimal!(-79228162514264337593543950335) * decimal!(0.99), decimal!(-78435880889121694217608510832));
+    eq_bitwise(decimal!(-79228162514264337593543950335) * decimal!(0.9999999999999999999999999999), decimal!(-79228162514264337593543950327));
 }
