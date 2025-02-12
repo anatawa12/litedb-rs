@@ -1235,7 +1235,41 @@ fn math_test() {
     eq_bitwise(decimal!(79228162514260000000000000000) + decimal!(3.50000000000000), decimal!(79228162514260000000000000004));
     // overflow on round to even
     eq_bitwise(decimal!(792281625142643375935439503) + decimal!(0.35500000000000), decimal!(792281625142643375935439503.4));
-
     // some other crash cases
     eq_bitwise(decimal!(340282366920938463463374607) + decimal!(1.431768211456), decimal!(340282366920938463463374608.43));
+    // copied from .NET
+    eq_bitwise(decimal!(1) + decimal!(1), decimal!(2));
+    eq_bitwise(decimal!(-1) + decimal!(1), decimal!(0));
+    eq_bitwise(decimal!(1) + decimal!(-1), decimal!(0));
+    eq_bitwise(decimal!(1) + decimal!(0), decimal!(1));
+    eq_bitwise(decimal!(79228162514264337593543950330) + decimal!(5), Decimal128::MAX);
+    eq_bitwise(decimal!(79228162514264337593543950335) + decimal!(-5), decimal!(79228162514264337593543950330));
+    eq_bitwise(decimal!(-79228162514264337593543950330) + decimal!(5), decimal!(-79228162514264337593543950325));
+    eq_bitwise(decimal!(-79228162514264337593543950330) + decimal!(-5), Decimal128::MIN);
+    eq_bitwise(decimal!(1234.5678) + decimal!(0.00009), decimal!(1234.56789));
+    eq_bitwise(decimal!(-1234.5678) + decimal!(0.00009), decimal!(-1234.56771));
+    eq_bitwise(decimal!(0.1111111111111111111111111111) + decimal!(0.1111111111111111111111111111), decimal!(0.2222222222222222222222222222));
+    eq_bitwise(decimal!(0.5555555555555555555555555555) + decimal!(0.5555555555555555555555555555), decimal!(1.1111111111111111111111111110));
+    eq_bitwise(Decimal128::MIN + Decimal128::ZERO, Decimal128::MIN);
+    eq_bitwise(Decimal128::MAX + Decimal128::ZERO, Decimal128::MAX);
+
+    // subtract
+    // copied from .NET
+    eq_bitwise(decimal!(1) - decimal!(1), decimal!(0));
+    eq_bitwise(decimal!(1) - decimal!(0), decimal!(1));
+    eq_bitwise(decimal!(0) - decimal!(1), decimal!(-1));
+    eq_bitwise(decimal!(1) - decimal!(1), decimal!(0));
+    eq_bitwise(decimal!(-1) - decimal!(1), decimal!(-2));
+    eq_bitwise(decimal!(1) - decimal!(-1), decimal!(2));
+    eq_bitwise(Decimal128::MAX - Decimal128::ZERO, Decimal128::MAX);
+    eq_bitwise(Decimal128::MIN - Decimal128::ZERO, Decimal128::MIN);
+    eq_bitwise(decimal!(79228162514264337593543950330) - decimal!(-5), Decimal128::MAX);
+    eq_bitwise(decimal!(79228162514264337593543950330) - decimal!(5), decimal!(79228162514264337593543950325));
+    eq_bitwise(decimal!(-79228162514264337593543950330) - decimal!(5), Decimal128::MIN);
+    eq_bitwise(decimal!(-79228162514264337593543950330) - decimal!(-5), decimal!(-79228162514264337593543950325));
+    eq_bitwise(decimal!(1234.5678) - decimal!(0.00009), decimal!(1234.56771));
+    eq_bitwise(decimal!(-1234.5678) - decimal!(0.00009), decimal!(-1234.56789));
+    eq_bitwise(decimal!(0.1111111111111111111111111111) - decimal!(0.1111111111111111111111111111), decimal!(0.0000000000000000000000000000));
+    eq_bitwise(decimal!(0.2222222222222222222222222222) - decimal!(0.1111111111111111111111111111), decimal!(0.1111111111111111111111111111));
+    eq_bitwise(decimal!(1.1111111111111111111111111110) - decimal!(0.5555555555555555555555555555), decimal!(0.5555555555555555555555555555));
 }
