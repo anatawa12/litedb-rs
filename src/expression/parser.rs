@@ -1,5 +1,4 @@
 use super::*;
-use crate::bson;
 use crate::expression::tokenizer::Tokenizer;
 use crate::utils::CaseInsensitiveString;
 use std::collections::HashSet;
@@ -698,7 +697,7 @@ fn try_parse_double(
     }
 
     if let Some(number) = value {
-        let constant = Expression::scalar(move |_| Ok(BsonValue::Double(number)));
+        let constant = Expression::scalar(move |ctx| Ok(ctx.arena(BsonValue::Double(number))));
 
         return Ok(Some(BsonExpression {
             r#type: BsonExpressionType::Double,
@@ -738,7 +737,7 @@ fn try_parse_int(
 
     if let Some(i64) = value {
         if let Ok(i32) = i32::try_from(i64) {
-            let constant32 = Expression::scalar(move |_| Ok(BsonValue::Int32(i32)));
+            let constant32 = Expression::scalar(move |ctx| Ok(ctx.arena(BsonValue::Int32(i32))));
 
             return Ok(Some(BsonExpression {
                 r#type: BsonExpressionType::Int,
@@ -754,7 +753,7 @@ fn try_parse_int(
             }));
         }
 
-        let constant64 = Expression::scalar(move |_| Ok(BsonValue::Int64(i64)));
+        let constant64 = Expression::scalar(move |ctx| Ok(ctx.arena(BsonValue::Int64(i64))));
 
         return Ok(Some(BsonExpression {
             r#type: BsonExpressionType::Int,
@@ -780,7 +779,7 @@ fn try_parse_bool(tokenizer: &mut Tokenizer, _parameters: &BsonDocument) -> Opti
         && (tokenizer.current().is("true") || tokenizer.current().is("false"))
     {
         let boolean = tokenizer.current().value.eq_ignore_ascii_case("true");
-        let constant = Expression::scalar(move |_| Ok(BsonValue::Boolean(boolean)));
+        let constant = Expression::scalar(move |ctx| Ok(ctx.bool(boolean)));
 
         return Some(BsonExpression {
             r#type: BsonExpressionType::Boolean,
@@ -804,7 +803,7 @@ fn try_parse_bool(tokenizer: &mut Tokenizer, _parameters: &BsonDocument) -> Opti
 /// </summary>
 fn try_parse_null(tokenizer: &mut Tokenizer, _parameters: &BsonDocument) -> Option<BsonExpression> {
     if tokenizer.current().typ == TokenType::Word && tokenizer.current().is("null") {
-        let constant = Expression::scalar(|_| Ok(BsonValue::Null));
+        let constant = Expression::scalar(|_| Ok(&BsonValue::Null));
 
         return Some(BsonExpression {
             r#type: BsonExpressionType::Null,
@@ -837,7 +836,7 @@ fn try_parse_string(
         append_quoted(&str, &mut source);
 
         let bstr = BsonValue::String(str);
-        let constant = Expression::scalar(move |_| Ok(bstr.clone()));
+        let constant = Expression::scalar(move |ctx| Ok(ctx.arena(bstr.clone())));
 
         return Some(BsonExpression {
             r#type: BsonExpressionType::String,
@@ -1958,7 +1957,7 @@ pub(super) fn create_logic_expression(
 
     let expr = if r#type == BsonExpressionType::And {
         scalar_expr(move |ctx| {
-            Ok(bson::Value::Boolean(
+            Ok(ctx.bool(
                 bool_left(ctx)?
                     .as_bool()
                     .ok_or_else(|| expr_error("left of AND is not bool"))?
@@ -1969,7 +1968,7 @@ pub(super) fn create_logic_expression(
         })
     } else {
         scalar_expr(move |ctx| {
-            Ok(bson::Value::Boolean(
+            Ok(ctx.bool(
                 bool_left(ctx)?
                     .as_bool()
                     .ok_or_else(|| expr_error("left of OR is not bool"))?

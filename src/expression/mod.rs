@@ -82,7 +82,7 @@ trait IEnumerable<'a> {
     fn it(&self) -> ValueIterator<'a>;
 }
 
-type ScalarExpr = Rc<dyn for<'a> Fn(&'a ExecutionContext) -> super::Result<bson::Value>>;
+type ScalarExpr = Rc<dyn for<'a> Fn(&'a ExecutionContext) -> super::Result<&'a bson::Value>>;
 type SequenceExpr = Rc<dyn for<'a> Fn(&'a ExecutionContext) -> Box<dyn IEnumerable<'a> + 'a>>;
 
 #[derive(Clone)]
@@ -93,7 +93,7 @@ enum Expression {
 
 impl Expression {
     pub fn scalar(
-        scalar: impl for<'ctx> Fn(&'ctx ExecutionContext) -> super::Result<bson::Value> + 'static,
+        scalar: impl for<'ctx> Fn(&'ctx ExecutionContext) -> super::Result<&'ctx bson::Value> + 'static,
     ) -> Self {
         Self::Scalar(scalar_expr(scalar))
     }
@@ -121,7 +121,7 @@ impl From<SequenceExpr> for Expression {
 }
 
 fn scalar_expr(
-    scalar: impl for<'ctx> Fn(&'ctx ExecutionContext) -> super::Result<bson::Value> + 'static,
+    scalar: impl for<'ctx> Fn(&'ctx ExecutionContext) -> super::Result<&'ctx bson::Value> + 'static,
 ) -> ScalarExpr {
     Rc::new(scalar)
 }
@@ -133,6 +133,20 @@ struct ExecutionContext<'a> {
     collation: Collation,
     parameters: &'a bson::Document,
     arena: Arena<bson::Value>,
+}
+
+impl ExecutionContext<'_> {
+    fn arena(&self, value: bson::Value) -> &bson::Value {
+        self.arena.alloc(value)
+    }
+
+    fn bool(&self, b: bool) -> &bson::Value {
+        if b {
+            &bson::Value::Boolean(true)
+        } else {
+            &bson::Value::Boolean(false)
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
