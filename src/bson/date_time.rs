@@ -275,6 +275,15 @@ impl DateTime {
 
         DateTime::from_ticks(day_ticks + in_day_ticks + ticks)
     }
+
+    pub fn add_ticks(&self, diff: i64) -> DateTime {
+        Self(
+            self.0
+                .checked_add_signed(diff)
+                .take_if(|&mut x| x < MAX_TICKS)
+                .expect("overflow"),
+        )
+    }
 }
 
 /// The `Debug` for `DateTime` will show time in ISO 8601 extended format

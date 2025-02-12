@@ -273,6 +273,14 @@ impl Decimal128 {
 
         mantissa.try_into().ok()
     }
+
+    pub fn to_i32(&self) -> Option<i32> {
+        let mut mantissa = self.mantissa_signed();
+
+        mantissa /= POWERS_10[self.exponent() as usize] as i128;
+
+        mantissa.try_into().ok()
+    }
 }
 
 impl Debug for Decimal128 {

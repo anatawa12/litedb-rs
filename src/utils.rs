@@ -51,6 +51,10 @@ impl Collation {
             (l, r) => l.total_cmp(r),
         }
     }
+
+    //    pub(crate) fn sql_like(&self, left: &str, right: &str) -> bool {
+    //        todo!()
+    //    }
 }
 
 #[repr(transparent)]

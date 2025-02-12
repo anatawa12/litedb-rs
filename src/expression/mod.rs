@@ -1,8 +1,13 @@
-use crate::expression::parser::Expression;
-use crate::utils::CaseInsensitiveString;
+use crate::bson;
+use crate::utils::{CaseInsensitiveString, Collation};
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::fmt::{Debug, Formatter};
+use std::rc::Rc;
+use typed_arena::Arena;
 
+mod methods;
+mod operator;
 mod parser;
 mod tokenizer;
 
@@ -11,6 +16,9 @@ type Error = super::Error;
 impl Error {
     fn expr_error(str: &str) -> Self {
         Self::err(format!("parsing: {}", str))
+    }
+    fn expr_run_error(str: &str) -> Self {
+        Self::err(format!("executing: {}", str))
     }
     fn unexpected_token(str: &str, token: &Token) -> Self {
         Self::err(format!("unexpected token ({}): {:?}", str, token))
@@ -68,17 +76,155 @@ pub enum BsonExpressionType {
     Source = 30,
 }
 
+type ValueIterator<'a> = Box<dyn Iterator<Item = super::Result<&'a bson::Value>>>;
+
+trait IEnumerable<'a> {
+    fn it(&self) -> ValueIterator<'a>;
+}
+
+type ScalarExpr = Rc<dyn for<'a> Fn(&'a ExecutionContext) -> super::Result<bson::Value>>;
+type SequenceExpr = Rc<dyn for<'a> Fn(&'a ExecutionContext) -> Box<dyn IEnumerable<'a> + 'a>>;
+
+#[derive(Clone)]
+enum Expression {
+    Scalar(ScalarExpr),
+    Sequence(SequenceExpr),
+}
+
+impl Expression {
+    pub fn scalar(
+        scalar: impl for<'ctx> Fn(&'ctx ExecutionContext) -> super::Result<bson::Value> + 'static,
+    ) -> Self {
+        Self::Scalar(scalar_expr(scalar))
+    }
+}
+
+impl Debug for Expression {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expression::Scalar(_) => f.write_str("Scalar(_)"),
+            Expression::Sequence(_) => f.write_str("Sequence(_)"),
+        }
+    }
+}
+
+impl From<ScalarExpr> for Expression {
+    fn from(expr: ScalarExpr) -> Self {
+        Expression::Scalar(expr)
+    }
+}
+
+impl From<SequenceExpr> for Expression {
+    fn from(expr: SequenceExpr) -> Self {
+        Expression::Sequence(expr)
+    }
+}
+
+fn scalar_expr(
+    scalar: impl for<'ctx> Fn(&'ctx ExecutionContext) -> super::Result<bson::Value> + 'static,
+) -> ScalarExpr {
+    Rc::new(scalar)
+}
+
+struct ExecutionContext<'a> {
+    source: &'a dyn IEnumerable<'a>,
+    root: Option<&'a bson::Value>,
+    current: Option<&'a bson::Value>,
+    collation: Collation,
+    parameters: &'a bson::Document,
+    arena: Arena<bson::Value>,
+}
+
 #[derive(Debug, Clone)]
-pub struct BsonExpression {
+#[allow(private_interfaces)] // expr is not part of intended api
+pub struct BsonExpression<Expr = Expression> {
     r#type: BsonExpressionType,
     is_immutable: bool,
     use_source: bool,
-    is_scalar: bool,
     fields: HashSet<CaseInsensitiveString>,
-    expression: Expression,
     left: Option<Box<BsonExpression>>,
     right: Option<Box<BsonExpression>>,
     source: String,
+    expression: Expr,
+}
+
+type ScalarBsonExpression = BsonExpression<ScalarExpr>;
+type SequenceBsonExpression = BsonExpression<SequenceExpr>;
+
+impl BsonExpression {
+    fn is_scalar(&self) -> bool {
+        matches!(self.expression, Expression::Scalar(_))
+    }
+
+    fn into_scalar_or(self) -> Result<ScalarBsonExpression, SequenceBsonExpression> {
+        match self.expression {
+            Expression::Scalar(expr) => {
+                Ok(ScalarBsonExpression {
+                    r#type: self.r#type,
+                    //parameters: self.parameters,
+                    is_immutable: self.is_immutable,
+                    use_source: self.use_source,
+                    // is_scalar: true,
+                    fields: self.fields,
+                    expression: expr,
+                    source: self.source,
+                    left: self.left,
+                    right: self.right,
+                })
+            }
+            Expression::Sequence(expr) => {
+                Err(SequenceBsonExpression {
+                    r#type: self.r#type,
+                    //parameters: self.parameters,
+                    is_immutable: self.is_immutable,
+                    use_source: self.use_source,
+                    // is_scalar: true,
+                    fields: self.fields,
+                    expression: expr,
+                    source: self.source,
+                    left: self.left,
+                    right: self.right,
+                })
+            }
+        }
+    }
+
+    fn into_sequence_or(self) -> Result<SequenceBsonExpression, ScalarBsonExpression> {
+        match self.into_scalar_or() {
+            Ok(v) => Err(v),
+            Err(v) => Ok(v),
+        }
+    }
+}
+
+impl From<ScalarBsonExpression> for BsonExpression {
+    fn from(expr: ScalarBsonExpression) -> Self {
+        Self {
+            r#type: expr.r#type,
+            is_immutable: expr.is_immutable,
+            use_source: expr.use_source,
+            fields: expr.fields,
+            left: expr.left,
+            right: expr.right,
+            source: expr.source,
+            expression: expr.expression.into(),
+        }
+    }
+}
+
+impl From<SequenceBsonExpression> for BsonExpression {
+    fn from(expr: SequenceBsonExpression) -> Self {
+        Self {
+            r#type: expr.r#type,
+            is_immutable: expr.is_immutable,
+            use_source: expr.use_source,
+            fields: expr.fields,
+            left: expr.left,
+            right: expr.right,
+            source: expr.source,
+            expression: expr.expression.into(),
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -191,7 +337,10 @@ impl<'a> Token<'a> {
             | TokenType::Less
             | TokenType::LessOrEquals
             | TokenType::NotEquals => true,
-            TokenType::Word => matches!(self.value.to_uppercase().as_str(), "BETWEEN" | "LIKE" | "IN" | "AND" | "OR"),
+            TokenType::Word => matches!(
+                self.value.to_uppercase().as_str(),
+                "BETWEEN" | "LIKE" | "IN" | "AND" | "OR"
+            ),
             _ => false,
         }
     }

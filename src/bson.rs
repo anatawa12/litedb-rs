@@ -21,6 +21,7 @@ mod de;
 mod decimal128;
 mod document;
 mod guid;
+mod json;
 mod object_id;
 
 pub use array::Array;
@@ -30,6 +31,7 @@ pub use de::*;
 pub use decimal128::Decimal128;
 pub use document::Document;
 pub use guid::Guid;
+pub(crate) use json::to_json;
 pub use object_id::ObjectId;
 use std::cmp::Ordering;
 

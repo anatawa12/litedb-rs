@@ -1,8 +1,17 @@
+use super::*;
+use crate::bson;
 use crate::expression::tokenizer::Tokenizer;
-use crate::expression::{BsonExpression, BsonExpressionType, ExpectTypeTrait, TokenType};
 use crate::utils::CaseInsensitiveString;
 use std::collections::HashSet;
 use std::ops::Neg;
+
+fn expr_error(msg: &str) -> crate::Error {
+    crate::Error::expr_error(msg)
+}
+
+fn sequence<T>() -> T {
+    todo!("sequence")
+}
 
 type Result<T, R = super::Error> = std::result::Result<T, R>;
 
@@ -26,45 +35,9 @@ struct MethodInfo {
     is_enumerable: bool,
 }
 
-fn get_method(name: &str, params: usize) -> Option<&MethodInfo> {
+fn get_method(_: &str, _: usize) -> Option<&MethodInfo> {
     // TODO: currently removed support for method
     None
-}
-
-#[derive(Debug, Copy, Clone)]
-pub(super) enum BsonBinaryExpression {
-    Mod,
-    Divide,
-    Multiply,
-    Add,
-    Minus,
-    Like,
-    Between,
-    In,
-    Gt,
-    Gte,
-    Lt,
-    Lte,
-    Neq,
-    Eq,
-    LikeAny,
-    BetweenAny,
-    InAny,
-    GtAny,
-    GteAny,
-    LtAny,
-    LteAny,
-    NeqAny,
-    EqAny,
-    LikeAll,
-    BetweenAll,
-    InAll,
-    GtAll,
-    GteAll,
-    LtAll,
-    LteAll,
-    NeqAll,
-    EqAll,
 }
 
 trait TryOrElse<T>: Sized {
@@ -82,7 +55,10 @@ impl<T> TryOrElse<T> for Option<T> {
 trait StrExtension {
     fn as_str(&self) -> &str;
     fn is_word(&self) -> bool {
-        self.as_str().chars().enumerate().all(|(i, c)| super::is_word_char(c, i == 0))
+        self.as_str()
+            .chars()
+            .enumerate()
+            .all(|(i, c)| super::is_word_char(c, i == 0))
     }
 }
 
@@ -119,230 +95,196 @@ pub(super) enum DocumentScope {
     Current,
 }
 
-#[derive(Debug, Clone)]
-pub(super) enum Expression {
-    Constant(BsonValue),
-    Member(Box<Expression>, String),
-    Map(Box<Expression>, Box<BsonExpression>),
-    ParameterPath(String),
-    DocumentInit(Vec<String>, Vec<Expression>),
-    Function(
-        &'static str,
-        Box<Expression>,
-        Option<Box<BsonExpression>>,
-        Vec<Expression>,
-    ),
-    Method(&'static str, Vec<Expression>),
-    Items(Box<Expression>),
-    Binary(BsonBinaryExpression, Box<Expression>, Box<Expression>),
-    AndAlso(Box<Expression>, Box<Expression>),
-    OrElse(Box<Expression>, Box<Expression>),
-    Condition(Box<Expression>, Box<Expression>, Box<Expression>),
-
-    Root,
-    Current,
-    Source,
-    ArrayInit(Vec<Expression>),
-    ArrayIndex(Box<Expression>, i32),
-    ArrayIndexParam(Box<Expression>, Box<Expression>),
-    ArrayIndexExpr(Box<Expression>, Box<BsonExpression>),
-    ArrayAsterisk(Box<Expression>),
-    ArrayAsteriskFilter(Box<Expression>, Box<BsonExpression>),
-}
-
 fn inner(expression: BsonExpression) -> Option<Box<BsonExpression>> {
     Some(Box::new(expression))
 }
 
 // region Operators quick access
 
+enum BinaryExpression {
+    Scalar(fn(ScalarExpr, ScalarExpr) -> ScalarExpr),
+    Sequence(fn(SequenceExpr, ScalarExpr) -> ScalarExpr),
+    Unsupported,
+}
+
 /// <summary>
 /// Operation definition by methods with defined expression type (operators are in precedence order)
 /// </summary>
-static OPERATORS: &[(&str, BsonBinaryExpression, BsonExpressionType)] = &[
+static OPERATORS: &[(&str, BinaryExpression, BsonExpressionType)] = &[
     // arithmetic
     (
         "%",
-        BsonBinaryExpression::Mod,
+        BinaryExpression::Scalar(operator::r#mod),
         BsonExpressionType::Modulo,
     ),
     (
         "/",
-        BsonBinaryExpression::Divide,
+        BinaryExpression::Scalar(operator::divide),
         BsonExpressionType::Divide,
     ),
     (
         "*",
-        BsonBinaryExpression::Multiply,
+        BinaryExpression::Scalar(operator::multiply),
         BsonExpressionType::Multiply,
     ),
-    ("+", BsonBinaryExpression::Add, BsonExpressionType::Add),
+    (
+        "+",
+        BinaryExpression::Scalar(operator::add),
+        BsonExpressionType::Add,
+    ),
     (
         "-",
-        BsonBinaryExpression::Minus,
+        BinaryExpression::Scalar(operator::minus),
         BsonExpressionType::Subtract,
     ),
     // predicate
     (
         "LIKE",
-        BsonBinaryExpression::Like,
+        BinaryExpression::Unsupported,
         BsonExpressionType::Like,
     ),
     (
         "BETWEEN",
-        BsonBinaryExpression::Between,
+        BinaryExpression::Scalar(operator::between),
         BsonExpressionType::Between,
     ),
     (
         "IN",
-        BsonBinaryExpression::In,
+        BinaryExpression::Scalar(operator::r#in),
         BsonExpressionType::In,
     ),
     (
         ">",
-        BsonBinaryExpression::Gt,
+        BinaryExpression::Scalar(operator::gt),
         BsonExpressionType::GreaterThan,
     ),
     (
         ">=",
-        BsonBinaryExpression::Gte,
+        BinaryExpression::Scalar(operator::gte),
         BsonExpressionType::GreaterThanOrEqual,
     ),
     (
         "<",
-        BsonBinaryExpression::Lt,
+        BinaryExpression::Scalar(operator::lt),
         BsonExpressionType::LessThan,
     ),
     (
         "<=",
-        BsonBinaryExpression::Lte,
+        BinaryExpression::Scalar(operator::lte),
         BsonExpressionType::LessThanOrEqual,
     ),
     (
         "!=",
-        BsonBinaryExpression::Neq,
+        BinaryExpression::Scalar(operator::neq),
         BsonExpressionType::NotEqual,
     ),
     (
         "=",
-        BsonBinaryExpression::Eq,
+        BinaryExpression::Scalar(operator::eq),
         BsonExpressionType::Equal,
     ),
     (
         "ANY LIKE",
-        BsonBinaryExpression::LikeAny,
+        BinaryExpression::Unsupported,
         BsonExpressionType::Like,
     ),
     (
         "ANY BETWEEN",
-        BsonBinaryExpression::BetweenAny,
+        BinaryExpression::Sequence(operator::between_any),
         BsonExpressionType::Between,
     ),
     (
         "ANY IN",
-        BsonBinaryExpression::InAny,
+        BinaryExpression::Sequence(operator::in_any),
         BsonExpressionType::In,
     ),
     (
         "ANY>",
-        BsonBinaryExpression::GtAny,
+        BinaryExpression::Sequence(operator::gt_any),
         BsonExpressionType::GreaterThan,
     ),
     (
         "ANY>=",
-        BsonBinaryExpression::GteAny,
+        BinaryExpression::Sequence(operator::gte_any),
         BsonExpressionType::GreaterThanOrEqual,
     ),
     (
         "ANY<",
-        BsonBinaryExpression::LtAny,
+        BinaryExpression::Sequence(operator::lt_any),
         BsonExpressionType::LessThan,
     ),
     (
         "ANY<=",
-        BsonBinaryExpression::LteAny,
+        BinaryExpression::Sequence(operator::lte_any),
         BsonExpressionType::LessThanOrEqual,
     ),
     (
         "ANY!=",
-        BsonBinaryExpression::NeqAny,
+        BinaryExpression::Sequence(operator::neq_any),
         BsonExpressionType::NotEqual,
     ),
     (
         "ANY=",
-        BsonBinaryExpression::EqAny,
+        BinaryExpression::Sequence(operator::eq_any),
         BsonExpressionType::Equal,
     ),
     (
         "ALL LIKE",
-        BsonBinaryExpression::LikeAll,
+        BinaryExpression::Unsupported,
         BsonExpressionType::Like,
     ),
     (
         "ALL BETWEEN",
-        BsonBinaryExpression::BetweenAll,
+        BinaryExpression::Sequence(operator::between_all),
         BsonExpressionType::Between,
     ),
     (
         "ALL IN",
-        BsonBinaryExpression::InAll,
+        BinaryExpression::Sequence(operator::in_all),
         BsonExpressionType::In,
     ),
     (
         "ALL>",
-        BsonBinaryExpression::GtAll,
+        BinaryExpression::Sequence(operator::gt_all),
         BsonExpressionType::GreaterThan,
     ),
     (
         "ALL>=",
-        BsonBinaryExpression::GteAll,
+        BinaryExpression::Sequence(operator::gte_all),
         BsonExpressionType::GreaterThanOrEqual,
     ),
     (
         "ALL<",
-        BsonBinaryExpression::LtAll,
+        BinaryExpression::Sequence(operator::lt_all),
         BsonExpressionType::LessThan,
     ),
     (
         "ALL<=",
-        BsonBinaryExpression::LteAll,
+        BinaryExpression::Sequence(operator::lte_all),
         BsonExpressionType::LessThanOrEqual,
     ),
     (
         "ALL!=",
-        BsonBinaryExpression::NeqAll,
+        BinaryExpression::Sequence(operator::neq_all),
         BsonExpressionType::NotEqual,
     ),
     (
         "ALL=",
-        BsonBinaryExpression::EqAll,
+        BinaryExpression::Sequence(operator::eq_all),
         BsonExpressionType::Equal,
     ),
     // logic (will use Expression.AndAlso|OrElse)
     (
         "AND",
-        BsonBinaryExpression::Mod,
+        BinaryExpression::Scalar(|_, _| panic!()),
         BsonExpressionType::And,
     ),
     (
         "OR",
-        BsonBinaryExpression::Mod,
+        BinaryExpression::Scalar(|_, _| panic!()),
         BsonExpressionType::Or,
     ),
 ];
-
-/*
-private static readonly MethodInfo _parameterPathMethod = M("PARAMETER_PATH");
-private static readonly MethodInfo _memberPathMethod = M("MEMBER_PATH");
-private static readonly MethodInfo _arrayIndexMethod = M("ARRAY_INDEX");
-private static readonly MethodInfo _arrayFilterMethod = M("ARRAY_FILTER");
-
-private static readonly MethodInfo _documentInitMethod = M("DOCUMENT_INIT");
-private static readonly MethodInfo _arrayInitMethod = M("ARRAY_INIT");
-
-private static readonly MethodInfo _itemsMethod = typeof(BsonExpressionMethods).GetMethod("ITEMS");
-private static readonly MethodInfo _arrayMethod = typeof(BsonExpressionMethods).GetMethod("ARRAY");
-// */
 
 // endregion
 
@@ -386,76 +328,124 @@ pub fn parse_full_expression(
 
     // now, process operator in correct order
     while values.len() >= 2 {
-        let &(op, method, r#type) = &OPERATORS[order];
+        let &(op, ref method, r#type) = &OPERATORS[order];
         //let n = ops.iter().position(|o| o == op.0);
 
         if let Some(n) = ops.iter().position(|o| o == op) {
             // get left/right values to execute operator
-            let mut left = values.remove(n);
+            let left = values.remove(n);
             let right = values.remove(n);
 
             // test left/right scalar
-            let is_left_enum = op.starts_with("ALL") || op.starts_with("ANY");
+            let result = match method {
+                BinaryExpression::Unsupported => {
+                    return Err(LiteException::expr_error(&format!("{op} is unsupported")));
+                }
+                BinaryExpression::Sequence(method) => {
+                    let left = left.into_sequence();
+                    //if left.is_scalar() { return Err(LiteException::expr_error(&format!("Left expression `{}` must return multiples values", left.source))); }
+                    let right = right.into_scalar_or().map_err(|right| {
+                        LiteException::expr_error(&format!(
+                            "Right expression `{}` must return a single value",
+                            right.source
+                        ))
+                    })?;
 
-            if is_left_enum && left.is_scalar {
-                left = convert_to_enumerable(left);
-            }
-            //if is_left_enum && left.is_scalar { return Err(LiteException::expr_error(&format!("Left expression `{}` must return multiples values", left.source))); }
-            if !is_left_enum && !left.is_scalar {
-                return Err(LiteException::expr_error(&format!(
-                    "Left expression `{}` returns more than one result. Try use ANY or ALL before operant.",
-                    left.source
-                )));
-            }
-            if !is_left_enum && !right.is_scalar {
-                return Err(LiteException::expr_error(&format!(
-                    "Left expression `{}` must return a single value",
-                    right.source
-                )));
-            }
-            if !right.is_scalar {
-                return Err(LiteException::expr_error(&format!(
-                    "Right expression `{}` must return a single value",
-                    right.source
-                )));
-            }
+                    // when operation is AND/OR, use AndAlso|OrElse
+                    {
+                        // method call parameters
 
+                        let pre_space = if op.as_bytes()[0].is_ascii_alphabetic() {
+                            " "
+                        } else {
+                            ""
+                        };
+                        let post_space = if op.as_bytes()[op.len() - 1].is_ascii_alphabetic() {
+                            " "
+                        } else {
+                            ""
+                        };
 
-            // when operation is AND/OR, use AndAlso|OrElse
-            let result= if r#type == BsonExpressionType::And || r#type == BsonExpressionType::Or {
-                create_logic_expression(r#type, left, right)
-            } else {
-                // method call parameters
+                        // process result in a single value
+                        ScalarBsonExpression {
+                            r#type,
+                            //parameters: parameters,
+                            is_immutable: left.is_immutable && right.is_immutable,
+                            use_source: left.use_source || right.use_source,
+                            // is_scalar: true,
+                            fields: left
+                                .fields
+                                .iter()
+                                .cloned()
+                                .chain(right.fields.iter().cloned())
+                                .collect(),
+                            expression: method(left.expression.clone(), right.expression.clone()),
+                            source: format!(
+                                "{}{}{}{}{}",
+                                left.source, pre_space, op, post_space, right.source
+                            ),
+                            left: inner(left.into()),
+                            right: inner(right.into()),
+                        }
+                    }
+                }
+                BinaryExpression::Scalar(scalar) => {
+                    let left = left.into_scalar_or().map_err(|left| LiteException::expr_error(&format!(
+                        "Left expression `{}` returns more than one result. Try use ANY or ALL before operant.",
+                        left.source
+                    )))?;
 
-                let pre_space = if op.as_bytes()[0].is_ascii_alphabetic() { " " } else {""};
-                let post_space = if op.as_bytes()[op.len() - 1].is_ascii_alphabetic() { " " } else {""};
+                    let right = right.into_scalar_or().map_err(|right| {
+                        LiteException::expr_error(&format!(
+                            "Right expression `{}` must return a single value",
+                            right.source
+                        ))
+                    })?;
 
-                // process result in a single value
-                BsonExpression {
-                    r#type,
-                    //parameters: parameters,
-                    is_immutable: left.is_immutable && right.is_immutable,
-                    use_source: left.use_source || right.use_source,
-                    is_scalar: true,
-                    fields: left
-                        .fields
-                        .iter()
-                        .cloned()
-                        .chain(right.fields.iter().cloned())
-                        .collect(),
-                    expression: Expression::Binary(
-                        method,
-                        Box::new(left.expression.clone()),
-                        Box::new(right.expression.clone()),
-                    ),
-                    source: format!("{}{}{}{}{}", left.source, pre_space, op, post_space, right.source),
-                    left: inner(left),
-                    right: inner(right),
+                    // when operation is AND/OR, use AndAlso|OrElse
+                    if r#type == BsonExpressionType::And || r#type == BsonExpressionType::Or {
+                        create_logic_expression(r#type, left, right)
+                    } else {
+                        // method call parameters
+
+                        let pre_space = if op.as_bytes()[0].is_ascii_alphabetic() {
+                            " "
+                        } else {
+                            ""
+                        };
+                        let post_space = if op.as_bytes()[op.len() - 1].is_ascii_alphabetic() {
+                            " "
+                        } else {
+                            ""
+                        };
+
+                        // process result in a single value
+                        ScalarBsonExpression {
+                            r#type,
+                            //parameters: parameters,
+                            is_immutable: left.is_immutable && right.is_immutable,
+                            use_source: left.use_source || right.use_source,
+                            // is_scalar: true,
+                            fields: left
+                                .fields
+                                .iter()
+                                .cloned()
+                                .chain(right.fields.iter().cloned())
+                                .collect(),
+                            expression: scalar(left.expression.clone(), right.expression.clone()),
+                            source: format!(
+                                "{}{}{}{}{}",
+                                left.source, pre_space, op, post_space, right.source
+                            ),
+                            left: inner(left.into()),
+                            right: inner(right.into()),
+                        }
+                    }
                 }
             };
 
             // remove left+right and insert result
-            values.insert(n, result);
+            values.insert(n, result.into());
             //values.RemoveRange(n + 1, 2);
 
             // remove operation
@@ -518,7 +508,7 @@ pub fn ParseSelectDocumentBuilder(
 
         names.Add(alias);
 
-        if (!expr.is_scalar) { expr = convert_to_array(expr); }
+        if (!expr.is_scalar()) { expr = convert_to_array(expr); }
 
         fields.push((alias, expr));
     };
@@ -595,7 +585,7 @@ pub fn ParseSelectDocumentBuilder(
            //parameters: parameters,
            is_immutable: fields.All(x => x.value.is_immutable),
            use_source: fields.Any(x => x.value.use_source),
-           is_scalar: true,
+           // is_scalar: true,
            fields: HashSet::new().AddRange(fields.SelectMany(x => x.value.fields)),
            expression: expression.Call(_documentInitMethod, new expression[] { arrKeys, arrValues }),
            source: "{" + string.Join(",", fields.Select(x => x.Key + ":" + x.value.source)) + "}",
@@ -638,11 +628,9 @@ pub fn parse_update_document_builder(
 
         src.push(':');
 
-        let mut value = parse_full_expression(tokenizer, parameters, DocumentScope::Root)?;
+        let value = parse_full_expression(tokenizer, parameters, DocumentScope::Root)?;
 
-        if !value.is_scalar {
-            value = convert_to_array(value);
-        }
+        let value = value.into_scalar();
 
         // update is_immutable only when came false
         if !value.is_immutable {
@@ -671,14 +659,14 @@ pub fn parse_update_document_builder(
     src.push('}');
 
     // create linq expression for "{ doc }"
-    let doc_expr = Expression::DocumentInit(keys, values);
+    let doc_expr = operator::document_init(keys, values).into();
 
     Ok(BsonExpression {
         r#type: BsonExpressionType::Document,
         //parameters: parameters,
         is_immutable,
         use_source,
-        is_scalar: true,
+        // is_scalar: true,
         fields,
         expression: doc_expr,
         source: src,
@@ -710,14 +698,14 @@ fn try_parse_double(
     }
 
     if let Some(number) = value {
-        let constant = Expression::Constant(BsonValue::Double(number));
+        let constant = Expression::scalar(move |_| Ok(BsonValue::Double(number)));
 
         return Ok(Some(BsonExpression {
             r#type: BsonExpressionType::Double,
             //parameters = parameters,
             is_immutable: true,
             use_source: false,
-            is_scalar: true,
+            // is_scalar: true,
             fields: HashSet::new(),
             expression: constant,
             source: format!("{}", number),
@@ -750,14 +738,14 @@ fn try_parse_int(
 
     if let Some(i64) = value {
         if let Ok(i32) = i32::try_from(i64) {
-            let constant32 = Expression::Constant(BsonValue::Int32(i32));
+            let constant32 = Expression::scalar(move |_| Ok(BsonValue::Int32(i32)));
 
             return Ok(Some(BsonExpression {
                 r#type: BsonExpressionType::Int,
                 //parameters: parameters,
                 is_immutable: true,
                 use_source: false,
-                is_scalar: true,
+                // is_scalar: true,
                 fields: HashSet::new(),
                 expression: constant32,
                 source: format!("{i32}"),
@@ -766,14 +754,14 @@ fn try_parse_int(
             }));
         }
 
-        let constant64 = Expression::Constant(BsonValue::Int64(i64));
+        let constant64 = Expression::scalar(move |_| Ok(BsonValue::Int64(i64)));
 
         return Ok(Some(BsonExpression {
             r#type: BsonExpressionType::Int,
             //parameters: parameters,
             is_immutable: true,
             use_source: false,
-            is_scalar: true,
+            // is_scalar: true,
             fields: HashSet::new(),
             expression: constant64,
             source: format!("{i64}"),
@@ -792,14 +780,14 @@ fn try_parse_bool(tokenizer: &mut Tokenizer, _parameters: &BsonDocument) -> Opti
         && (tokenizer.current().is("true") || tokenizer.current().is("false"))
     {
         let boolean = tokenizer.current().value.eq_ignore_ascii_case("true");
-        let constant = Expression::Constant(BsonValue::Boolean(boolean));
+        let constant = Expression::scalar(move |_| Ok(BsonValue::Boolean(boolean)));
 
         return Some(BsonExpression {
             r#type: BsonExpressionType::Boolean,
             //parameters: parameters,
             is_immutable: true,
             use_source: false,
-            is_scalar: true,
+            // is_scalar: true,
             fields: HashSet::new(),
             expression: constant,
             source: format!("{}", boolean),
@@ -816,14 +804,14 @@ fn try_parse_bool(tokenizer: &mut Tokenizer, _parameters: &BsonDocument) -> Opti
 /// </summary>
 fn try_parse_null(tokenizer: &mut Tokenizer, _parameters: &BsonDocument) -> Option<BsonExpression> {
     if tokenizer.current().typ == TokenType::Word && tokenizer.current().is("null") {
-        let constant = Expression::Constant(BsonValue::Null);
+        let constant = Expression::scalar(|_| Ok(BsonValue::Null));
 
         return Some(BsonExpression {
             r#type: BsonExpressionType::Null,
             //parameters: parameters,
             is_immutable: true,
             use_source: false,
-            is_scalar: true,
+            // is_scalar: true,
             fields: HashSet::new(),
             expression: constant,
             source: "null".into(),
@@ -849,14 +837,14 @@ fn try_parse_string(
         append_quoted(&str, &mut source);
 
         let bstr = BsonValue::String(str);
-        let constant = Expression::Constant(bstr);
+        let constant = Expression::scalar(move |_| Ok(bstr.clone()));
 
         return Some(BsonExpression {
             r#type: BsonExpressionType::String,
             //parameters: parameters,
             is_immutable: true,
             use_source: false,
-            is_scalar: true,
+            // is_scalar: true,
             fields: HashSet::new(),
             expression: constant,
             source,
@@ -884,8 +872,8 @@ fn try_parse_document(
     }
 
     // read key value
-    let mut keys = vec![];
-    let mut values = vec![];
+    let mut keys: Vec<String> = vec![];
+    let mut values: Vec<ScalarExpr> = vec![];
     let mut src = String::new();
     let mut is_immutable = true;
     let mut use_source = false;
@@ -908,7 +896,7 @@ fn try_parse_document(
 
             src.push(':');
 
-            let mut value;
+            let value;
 
             // test normal notation { a: 1 }
             if tokenizer.current().typ == TokenType::Colon {
@@ -925,9 +913,9 @@ fn try_parse_document(
                     //parameters: parameters,
                     is_immutable,
                     use_source,
-                    is_scalar: true,
+                    // is_scalar: true,
                     fields: HashSet::from([CaseInsensitiveString(key.clone())]),
-                    expression: Expression::Member(Box::new(Expression::Root), key.clone()),
+                    expression: operator::member_path(operator::root(), key.clone()).into(),
                     source: if fname.is_word() {
                         format!("$.{fname}")
                     } else {
@@ -939,9 +927,7 @@ fn try_parse_document(
             }
 
             // document value must be a scalar value
-            if !value.is_scalar {
-                value = convert_to_array(value);
-            }
+            let value = value.into_scalar();
 
             // update is_immutable only when came false
             if !value.is_immutable {
@@ -979,9 +965,9 @@ fn try_parse_document(
         //parameters: parameters,
         is_immutable,
         use_source,
-        is_scalar: true,
+        // is_scalar: true,
         fields,
-        expression: Expression::DocumentInit(keys, values),
+        expression: operator::document_init(keys, values).into(),
         source: src,
         left: None,
         right: None,
@@ -1000,14 +986,14 @@ fn try_parse_source(
         return Ok(None);
     }
 
-    let source_expr = BsonExpression {
+    let source_expr = SequenceBsonExpression {
         r#type: BsonExpressionType::Source,
         //parameters: parameters,
         is_immutable: true,
         use_source: true,
-        is_scalar: false,
+        // is_scalar: false,
         fields: HashSet::from([CaseInsensitiveString("$".into())]),
-        expression: Expression::Source,
+        expression: sequence(), //Expression::Source,
         source: "*".into(),
         left: None,
         right: None,
@@ -1026,15 +1012,15 @@ fn try_parse_source(
             //parameters: parameters,
             is_immutable: path_expr.is_immutable,
             use_source: true,
-            is_scalar: false,
+            // is_scalar: false,
             fields: path_expr.fields.clone(),
             source: format!("MAP(*=>{})", path_expr.source),
-            expression: Expression::Map(Box::new(source_expr.expression), Box::new(path_expr)),
+            expression: sequence(), //Expression::Map(Box::new(source_expr.expression), Box::new(path_expr)),
             left: None,
             right: None,
         }))
     } else {
-        Ok(Some(source_expr))
+        Ok(Some(source_expr.into()))
     }
 }
 
@@ -1064,12 +1050,10 @@ fn try_parse_array(
     } else {
         while !tokenizer.check_eof()? {
             // read value expression
-            let mut value = parse_full_expression(tokenizer, parameters, scope)?;
+            let value = parse_full_expression(tokenizer, parameters, scope)?;
 
             // document value must be a scalar value
-            if !value.is_scalar {
-                value = convert_to_array(value);
-            }
+            let value = value.into_scalar();
 
             src.push_str(&value.source);
 
@@ -1104,9 +1088,9 @@ fn try_parse_array(
         //parameters: parameters,
         is_immutable,
         use_source,
-        is_scalar: true,
+        // is_scalar: true,
         fields,
-        expression: Expression::ArrayInit(values),
+        expression: operator::array_init(values).into(),
         source: src,
         left: None,
         right: None,
@@ -1118,7 +1102,7 @@ fn try_parse_array(
 /// </summary>
 fn try_parse_parameter(
     tokenizer: &mut Tokenizer,
-    __parameters: &BsonDocument,
+    _parameters: &BsonDocument,
     _scope: DocumentScope,
 ) -> Option<BsonExpression> {
     if tokenizer.current().typ != TokenType::At {
@@ -1135,10 +1119,10 @@ fn try_parse_parameter(
             //parameters: parameters,
             is_immutable: false,
             use_source: false,
-            is_scalar: true,
+            // is_scalar: true,
             fields: HashSet::new(),
             source: format!("@{parameter_name}"),
-            expression: Expression::ParameterPath(parameter_name),
+            expression: operator::parameter_path(parameter_name).into(),
             left: None,
             right: None,
         })
@@ -1172,7 +1156,7 @@ fn try_parse_inner_expression(
         //parameters: inner.parameters,
         is_immutable: inner.is_immutable,
         use_source: inner.use_source,
-        is_scalar: inner.is_scalar,
+        // is_scalar: inner.is_scalar(),
         fields: inner.fields,
         expression: inner.expression,
         left: inner.left,
@@ -1265,8 +1249,12 @@ fn try_parse_method_call(
 
     // special IIF case
     if method.name == "IIF" && pars.len() == 3 {
-        let [test, if_true, if_false] = pars.try_into().unwrap();
-        return Ok(Some(create_conditional_expression(test, if_true, if_false)));
+        let [test, if_true, if_false]: [BsonExpression; 3] = pars.try_into().unwrap();
+        return Ok(Some(create_conditional_expression(
+            test.into_scalar(),
+            if_true.into_scalar(),
+            if_false.into_scalar(),
+        )));
     }
 
     // method call arguments
@@ -1274,10 +1262,10 @@ fn try_parse_method_call(
 
     // getting linq expression from BsonExpression for all parameters
     for (parameter, expr) in method.parameters.iter().zip(pars) {
-        if !parameter.is_enumerable() && !expr.is_scalar {
+        if !parameter.is_enumerable() && !expr.is_scalar() {
             // convert enumerable expresion into scalar expression
-            args.push(convert_to_array(expr).expression);
-        } else if parameter.is_enumerable() && expr.is_scalar {
+            //TODO: args.push(convert_to_array(expr).expression);
+        } else if parameter.is_enumerable() && expr.is_scalar() {
             // convert scalar expression into enumerable expression
             args.push(convert_to_enumerable(expr).expression);
         } else {
@@ -1290,9 +1278,9 @@ fn try_parse_method_call(
         //parameters: parameters,
         is_immutable,
         use_source,
-        is_scalar: !method.is_enumerable,
+        // is_scalar: !method.is_enumerable,
         fields,
-        expression: Expression::Method(method.name, args),
+        expression: sequence(), //Expression::Method(method.name, args),
         source: src,
         left: None,
         right: None,
@@ -1346,12 +1334,12 @@ fn try_parse_path(
 
     // read field name (or "" if root)
     let field = read_field(tokenizer, &mut src)?;
-    let mut expr = Expression::Member(
-        Box::new(if default_scope == TokenType::Dollar {
-            Expression::Root
+    let mut expr = operator::member_path(
+        if default_scope == TokenType::Dollar {
+            operator::root()
         } else {
-            Expression::Current
-        }),
+            operator::current()
+        },
         field.clone(),
     );
 
@@ -1365,37 +1353,41 @@ fn try_parse_path(
     }
 
     // parse the rest of path
-    while !tokenizer.eof() {
-        let result = parse_path(
+    let expr: Expression = loop {
+        if tokenizer.eof() {
+            break expr.into();
+        };
+        let result = match parse_path(
             tokenizer,
-            expr.clone(),
+            expr,
             parameters,
             &mut fields,
             &mut is_immutable,
             &mut use_source,
             &mut is_scalar,
             &mut src,
-        )?;
-
-        // filter method must exit
-        let Some(result) = result else {
-            break;
+        )? {
+            Ok(expr) => expr,
+            Err(expr) => break expr.into(),
         };
 
-        if !is_scalar {
-            expr = result;
-            break;
+        match result {
+            Expression::Scalar(result) => {
+                expr = result;
+                continue;
+            }
+            Expression::Sequence(result) => {
+                break result.into();
+            }
         }
-
-        expr = result;
-    }
+    };
 
     let path_expr = BsonExpression {
         r#type: BsonExpressionType::Path,
         //parameters: parameters,
         is_immutable,
         use_source,
-        is_scalar,
+        //is_scalar,
         fields,
         expression: expr,
         source: src,
@@ -1416,14 +1408,14 @@ fn try_parse_path(
             //parameters: parameters,
             is_immutable: path_expr.is_immutable && map_expr.is_immutable,
             use_source: path_expr.use_source || map_expr.use_source,
-            is_scalar: false,
+            // is_scalar: false,
             fields: path_expr
                 .fields
                 .into_iter()
                 .chain(map_expr.fields.iter().cloned())
                 .collect(),
             source: format!("MAP({}=>{})", path_expr.source, map_expr.source),
-            expression: Expression::Map(Box::new(path_expr.expression), Box::new(map_expr)),
+            expression: sequence(), //Expression::Map(Box::new(path_expr.expression), Box::new(map_expr)),
             left: None,
             right: None,
         }))
@@ -1437,14 +1429,14 @@ fn try_parse_path(
 /// </summary>
 fn parse_path(
     tokenizer: &mut Tokenizer,
-    expr: Expression,
+    expr: ScalarExpr,
     parameters: &BsonDocument,
     fields: &mut HashSet<CaseInsensitiveString>,
     is_immutable: &mut bool,
     use_source: &mut bool,
     is_scalar: &mut bool,
     src: &mut String,
-) -> Result<Option<Expression>> {
+) -> Result<Result<Expression, ScalarExpr>> {
     let mut ahead = tokenizer.look_ahead_with_whitespace();
 
     if ahead.typ == TokenType::Period {
@@ -1453,10 +1445,9 @@ fn parse_path(
 
         let field = read_field(tokenizer, src)?;
 
-        Ok(Some(Expression::Member(Box::new(expr), field)))
-    } else if ahead.typ == TokenType::OpenBracket
-    // array
-    {
+        Ok(Ok(operator::member_path(expr, field).into()))
+    } else if ahead.typ == TokenType::OpenBracket {
+        // array
         src.push('[');
 
         tokenizer.read_token(); // read [
@@ -1479,12 +1470,14 @@ fn parse_path(
 
             src.push(']');
 
-            Ok(Some(Expression::ArrayIndex(Box::new(expr), index)))
+            Ok(Ok(
+                operator::array_index_positive(expr, index as usize).into()
+            ))
         } else if ahead.typ == TokenType::Minus {
             // fixed negative index
             src.push_str(&tokenizer.read_token().value);
             src.push_str(&tokenizer.read_token().expect_type([TokenType::Int])?.value);
-            index = -tokenizer.current().value.parse::<i32>()?;
+            index = tokenizer.current().value.parse::<i32>()?;
 
             // read ]
             tokenizer
@@ -1493,7 +1486,9 @@ fn parse_path(
 
             src.push(']');
 
-            Ok(Some(Expression::ArrayIndex(Box::new(expr), index)))
+            Ok(Ok(
+                operator::array_index_negative(expr, index as usize).into()
+            ))
         } else if ahead.typ == TokenType::Asterisk {
             // all items * (index = MaxValue)
             //method = _arrayFilterMethod;
@@ -1509,7 +1504,8 @@ fn parse_path(
 
             src.push(']');
 
-            Ok(Some(Expression::ArrayAsterisk(Box::new(expr))))
+            //Ok(Some(Expression::ArrayAsterisk(Box::new(expr))))
+            sequence()
         } else {
             // inner expression
             inner = parse_full_expression(tokenizer, parameters, DocumentScope::Current)?;
@@ -1542,10 +1538,11 @@ fn parse_path(
 
                 src.push(']');
 
-                Ok(Some(Expression::ArrayIndexExpr(
-                    Box::new(expr),
-                    Box::new(inner),
-                )))
+                sequence()
+                //Ok(Some(Expression::ArrayIndexExpr(
+                //    Box::new(expr),
+                //    Box::new(inner),
+                //)))
             } else {
                 // add inner fields (can contains root call)
                 fields.extend(inner.fields.iter().cloned());
@@ -1559,14 +1556,15 @@ fn parse_path(
 
                 src.push(']');
 
-                Ok(Some(Expression::ArrayAsteriskFilter(
-                    Box::new(expr),
-                    Box::new(inner),
-                )))
+                let Expression::Scalar(index) = inner.expression else {
+                    unreachable!()
+                };
+
+                Ok(Ok(operator::array_index_expr(expr, index).into()))
             }
         }
     } else {
-        Ok(None)
+        Ok(Err(expr))
     }
 }
 
@@ -1631,7 +1629,7 @@ fn parse_function(
     let mut left = parse_single_expression(tokenizer, parameters, scope)?;
 
     // if left is a scalar expression, convert into enumerable expression (avoid to use [*] all the time)
-    if left.is_scalar {
+    if left.is_scalar() {
         left = convert_to_enumerable(left);
     }
 
@@ -1703,14 +1701,16 @@ fn parse_function(
         .expect_type([TokenType::CloseParenthesis])?;
     src.push(')');
 
+    drop(closure); // sequence
+
     Ok(Some(BsonExpression {
         r#type,
         //parameters: parameters,
         is_immutable,
         use_source,
-        is_scalar: false,
+        // is_scalar: false,
         fields,
-        expression: Expression::Function(function_name, Box::new(left.expression), closure, args),
+        expression: sequence(), //Expression::Function(function_name, Box::new(left.expression), closure, args),
         source: src,
         left: None,
         right: None,
@@ -1721,30 +1721,29 @@ fn parse_function(
 /// Create an array expression with 2 values (used only in BETWEEN statement)
 /// </summary>
 fn new_array(item0: BsonExpression, item1: BsonExpression) -> Result<BsonExpression> {
-    let values = vec![item0.expression, item1.expression];
-
     // both values must be scalar expressions
-    if !item0.is_scalar {
-        return Err(LiteException::expr_error(&format!(
+    let item0 = item0.into_scalar_or().map_err(|item0| {
+        LiteException::expr_error(&format!(
             "Expression `{}` must be a scalar expression",
             item0.source
-        )));
-    }
-    if !item1.is_scalar {
-        return Err(LiteException::expr_error(&format!(
+        ))
+    })?;
+    let item1 = item1.into_scalar_or().map_err(|item1| {
+        LiteException::expr_error(&format!(
             "Expression `{}` must be a scalar expression",
-            item0.source
-        )));
-    }
+            item1.source
+        ))
+    })?;
 
     Ok(BsonExpression {
         r#type: BsonExpressionType::Array,
         //parameters: item0.parameters, // should be == item1.parameters
         is_immutable: item0.is_immutable && item1.is_immutable,
         use_source: item0.use_source || item1.use_source,
-        is_scalar: true,
+        // is_scalar: true,
         fields: item0.fields.into_iter().chain(item1.fields).collect(),
-        expression: Expression::ArrayInit(values),
+        expression: operator::array_init(vec![item0.expression.clone(), item1.expression.clone()])
+            .into(),
         source: format!("{} AND {}", item0.source, item1.source),
         left: None,
         right: None,
@@ -1870,9 +1869,9 @@ fn convert_to_enumerable(expr: BsonExpression) -> BsonExpression {
         //parameters: expr.parameters,
         is_immutable: expr.is_immutable,
         use_source: expr.use_source,
-        is_scalar: false,
+        // is_scalar: false,
         fields: expr.fields,
-        expression: Expression::Items(Box::new(expr.expression)),
+        expression: sequence(), //Expression::Items(Box::new(expr.expression)),
         source: src,
         left: None,
         right: None,
@@ -1882,18 +1881,66 @@ fn convert_to_enumerable(expr: BsonExpression) -> BsonExpression {
 /// <summary>
 /// Convert enumerable expression into array using ARRAY(...) method
 /// </summary>
-fn convert_to_array(expr: BsonExpression) -> BsonExpression {
+fn convert_to_array(expr: SequenceBsonExpression) -> BsonExpression {
     BsonExpression {
         r#type: BsonExpressionType::Call,
         //parameters: expr.parameters,
         is_immutable: expr.is_immutable,
         use_source: expr.use_source,
-        is_scalar: true,
+        // is_scalar: true,
         fields: expr.fields,
-        expression: Expression::Method("ARRAY", vec![expr.expression]),
+        expression: sequence(), //Expression::Method("ARRAY", vec![expr.expression]),
         source: format!("ARRAY({})", expr.source),
         left: None,
         right: None,
+    }
+}
+
+impl BsonExpression {
+    fn into_sequence(self) -> SequenceBsonExpression {
+        self.into_sequence_or().unwrap_or_else(|expr| {
+            let src = if expr.r#type == BsonExpressionType::Path {
+                format!("{}[*]", expr.source)
+            } else {
+                format!("ITEMS({})", expr.source)
+            };
+
+            let expr_type = if expr.r#type == BsonExpressionType::Path {
+                BsonExpressionType::Path
+            } else {
+                BsonExpressionType::Call
+            };
+
+            BsonExpression {
+                r#type: expr_type,
+                //parameters: expr.parameters,
+                is_immutable: expr.is_immutable,
+                use_source: expr.use_source,
+                // is_scalar: false,
+                fields: expr.fields,
+                expression: sequence(), //Expression::Items(Box::new(expr.expression)),
+                source: src,
+                left: None,
+                right: None,
+            }
+        })
+    }
+
+    fn into_scalar(self) -> ScalarBsonExpression {
+        self.into_scalar_or().unwrap_or_else(|expr| {
+            ScalarBsonExpression {
+                r#type: BsonExpressionType::Call,
+                //parameters: self.parameters,
+                is_immutable: expr.is_immutable,
+                use_source: expr.use_source,
+                // is_scalar: true,
+                fields: expr.fields,
+                expression: sequence(), // scalar_expr(|ctx| bson::Array::from(expr.expression(ctx).collect::<Vec<_>>()).into()),
+                source: format!("ARRAY({})", expr.source),
+                left: None,
+                right: None,
+            }
+        })
     }
 }
 
@@ -1902,17 +1949,35 @@ fn convert_to_array(expr: BsonExpression) -> BsonExpression {
 /// </summary>
 pub(super) fn create_logic_expression(
     r#type: BsonExpressionType,
-    left: BsonExpression,
-    right: BsonExpression,
-) -> BsonExpression {
+    left: ScalarBsonExpression,
+    right: ScalarBsonExpression,
+) -> ScalarBsonExpression {
     // convert BsonValue into Boolean
     let bool_left = left.expression.clone();
     let bool_right = right.expression.clone();
 
     let expr = if r#type == BsonExpressionType::And {
-        Expression::AndAlso(Box::new(bool_left), Box::new(bool_right))
+        scalar_expr(move |ctx| {
+            Ok(bson::Value::Boolean(
+                bool_left(ctx)?
+                    .as_bool()
+                    .ok_or_else(|| expr_error("left of AND is not bool"))?
+                    && bool_right(ctx)?
+                        .as_bool()
+                        .ok_or_else(|| expr_error("right of AND is not bool"))?,
+            ))
+        })
     } else {
-        Expression::OrElse(Box::new(bool_left), Box::new(bool_right))
+        scalar_expr(move |ctx| {
+            Ok(bson::Value::Boolean(
+                bool_left(ctx)?
+                    .as_bool()
+                    .ok_or_else(|| expr_error("left of OR is not bool"))?
+                    || bool_right(ctx)?
+                        .as_bool()
+                        .ok_or_else(|| expr_error("right of OR is not bool"))?,
+            ))
+        })
     };
 
     let operator = if r#type == BsonExpressionType::And {
@@ -1927,12 +1992,12 @@ pub(super) fn create_logic_expression(
     //    .First(x => x.GetParameters().FirstOrDefault()?.ParameterType == typeof(bool));
 
     // create new binary expression based in 2 other expressions
-    BsonExpression {
+    ScalarBsonExpression {
         r#type,
         //parameters: left.parameters, // should be == right.parameters
         is_immutable: left.is_immutable && right.is_immutable,
         use_source: left.use_source || right.use_source,
-        is_scalar: left.is_scalar && right.is_scalar,
+        // is_scalar: left.is_scalar() && right.is_scalar(),
         fields: left
             .fields
             .iter()
@@ -1941,8 +2006,8 @@ pub(super) fn create_logic_expression(
             .collect(),
         expression: expr,
         source: format!("{} {} {}", left.source, operator, right.source),
-        left: inner(left),
-        right: inner(right),
+        left: inner(left.into()),
+        right: inner(right.into()),
     }
 }
 
@@ -1950,16 +2015,25 @@ pub(super) fn create_logic_expression(
 /// Create new conditional (IIF) expression. Execute expression only if True or False value
 /// </summary>
 pub(super) fn create_conditional_expression(
-    test: BsonExpression,
-    if_true: BsonExpression,
-    if_false: BsonExpression,
+    test: ScalarBsonExpression,
+    if_true: ScalarBsonExpression,
+    if_false: ScalarBsonExpression,
 ) -> BsonExpression {
     // convert BsonValue into Boolean
-    let expr = Expression::Condition(
-        Box::new(test.expression),
-        Box::new(if_true.expression),
-        Box::new(if_false.expression),
-    );
+    let text_expr = test.expression;
+    let if_true_expr = if_true.expression;
+    let if_false_expr = if_false.expression;
+    let expr = Expression::scalar(move |ctx| {
+        let test = text_expr(ctx)?;
+        let test = test
+            .as_bool()
+            .ok_or_else(|| expr_error("first argument of IFF is not bool"))?;
+        if test {
+            if_true_expr(ctx)
+        } else {
+            if_false_expr(ctx)
+        }
+    });
 
     // create new binary expression based in 2 other expressions
     BsonExpression {
@@ -1967,7 +2041,7 @@ pub(super) fn create_conditional_expression(
         //parameters: test.parameters, // should be == if_true|if_false parameters
         is_immutable: test.is_immutable && if_true.is_immutable || if_false.is_immutable,
         use_source: test.use_source || if_true.use_source || if_false.use_source,
-        is_scalar: test.is_scalar && if_true.is_scalar && if_false.is_scalar,
+        // is_scalar: test.is_scalar() && if_true.is_scalar() && if_false.is_scalar(),
         fields: test
             .fields
             .into_iter()
