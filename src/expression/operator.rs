@@ -1,5 +1,5 @@
 use super::*;
-use crate::bson::{Decimal128, Value};
+use crate::bson::Value;
 
 // non operators
 
@@ -34,40 +34,6 @@ macro_rules! binary {
     };
 }
 
-fn float_to_decimal(f: f64) -> crate::Result<Decimal128> {
-    f.try_into()
-        .map_err(|_| Error::expr_run_error("overflow converting double to decimal"))
-}
-
-macro_rules! math {
-    ($left: ident, $right: ident: $operator: tt) => {
-        match ($left, $right) {
-            (&Value::Int32(l), &Value::Int32(r)) => Value::Int32(l $operator r),
-
-            (&Value::Int64(l), &Value::Int32(r)) => Value::Int64(l $operator r as i64),
-            (&Value::Int32(l), &Value::Int64(r)) => Value::Int64(l as i64 $operator r),
-            (&Value::Int64(l), &Value::Int64(r)) => Value::Int64(l $operator r),
-
-            (&Value::Double(l), &Value::Int32(r)) => Value::Double(l $operator r as f64),
-            (&Value::Double(l), &Value::Int64(r)) => Value::Double(l $operator r as f64),
-            (&Value::Int32(l), &Value::Double(r)) => Value::Double(l as f64 $operator r),
-            (&Value::Int64(l), &Value::Double(r)) => Value::Double(l as f64 $operator r),
-            (&Value::Double(l), &Value::Double(r)) => Value::Double(l $operator r),
-
-
-            (&Value::Decimal(l), &Value::Int32(r)) => Value::Decimal(l $operator Decimal128::from(r)),
-            (&Value::Decimal(l), &Value::Int64(r)) => Value::Decimal(l $operator Decimal128::from(r)),
-            (&Value::Decimal(l), &Value::Double(r)) => Value::Decimal(l $operator float_to_decimal(r)?),
-            (&Value::Int32(l), &Value::Decimal(r)) => Value::Decimal(Decimal128::from(l) $operator r),
-            (&Value::Int64(l), &Value::Decimal(r)) => Value::Decimal(Decimal128::from(l) $operator r),
-            (&Value::Double(l), &Value::Decimal(r)) => Value::Decimal(float_to_decimal(l)? $operator r),
-            (&Value::Decimal(l), &Value::Decimal(r)) => Value::Decimal(l $operator r),
-
-            _ => Value::Null,
-        }
-    };
-}
-
 binary!(add, |left, right| {
     match (left, right) {
         // if both sides are string, concat
@@ -76,84 +42,43 @@ binary!(add, |left, right| {
         (l, Value::String(r)) => Value::String(format!("{}{r}", methods::string_impl(l))),
         (Value::String(l), r) => Value::String(format!("{l}{}", methods::string_impl(r))),
         // if any side are DateTime and another is number, add days in date
-        (&Value::DateTime(t), &Value::Int32(d)) => Value::DateTime(t.add_ticks(d as i64)),
-        (&Value::DateTime(t), &Value::Int64(d)) => Value::DateTime(t.add_ticks(d)),
-        (&Value::DateTime(t), &Value::Double(d)) => Value::DateTime(t.add_ticks(d as i64)),
-        (&Value::DateTime(t), &Value::Decimal(d)) => Value::DateTime(
+        (&Value::DateTime(t), v) if v.is_number() => Value::DateTime(t.add_ticks(v.to_i64().ok_or_else(|| Error::expr_run_error("overflows"))?)),
+        (v, &Value::DateTime(t)) if v.is_number() => Value::DateTime(
             t.add_ticks(
-                d.to_i64()
-                    .ok_or_else(|| Error::expr_run_error("overflows"))?,
-            ),
-        ),
-        (&Value::Int32(d), &Value::DateTime(t)) => Value::DateTime(t.add_ticks(d as i64)),
-        (&Value::Int64(d), &Value::DateTime(t)) => Value::DateTime(t.add_ticks(d)),
-        (&Value::Double(d), &Value::DateTime(t)) => Value::DateTime(t.add_ticks(d as i64)),
-        (&Value::Decimal(d), &Value::DateTime(t)) => Value::DateTime(
-            t.add_ticks(
-                d.to_i64()
-                    .ok_or_else(|| Error::expr_run_error("overflows"))?,
+                v.to_i64().ok_or_else(|| Error::expr_run_error("overflows"))?,
             ),
         ),
 
         // if both sides are number, add as math
-        (l, r) => math!(l, r: +),
+        (l, r) => l + r,
     }
 });
 
 binary!(minus, |left, right| {
     match (left, right) {
         // if any side are DateTime and another is number, add days in date
-        (Value::DateTime(t), Value::Int32(d)) => Value::DateTime(t.add_ticks(-d as i64)),
-        (Value::DateTime(t), Value::Int64(d)) => Value::DateTime(t.add_ticks(-d)),
-        (Value::DateTime(t), Value::Double(d)) => Value::DateTime(t.add_ticks(-d as i64)),
-        (Value::DateTime(t), Value::Decimal(d)) => Value::DateTime(
-            t.add_ticks(
-                -d.to_i64()
-                    .ok_or_else(|| Error::expr_run_error("overflows"))?,
-            ),
-        ),
-        (Value::Int32(d), Value::DateTime(t)) => Value::DateTime(t.add_ticks(-d as i64)),
-        (Value::Int64(d), Value::DateTime(t)) => Value::DateTime(t.add_ticks(-d)),
-        (Value::Double(d), Value::DateTime(t)) => Value::DateTime(t.add_ticks(-d as i64)),
-        (Value::Decimal(d), Value::DateTime(t)) => Value::DateTime(
-            t.add_ticks(
-                -d.to_i64()
-                    .ok_or_else(|| Error::expr_run_error("overflows"))?,
-            ),
-        ),
-
+        (Value::DateTime(t), v) if v.is_number() => Value::DateTime(t.add_ticks(-v.to_i64().ok_or_else(|| Error::expr_run_error("overflows"))?)),
+        (v, Value::DateTime(t)) if v.is_number() => Value::DateTime(t.add_ticks(-v.to_i64().ok_or_else(|| Error::expr_run_error("overflows"))?)),
         // if both sides are number, minus as math
-        (l, r) => math!(l, r: -),
+        (l, r) => l - r,
     }
 });
 
-binary!(multiply, |left, right| math!(left, right: *));
+binary!(multiply, |left, right| left * right);
 
-binary!(divide, |left, right| math!(left, right: /));
+binary!(divide, |left, right| left / right);
 
 binary!(r#mod, |left, right| {
-    let left = match *left {
-        Value::Int32(v) => v,
-        Value::Int64(v) => v
-            .try_into()
-            .map_err(|_| Error::expr_run_error("overflows"))?,
-        Value::Double(v) => v as i32,
-        Value::Decimal(v) => v
-            .to_i32()
-            .ok_or_else(|| Error::expr_run_error("overflows"))?,
-        _ => return Ok(&Value::Null),
+    let left = if left.is_number() {
+        left.to_i32().ok_or_else(|| Error::expr_run_error("overflows"))?
+    } else {
+        return Ok(&Value::Null)
     };
-
-    let right = match *right {
-        Value::Int32(v) => v,
-        Value::Int64(v) => v
-            .try_into()
-            .map_err(|_| Error::expr_run_error("overflows"))?,
-        Value::Double(v) => v as i32,
-        Value::Decimal(v) => v
-            .to_i32()
-            .ok_or_else(|| Error::expr_run_error("overflows"))?,
-        _ => return Ok(&Value::Null),
+    
+    let right = if right.is_number() {
+        right.to_i32().ok_or_else(|| Error::expr_run_error("overflows"))?
+    } else {
+        return Ok(&Value::Null)
     };
 
     Value::Int32(left % right)

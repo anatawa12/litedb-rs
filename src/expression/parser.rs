@@ -1934,7 +1934,7 @@ fn convert_to_array(expr: SequenceBsonExpression) -> BsonExpression {
 }
 
 impl BsonExpression {
-    fn into_sequence(self) -> SequenceBsonExpression {
+    pub(super) fn into_sequence(self) -> SequenceBsonExpression {
         self.into_sequence_or().unwrap_or_else(|expr| {
             let src = if expr.r#type == BsonExpressionType::Path {
                 format!("{}[*]", expr.source)
@@ -1963,7 +1963,7 @@ impl BsonExpression {
         })
     }
 
-    fn into_scalar(self) -> ScalarBsonExpression {
+    pub(super) fn into_scalar(self) -> ScalarBsonExpression {
         self.into_scalar_or().unwrap_or_else(|expr| {
             ScalarBsonExpression {
                 r#type: BsonExpressionType::Call,

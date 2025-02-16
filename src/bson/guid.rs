@@ -9,6 +9,13 @@ pub struct Guid {
 }
 
 impl Guid {
+    pub fn new() -> Guid {
+        let mut bytes = rand::random::<[u8; 16]>();
+        bytes[6] = bytes[6] & 0x0F | 0x40;
+        bytes[8] = bytes[8] & 0x3F | 0x80;
+        Guid::from_bytes(bytes)
+    }
+
     pub fn from_bytes(bytes: [u8; 16]) -> Guid {
         Guid { bytes }
     }

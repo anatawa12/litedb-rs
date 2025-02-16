@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, SystemTime};
+use crate::bson::Value;
 
 /// DateTime in litedb bson
 ///
@@ -27,6 +28,7 @@ const DAYS_PER_4_YEAR: u32 = DAYS_PER_NORMAL_YEAR * 4 + 1; // there is one leap 
 const DAYS_PER_NORMAL_100_YEAR: u32 = DAYS_PER_4_YEAR * 25 - 1; // there is one missing leap year per 100 year
 const DAYS_PER_400_YEAR: u32 = DAYS_PER_NORMAL_100_YEAR * 4 + 1; // there is one extra leap year per 400 year.
 
+const TICKS_PER_DAY: u64 = TICKS_PER_SECOND * SECONDS_PER_MINUTE * MINUTES_PER_HOUR * HOURS_PER_DAY;
 const TICKS_PER_MILLISECOND: u64 = 10_000;
 const TICKS_PER_SECOND: u64 = 10_000_000;
 
@@ -42,6 +44,12 @@ impl DateTime {
     pub fn now() -> Self {
         // current time very unlikey to not exceed MAX_TICKS / MIN_TICKS so unwrap here.
         Self::from_system(SystemTime::now()).unwrap()
+    }
+
+    pub fn today() -> Self {
+        let mut date_time = Self::now();
+        date_time.0 = date_time.0 / TICKS_PER_DAY * TICKS_PER_DAY;
+        date_time
     }
 
     /// Creates new DateTime represents exactly the same time as the [`SystemTime`]
@@ -89,6 +97,56 @@ impl DateTime {
         } else {
             Some(DateTime(ticks))
         }
+    }
+
+    pub fn from_ymd(year: u32, month: u32, day: u32) -> Option<DateTime> {
+        Self::from_ymd_tick(year, month, day, 0)
+    }
+
+    fn from_ymd_tick(year: u32, month: u32, day: u32, ticks: u64) -> Option<DateTime> {
+        if year < 1 || year > 9999 {
+            return None;
+        }
+        if month < 1 || month > 12 {
+            return None;
+        }
+
+        let is_leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+        let max_days = if is_leap {
+            [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        } else {
+            [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        };
+        if day < 1 || day > max_days[(month - 1) as usize] {
+            return None;
+        }
+
+        let days = {
+            // leap years are last of 400/100/4 year0
+            let year0 = (year as u64) - 1;
+            let number_of_400_years = year0 / 400;
+            let years_in_400_years = year0 % 400;
+            let number_of_100_years = years_in_400_years / 100;
+            let years_in_100_years = years_in_400_years % 100;
+            let number_of_4_years = years_in_100_years / 4;
+            let years_in_4_years = years_in_100_years % 4;
+
+            let year_days = number_of_400_years * DAYS_PER_400_YEAR as u64
+                + number_of_100_years * DAYS_PER_NORMAL_100_YEAR as u64
+                + number_of_4_years * DAYS_PER_4_YEAR as u64
+                + years_in_4_years * DAYS_PER_NORMAL_YEAR as u64;
+
+            let month_start = if is_leap {
+                &[0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
+            } else {
+                &[0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+            };
+
+            (year_days + month_start[(month - 1) as usize] + (day as u64 - 1))
+        };
+        let day_ticks = days * (24 * 60 * 60 * TICKS_PER_SECOND);
+
+        DateTime::from_ticks(day_ticks + ticks)
     }
 
     /// Get the total ticks since 0001-01-01 00:00:00
@@ -189,23 +247,6 @@ impl DateTime {
         let minute = parse_u64!(&minute_part);
         let second = parse_u64!(&second_part);
 
-        if year < 1 || year > 9999 {
-            return None;
-        }
-        if month < 1 || month > 12 {
-            return None;
-        }
-
-        let is_leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-        let max_days = if is_leap {
-            [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        } else {
-            [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        };
-        if day < 1 || day > max_days[(month - 1) as usize] {
-            return None;
-        }
-
         if hour > 23 {
             return None;
         }
@@ -248,32 +289,7 @@ impl DateTime {
         let in_day_seconds = hour * (60 * 60) + minute * 60 + second;
         let in_day_ticks = in_day_seconds * TICKS_PER_SECOND;
 
-        let days = {
-            // leap years are last of 400/100/4 year0
-            let year0 = year - 1;
-            let number_of_400_years = year0 / 400;
-            let years_in_400_years = year0 % 400;
-            let number_of_100_years = years_in_400_years / 100;
-            let years_in_100_years = years_in_400_years % 100;
-            let number_of_4_years = years_in_100_years / 4;
-            let years_in_4_years = years_in_100_years % 4;
-
-            let year_days = number_of_400_years * DAYS_PER_400_YEAR as u64
-                + number_of_100_years * DAYS_PER_NORMAL_100_YEAR as u64
-                + number_of_4_years * DAYS_PER_4_YEAR as u64
-                + years_in_4_years * DAYS_PER_NORMAL_YEAR as u64;
-
-            let month_start = if is_leap {
-                &[0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
-            } else {
-                &[0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-            };
-
-            year_days + month_start[(month - 1) as usize] + (day - 1)
-        };
-        let day_ticks = days * (24 * 60 * 60 * TICKS_PER_SECOND);
-
-        DateTime::from_ticks(day_ticks + in_day_ticks + ticks)
+        DateTime::from_ymd_tick(year as u32, month as u32, day as u32, in_day_ticks + ticks)
     }
 
     pub fn add_ticks(&self, diff: i64) -> DateTime {

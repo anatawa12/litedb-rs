@@ -266,6 +266,14 @@ impl Decimal128 {
         self.mantissa() as i128 * if self.is_negative() { -1 } else { 1 }
     }
 
+    pub fn to_f64(&self) -> f64 {
+        let mut mantissa = self.mantissa_signed() as f64;
+
+        mantissa /= POWERS_10[self.exponent() as usize] as f64;
+
+        mantissa
+    }
+
     pub fn to_i64(&self) -> Option<i64> {
         let mut mantissa = self.mantissa_signed();
 

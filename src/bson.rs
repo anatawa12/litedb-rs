@@ -34,6 +34,7 @@ pub use guid::Guid;
 pub(crate) use json::to_json;
 pub use object_id::ObjectId;
 use std::cmp::Ordering;
+use std::ops::{Add, Div, Mul, Sub};
 
 /// The type of bson [`Value`]
 ///
@@ -545,6 +546,50 @@ impl Value {
             _ => None,
         }
     }
+
+    pub fn is_number(&self) -> bool {
+        matches!(self, Value::Int32(_) | Value::Int64(_) | Value::Double(_) | Value::Decimal(_))
+    }
+
+    pub fn to_i32(&self) -> Option<i32> {
+        match *self {
+            Value::Int32(v) => Some(v),
+            Value::Int64(v) => v.try_into().ok(),
+            Value::Double(v) => Some(v as i32),
+            Value::Decimal(v) => v.to_i32(),
+            _ => None,
+        }
+    }
+
+    pub fn to_i64(&self) -> Option<i64> {
+        match *self {
+            Value::Int32(v) => Some(v as i64),
+            Value::Int64(v) => Some(v),
+            Value::Double(v) => Some(v as i64),
+            Value::Decimal(v) => v.to_i64(),
+            _ => None,
+        }
+    }
+
+    pub fn to_f64(&self) -> Option<f64> {
+        match *self {
+            Value::Int32(v) => Some(v as f64),
+            Value::Int64(v) => Some(v as f64),
+            Value::Double(v) => Some(v),
+            Value::Decimal(v) => Some(v.to_f64()),
+            _ => None,
+        }
+    }
+
+    pub fn to_decimal(&self) -> Option<Decimal128> {
+        match *self {
+            Value::Int32(v) => Some(Decimal128::from(v)),
+            Value::Int64(v) => Some(Decimal128::from(v)),
+            Value::Double(v) => Decimal128::try_from(v).ok(),
+            Value::Decimal(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 /// The trait that is for total order used in LiteDB
@@ -629,6 +674,71 @@ impl TotalOrd for Value {
                 }
             }
         }
+    }
+}
+
+fn float_to_decimal(f: f64) -> Decimal128 {
+    f.try_into().unwrap_or_else(|_| panic!("overflow converting double to decimal"))
+}
+
+macro_rules! math {
+    ($left: expr, $right: expr, $operator: tt) => {
+        match ($left, $right) {
+            (&Value::Int32(l), &Value::Int32(r)) => Value::Int32(l $operator r),
+
+            (&Value::Int64(l), &Value::Int32(r)) => Value::Int64(l $operator r as i64),
+            (&Value::Int32(l), &Value::Int64(r)) => Value::Int64(l as i64 $operator r),
+            (&Value::Int64(l), &Value::Int64(r)) => Value::Int64(l $operator r),
+
+            (&Value::Double(l), &Value::Int32(r)) => Value::Double(l $operator r as f64),
+            (&Value::Double(l), &Value::Int64(r)) => Value::Double(l $operator r as f64),
+            (&Value::Int32(l), &Value::Double(r)) => Value::Double(l as f64 $operator r),
+            (&Value::Int64(l), &Value::Double(r)) => Value::Double(l as f64 $operator r),
+            (&Value::Double(l), &Value::Double(r)) => Value::Double(l $operator r),
+
+
+            (&Value::Decimal(l), &Value::Int32(r)) => Value::Decimal(l $operator Decimal128::from(r)),
+            (&Value::Decimal(l), &Value::Int64(r)) => Value::Decimal(l $operator Decimal128::from(r)),
+            (&Value::Decimal(l), &Value::Double(r)) => Value::Decimal(l $operator float_to_decimal(r)),
+            (&Value::Int32(l), &Value::Decimal(r)) => Value::Decimal(Decimal128::from(l) $operator r),
+            (&Value::Int64(l), &Value::Decimal(r)) => Value::Decimal(Decimal128::from(l) $operator r),
+            (&Value::Double(l), &Value::Decimal(r)) => Value::Decimal(float_to_decimal(l) $operator r),
+            (&Value::Decimal(l), &Value::Decimal(r)) => Value::Decimal(l $operator r),
+
+            _ => Value::Null,
+        }
+    };
+}
+
+impl Add for &Value {
+    type Output = Value;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        math!(self, rhs, +)
+    }
+}
+
+impl Sub for &Value {
+    type Output = Value;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        math!(self, rhs, -)
+    }
+}
+
+impl Mul for &Value {
+    type Output = Value;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        math!(self, rhs, *)
+    }
+}
+
+impl Div for &Value {
+    type Output = Value;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        math!(self, rhs, /)
     }
 }
 
