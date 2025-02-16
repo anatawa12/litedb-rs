@@ -303,6 +303,40 @@ pub(super) fn array_index_expr(expr: ScalarExpr, index: ScalarExpr) -> ScalarExp
     })
 }
 
+pub(super) fn array_filter_star(value: ScalarExpr) -> SequenceExpr {
+    sequence_expr(move |ctx| {
+        Ok(Box::new(
+            value(ctx)?
+                .as_array()
+                .map(|x| x.as_slice())
+                .into_iter()
+                .flatten()
+                .map(Ok),
+        ))
+    })
+}
+
+pub(super) fn array_filter_expr(value: ScalarExpr, filter: BsonExpression) -> SequenceExpr {
+    sequence_expr(move |ctx| {
+        let expression = filter.expression.clone();
+        let ctx = ctx.clone();
+        Ok(Box::new(
+            value(&ctx)?
+                .as_array()
+                .map(|x| x.as_slice())
+                .into_iter()
+                .flatten()
+                .filter_map(move |x| {
+                    match expression.execute_scalar(ctx.subcontext_root_item(x)) {
+                        Err(e) => Some(Err(e)),
+                        Ok(Value::Boolean(true)) => Some(Ok(x)),
+                        _ => None,
+                    }
+                }),
+        ))
+    })
+}
+
 // endregion
 
 //region Object Creation

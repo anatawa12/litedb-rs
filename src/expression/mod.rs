@@ -1,11 +1,13 @@
 use crate::bson;
 use crate::utils::{CaseInsensitiveString, Collation};
+use itertools::Itertools as _;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
 use typed_arena::Arena;
 
+mod functions;
 mod methods;
 mod operator;
 mod parser;
@@ -76,14 +78,30 @@ pub enum BsonExpressionType {
     Source = 30,
 }
 
-type ValueIterator<'a> = Box<dyn Iterator<Item = super::Result<&'a bson::Value>>>;
+type ValueIterator<'a, 'b> = Box<dyn IEnumerable<'a, 'b> + 'b>;
 
-trait IEnumerable<'a> {
-    fn it(&self) -> ValueIterator<'a>;
+trait IEnumerable<'a, 'b>: Iterator<Item = super::Result<&'a bson::Value>> {
+    fn box_clone(&self) -> ValueIterator<'a, 'b>;
 }
 
-type ScalarExpr = Rc<dyn for<'a> Fn(&'a ExecutionContext) -> super::Result<&'a bson::Value>>;
-type SequenceExpr = Rc<dyn for<'a> Fn(&'a ExecutionContext) -> Box<dyn IEnumerable<'a> + 'a>>;
+impl<'a, 'b, T> IEnumerable<'a, 'b> for T
+where
+    T: Iterator<Item = super::Result<&'a bson::Value>> + Clone + 'b,
+{
+    fn box_clone(&self) -> ValueIterator<'a, 'b> {
+        Box::new(Clone::clone(self))
+    }
+}
+
+impl Clone for ValueIterator<'_, '_> {
+    fn clone(&self) -> Self {
+        IEnumerable::box_clone(self.as_ref())
+    }
+}
+
+type ScalarExpr = Rc<dyn for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<&'ctx bson::Value>>;
+type SequenceExpr =
+    Rc<dyn for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<ValueIterator<'ctx, 'ctx>>>;
 
 #[derive(Clone)]
 enum Expression {
@@ -93,9 +111,37 @@ enum Expression {
 
 impl Expression {
     pub fn scalar(
-        scalar: impl for<'ctx> Fn(&'ctx ExecutionContext) -> super::Result<&'ctx bson::Value> + 'static,
+        scalar: impl for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<&'ctx bson::Value> + 'static,
     ) -> Self {
         Self::Scalar(scalar_expr(scalar))
+    }
+
+    pub(crate) fn execute(
+        self,
+        ctx: ExecutionContext,
+    ) -> impl Iterator<Item = super::Result<&bson::Value>> + Clone + use<'_> {
+        match self {
+            Expression::Scalar(expr) => {
+                either::Either::Left(std::iter::once_with(move || expr(&ctx)))
+            }
+            Expression::Sequence(expr) => either::Either::Right(
+                std::iter::once_with(move || expr(&ctx))
+                    .flatten_ok()
+                    .map(|x| x.and_then(|x| x)),
+            ),
+        }
+    }
+
+    pub(crate) fn execute_scalar<'a>(
+        &self,
+        ctx: ExecutionContext<'a>,
+    ) -> super::Result<&'a bson::Value> {
+        match self {
+            Expression::Scalar(expr) => expr(&ctx),
+            Expression::Sequence(_) => Err(super::Error::expr_run_error(
+                "Expression is not a scalar expression and can return more than one result",
+            )),
+        }
     }
 }
 
@@ -121,30 +167,50 @@ impl From<SequenceExpr> for Expression {
 }
 
 fn scalar_expr(
-    scalar: impl for<'ctx> Fn(&'ctx ExecutionContext) -> super::Result<&'ctx bson::Value> + 'static,
+    scalar: impl for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<&'ctx bson::Value> + 'static,
 ) -> ScalarExpr {
     Rc::new(scalar)
 }
 
+fn sequence_expr(
+    sequence: impl for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<ValueIterator<'ctx, 'ctx>>
+    + 'static,
+) -> SequenceExpr {
+    Rc::new(sequence)
+}
+
+#[derive(Clone)]
 struct ExecutionContext<'a> {
-    source: &'a dyn IEnumerable<'a>,
+    source: ValueIterator<'a, 'a>,
     root: Option<&'a bson::Value>,
     current: Option<&'a bson::Value>,
     collation: Collation,
     parameters: &'a bson::Document,
-    arena: Arena<bson::Value>,
+    arena: &'a Arena<bson::Value>,
 }
 
-impl ExecutionContext<'_> {
-    fn arena(&self, value: bson::Value) -> &bson::Value {
+impl<'a> ExecutionContext<'a> {
+    fn arena(&self, value: bson::Value) -> &'a bson::Value {
         self.arena.alloc(value)
     }
 
-    fn bool(&self, b: bool) -> &bson::Value {
+    fn bool(&self, b: bool) -> &'a bson::Value {
         if b {
             &bson::Value::Boolean(true)
         } else {
             &bson::Value::Boolean(false)
+        }
+    }
+
+    fn subcontext_root_item(&self, item: &'a bson::Value) -> ExecutionContext<'a> {
+        let root = self.root;
+        ExecutionContext::<'a> {
+            source: Box::new(std::iter::once_with(move || root.unwrap()).map(Ok)),
+            current: Some(item),
+            root: self.root,
+            collation: self.collation,
+            parameters: self.parameters,
+            arena: self.arena,
         }
     }
 }

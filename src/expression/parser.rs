@@ -474,7 +474,9 @@ pub fn parse_single_expression(
         .or_else(|| try_parse_null(tokenizer, parameters))
         .or_else(|| try_parse_string(tokenizer, parameters))
         .try_or_else(|| try_parse_source(tokenizer, parameters, scope))?
-        .try_or_else(|| try_parse_document(tokenizer, parameters, scope))?
+        .try_or_else(|| {
+            try_parse_document(tokenizer, parameters, scope).map(|x| x.map(|x| x.into()))
+        })?
         .try_or_else(|| try_parse_array(tokenizer, parameters, scope))?
         .or_else(|| try_parse_parameter(tokenizer, parameters, scope))
         .try_or_else(|| try_parse_inner_expression(tokenizer, parameters, scope))?
@@ -601,7 +603,7 @@ pub fn ParseSelectDocumentBuilder(
 pub fn parse_update_document_builder(
     tokenizer: &mut Tokenizer,
     parameters: &BsonDocument,
-) -> Result<BsonExpression> {
+) -> Result<ScalarBsonExpression> {
     let next = tokenizer.look_ahead();
 
     // if starts with { just return a normal document expression
@@ -658,9 +660,9 @@ pub fn parse_update_document_builder(
     src.push('}');
 
     // create linq expression for "{ doc }"
-    let doc_expr = operator::document_init(keys, values).into();
+    let doc_expr = operator::document_init(keys, values);
 
-    Ok(BsonExpression {
+    Ok(ScalarBsonExpression {
         r#type: BsonExpressionType::Document,
         //parameters: parameters,
         is_immutable,
@@ -865,7 +867,7 @@ fn try_parse_document(
     tokenizer: &mut Tokenizer,
     parameters: &BsonDocument,
     scope: DocumentScope,
-) -> Result<Option<BsonExpression>> {
+) -> Result<Option<ScalarBsonExpression>> {
     if tokenizer.current().typ != TokenType::OpenBrace {
         return Ok(None);
     }
@@ -959,14 +961,14 @@ fn try_parse_document(
         }
     }
 
-    Ok(Some(BsonExpression {
+    Ok(Some(ScalarBsonExpression {
         r#type: BsonExpressionType::Document,
         //parameters: parameters,
         is_immutable,
         use_source,
         // is_scalar: true,
         fields,
-        expression: operator::document_init(keys, values).into(),
+        expression: operator::document_init(keys, values),
         source: src,
         left: None,
         right: None,
@@ -992,7 +994,7 @@ fn try_parse_source(
         use_source: true,
         // is_scalar: false,
         fields: HashSet::from([CaseInsensitiveString("$".into())]),
-        expression: sequence(), //Expression::Source,
+        expression: sequence_expr(|ctx| Ok(ctx.source.clone())),
         source: "*".into(),
         left: None,
         right: None,
@@ -1014,7 +1016,7 @@ fn try_parse_source(
             // is_scalar: false,
             fields: path_expr.fields.clone(),
             source: format!("MAP(*=>{})", path_expr.source),
-            expression: sequence(), //Expression::Map(Box::new(source_expr.expression), Box::new(path_expr)),
+            expression: functions::map(source_expr.expression, path_expr).into(),
             left: None,
             right: None,
         }))
@@ -1249,11 +1251,14 @@ fn try_parse_method_call(
     // special IIF case
     if method.name == "IIF" && pars.len() == 3 {
         let [test, if_true, if_false]: [BsonExpression; 3] = pars.try_into().unwrap();
-        return Ok(Some(create_conditional_expression(
-            test.into_scalar(),
-            if_true.into_scalar(),
-            if_false.into_scalar(),
-        )));
+        return Ok(Some(
+            create_conditional_expression(
+                test.into_scalar(),
+                if_true.into_scalar(),
+                if_false.into_scalar(),
+            )
+            .into(),
+        ));
     }
 
     // method call arguments
@@ -1322,7 +1327,7 @@ fn try_parse_path(
     let mut src = String::new();
     let mut is_immutable = true;
     let mut use_source = false;
-    let mut is_scalar = true;
+    //let mut is_scalar = true;
     let mut fields = HashSet::new();
 
     src.push_str(if default_scope == TokenType::Dollar {
@@ -1363,7 +1368,7 @@ fn try_parse_path(
             &mut fields,
             &mut is_immutable,
             &mut use_source,
-            &mut is_scalar,
+            //&mut is_scalar,
             &mut src,
         )? {
             Ok(expr) => expr,
@@ -1395,31 +1400,32 @@ fn try_parse_path(
     };
 
     // if expr is enumerable and next token is . translate do MAP
-    if !is_scalar && tokenizer.look_ahead_with_whitespace().typ == TokenType::Period {
-        tokenizer.read_token(); // consume .
+    match path_expr.into_sequence_or() {
+        Ok(path_expr) => {
+            tokenizer.read_token(); // consume .
 
-        let map_expr = parse_single_expression(tokenizer, parameters, DocumentScope::Current)?;
+            let map_expr = parse_single_expression(tokenizer, parameters, DocumentScope::Current)?;
 
-        //let Some(map_expr) = map_expr else { return Err(LiteException::unexpected_token(tokenizer.current())); };
+            //let Some(map_expr) = map_expr else { return Err(LiteException::unexpected_token(tokenizer.current())); };
 
-        Ok(Some(BsonExpression {
-            r#type: BsonExpressionType::Map,
-            //parameters: parameters,
-            is_immutable: path_expr.is_immutable && map_expr.is_immutable,
-            use_source: path_expr.use_source || map_expr.use_source,
-            // is_scalar: false,
-            fields: path_expr
-                .fields
-                .into_iter()
-                .chain(map_expr.fields.iter().cloned())
-                .collect(),
-            source: format!("MAP({}=>{})", path_expr.source, map_expr.source),
-            expression: sequence(), //Expression::Map(Box::new(path_expr.expression), Box::new(map_expr)),
-            left: None,
-            right: None,
-        }))
-    } else {
-        Ok(Some(path_expr))
+            Ok(Some(BsonExpression {
+                r#type: BsonExpressionType::Map,
+                //parameters: parameters,
+                is_immutable: path_expr.is_immutable && map_expr.is_immutable,
+                use_source: path_expr.use_source || map_expr.use_source,
+                // is_scalar: false,
+                fields: path_expr
+                    .fields
+                    .into_iter()
+                    .chain(map_expr.fields.iter().cloned())
+                    .collect(),
+                source: format!("MAP({}=>{})", path_expr.source, map_expr.source),
+                expression: functions::map(path_expr.expression, map_expr).into(),
+                left: None,
+                right: None,
+            }))
+        }
+        Err(path_expr) => Ok(Some(path_expr.into())),
     }
 }
 
@@ -1433,7 +1439,7 @@ fn parse_path(
     fields: &mut HashSet<CaseInsensitiveString>,
     is_immutable: &mut bool,
     use_source: &mut bool,
-    is_scalar: &mut bool,
+    //is_scalar: &mut bool,
     src: &mut String,
 ) -> Result<Result<Expression, ScalarExpr>> {
     let mut ahead = tokenizer.look_ahead_with_whitespace();
@@ -1491,7 +1497,7 @@ fn parse_path(
         } else if ahead.typ == TokenType::Asterisk {
             // all items * (index = MaxValue)
             //method = _arrayFilterMethod;
-            *is_scalar = false;
+            //*is_scalar = false;
             //index = int.MaxValue;
 
             src.push_str(&tokenizer.read_token().value);
@@ -1503,8 +1509,7 @@ fn parse_path(
 
             src.push(']');
 
-            //Ok(Some(Expression::ArrayAsterisk(Box::new(expr))))
-            sequence()
+            Ok(Ok(operator::array_filter_star(expr).into()))
         } else {
             // inner expression
             inner = parse_full_expression(tokenizer, parameters, DocumentScope::Current)?;
@@ -1523,7 +1528,7 @@ fn parse_path(
             // otherwise it's an operand filter expression (enumerable)
             if inner.r#type != BsonExpressionType::Parameter {
                 //method = _arrayFilterMethod;
-                *is_scalar = false;
+                //*is_scalar = false;
 
                 // add inner fields (can contains root call)
                 fields.extend(inner.fields.iter().cloned());
@@ -1537,11 +1542,7 @@ fn parse_path(
 
                 src.push(']');
 
-                sequence()
-                //Ok(Some(Expression::ArrayIndexExpr(
-                //    Box::new(expr),
-                //    Box::new(inner),
-                //)))
+                Ok(Ok(operator::array_filter_expr(expr, inner).into()))
             } else {
                 // add inner fields (can contains root call)
                 fields.extend(inner.fields.iter().cloned());
@@ -1585,13 +1586,33 @@ fn try_parse_function(
     let token = tokenizer.current().value.to_uppercase();
 
     match token.as_str() {
-        "MAP" => parse_function("MAP", BsonExpressionType::Map, tokenizer, parameters, scope),
+        "MAP" => parse_function(
+            "MAP",
+            BsonExpressionType::Map,
+            tokenizer,
+            parameters,
+            scope,
+            |sequence, expr, args| {
+                if !args.is_empty() {
+                    None
+                } else {
+                    Some(functions::map(sequence, expr))
+                }
+            },
+        ),
         "FILTER" => parse_function(
             "FILTER",
             BsonExpressionType::Filter,
             tokenizer,
             parameters,
             scope,
+            |sequence, expr, args| {
+                if !args.is_empty() {
+                    None
+                } else {
+                    Some(functions::filter(sequence, expr))
+                }
+            },
         ),
         "SORT" => parse_function(
             "SORT",
@@ -1599,6 +1620,17 @@ fn try_parse_function(
             tokenizer,
             parameters,
             scope,
+            |sequence, expr, mut args| match args.len() {
+                0 => Some(functions::sort_no_order(sequence, expr)),
+                1 => {
+                    let arg = args.pop().unwrap();
+                    let Expression::Scalar(arg) = arg else {
+                        return None;
+                    };
+                    Some(functions::sort(sequence, expr, arg))
+                }
+                _ => None,
+            },
         ),
         _ => Ok(None),
     }
@@ -1614,6 +1646,7 @@ fn parse_function(
     tokenizer: &mut Tokenizer,
     parameters: &BsonDocument,
     scope: DocumentScope,
+    expr_gen: impl FnOnce(SequenceExpr, BsonExpression, Vec<Expression>) -> Option<SequenceExpr>,
 ) -> Result<Option<BsonExpression>> {
     // check if next token are ( otherwise returns null (is not a function)
     if tokenizer.look_ahead().typ != TokenType::OpenParenthesis {
@@ -1625,12 +1658,10 @@ fn parse_function(
         .read_token()
         .expect_type([TokenType::OpenParenthesis])?;
 
-    let mut left = parse_single_expression(tokenizer, parameters, scope)?;
+    let left = parse_single_expression(tokenizer, parameters, scope)?;
 
     // if left is a scalar expression, convert into enumerable expression (avoid to use [*] all the time)
-    if left.is_scalar() {
-        left = convert_to_enumerable(left);
-    }
+    let left = left.into_sequence();
 
     let mut args = vec![];
 
@@ -1642,28 +1673,31 @@ fn parse_function(
     //args.push(left.expression);
     fields.extend(left.fields);
 
-    let mut closure = None;
+    let closure;
+
+    // RustChange: Implementation is very different, this is nicer because
+    // upstream implementation throws exception if
+    // - there is no map expression. Therefore, we make => part required.
+    // - parameter argument has different type as function does.
 
     // read =>
-    if tokenizer.look_ahead().typ == TokenType::Equals {
-        tokenizer.read_token().expect_type([TokenType::Equals])?;
-        tokenizer.read_token().expect_type([TokenType::Greater])?;
+    tokenizer.read_token().expect_type([TokenType::Equals])?;
+    tokenizer.read_token().expect_type([TokenType::Greater])?;
 
-        let right = parse_full_expression(
-            tokenizer,
-            parameters,
-            if left.r#type == BsonExpressionType::Source {
-                DocumentScope::Source
-            } else {
-                DocumentScope::Current
-            },
-        )?;
+    let right = parse_full_expression(
+        tokenizer,
+        parameters,
+        if left.r#type == BsonExpressionType::Source {
+            DocumentScope::Source
+        } else {
+            DocumentScope::Current
+        },
+    )?;
 
-        src.push_str("=>");
-        src.push_str(&right.source);
-        fields.extend(right.fields.iter().cloned());
-        closure = Some(Box::new(right));
-    }
+    src.push_str("=>");
+    src.push_str(&right.source);
+    fields.extend(right.fields.iter().cloned());
+    closure = right;
 
     if tokenizer.look_ahead().typ != TokenType::CloseParenthesis {
         tokenizer.read_token().expect_type([TokenType::Comma])?;
@@ -1700,7 +1734,11 @@ fn parse_function(
         .expect_type([TokenType::CloseParenthesis])?;
     src.push(')');
 
-    drop(closure); // sequence
+    let Some(expression) = expr_gen(left.expression, closure, args) else {
+        return Err(expr_error(&format!(
+            "Invalid function call of {function_name}"
+        )));
+    };
 
     Ok(Some(BsonExpression {
         r#type,
@@ -1709,7 +1747,7 @@ fn parse_function(
         use_source,
         // is_scalar: false,
         fields,
-        expression: sequence(), //Expression::Function(function_name, Box::new(left.expression), closure, args),
+        expression: expression.into(),
         source: src,
         left: None,
         right: None,
@@ -2017,12 +2055,12 @@ pub(super) fn create_conditional_expression(
     test: ScalarBsonExpression,
     if_true: ScalarBsonExpression,
     if_false: ScalarBsonExpression,
-) -> BsonExpression {
+) -> ScalarBsonExpression {
     // convert BsonValue into Boolean
     let text_expr = test.expression;
     let if_true_expr = if_true.expression;
     let if_false_expr = if_false.expression;
-    let expr = Expression::scalar(move |ctx| {
+    let expr = scalar_expr(move |ctx| {
         let test = text_expr(ctx)?;
         let test = test
             .as_bool()
