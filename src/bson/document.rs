@@ -60,7 +60,7 @@ impl Document {
         self.inner.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> + Clone {
         self.inner.iter().map(|(k, v)| (k.as_str(), v))
     }
 }

@@ -8,10 +8,6 @@ fn expr_error(msg: &str) -> crate::Error {
     crate::Error::expr_error(msg)
 }
 
-fn sequence<T>() -> T {
-    todo!("sequence")
-}
-
 type Result<T, R = super::Error> = std::result::Result<T, R>;
 
 type LiteException = super::Error;
@@ -1233,7 +1229,23 @@ fn try_parse_method_call(
         }
     }
 
-    let Some(method) = get_method(&token.value, pars.len()) else {
+    // special IIF case
+    if token.value == "IIF" && pars.len() == 3 {
+        let [test, if_true, if_false]: [BsonExpression; 3] = pars.try_into().unwrap();
+        return Ok(Some(
+            create_conditional_expression(
+                test.into_scalar(),
+                if_true.into_scalar(),
+                if_false.into_scalar(),
+            )
+            .into(),
+        ));
+    }
+
+    let Some(method) = methods::METHODS
+        .iter()
+        .find(|m| m.name == token.value && m.arg_count == pars.len())
+    else {
         return Err(LiteException::unexpected_token(
             &format!(
                 "Method '{}' does not exist or contains invalid parameters",
@@ -1248,34 +1260,8 @@ fn try_parse_method_call(
         is_immutable = false;
     }
 
-    // special IIF case
-    if method.name == "IIF" && pars.len() == 3 {
-        let [test, if_true, if_false]: [BsonExpression; 3] = pars.try_into().unwrap();
-        return Ok(Some(
-            create_conditional_expression(
-                test.into_scalar(),
-                if_true.into_scalar(),
-                if_false.into_scalar(),
-            )
-            .into(),
-        ));
-    }
-
     // method call arguments
-    let mut args = vec![];
-
-    // getting linq expression from BsonExpression for all parameters
-    for (parameter, expr) in method.parameters.iter().zip(pars) {
-        if !parameter.is_enumerable() && !expr.is_scalar() {
-            // convert enumerable expresion into scalar expression
-            //TODO: args.push(convert_to_array(expr).expression);
-        } else if parameter.is_enumerable() && expr.is_scalar() {
-            // convert scalar expression into enumerable expression
-            args.push(convert_to_enumerable(expr).expression);
-        } else {
-            args.push(expr.expression);
-        }
-    }
+    let expression = (method.create_expression)(pars);
 
     Ok(Some(BsonExpression {
         r#type: BsonExpressionType::Call,
@@ -1284,7 +1270,7 @@ fn try_parse_method_call(
         use_source,
         // is_scalar: !method.is_enumerable,
         fields,
-        expression: sequence(), //Expression::Method(method.name, args),
+        expression,
         source: src,
         left: None,
         right: None,
@@ -1884,55 +1870,6 @@ fn read_operant(tokenizer: &mut Tokenizer) -> Result<Option<String>> {
     Ok(None)
 }
 
-/// <summary>
-/// Convert scalar expression into enumerable expression using ITEMS(...) method
-/// Append [*] to path or ITEMS(..) in all others
-/// </summary>
-fn convert_to_enumerable(expr: BsonExpression) -> BsonExpression {
-    let src = if expr.r#type == BsonExpressionType::Path {
-        format!("{}[*]", expr.source)
-    } else {
-        format!("ITEMS({})", expr.source)
-    };
-
-    let expr_type = if expr.r#type == BsonExpressionType::Path {
-        BsonExpressionType::Path
-    } else {
-        BsonExpressionType::Call
-    };
-
-    BsonExpression {
-        r#type: expr_type,
-        //parameters: expr.parameters,
-        is_immutable: expr.is_immutable,
-        use_source: expr.use_source,
-        // is_scalar: false,
-        fields: expr.fields,
-        expression: sequence(), //Expression::Items(Box::new(expr.expression)),
-        source: src,
-        left: None,
-        right: None,
-    }
-}
-
-/// <summary>
-/// Convert enumerable expression into array using ARRAY(...) method
-/// </summary>
-fn convert_to_array(expr: SequenceBsonExpression) -> BsonExpression {
-    BsonExpression {
-        r#type: BsonExpressionType::Call,
-        //parameters: expr.parameters,
-        is_immutable: expr.is_immutable,
-        use_source: expr.use_source,
-        // is_scalar: true,
-        fields: expr.fields,
-        expression: sequence(), //Expression::Method("ARRAY", vec![expr.expression]),
-        source: format!("ARRAY({})", expr.source),
-        left: None,
-        right: None,
-    }
-}
-
 impl BsonExpression {
     pub(super) fn into_sequence(self) -> SequenceBsonExpression {
         self.into_sequence_or().unwrap_or_else(|expr| {
@@ -1955,7 +1892,9 @@ impl BsonExpression {
                 use_source: expr.use_source,
                 // is_scalar: false,
                 fields: expr.fields,
-                expression: sequence(), //Expression::Items(Box::new(expr.expression)),
+                expression: sequence_expr(move |ctx| {
+                    Ok(methods::ITEMS(ctx, (expr.expression)(ctx)?))
+                }),
                 source: src,
                 left: None,
                 right: None,
@@ -1972,7 +1911,7 @@ impl BsonExpression {
                 use_source: expr.use_source,
                 // is_scalar: true,
                 fields: expr.fields,
-                expression: sequence(), // scalar_expr(|ctx| bson::Array::from(expr.expression(ctx).collect::<Vec<_>>()).into()),
+                expression: scalar_expr(move |ctx| methods::ARRAY(ctx, (expr.expression)(ctx)?)),
                 source: format!("ARRAY({})", expr.source),
                 left: None,
                 right: None,

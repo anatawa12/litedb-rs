@@ -3,6 +3,7 @@ use crate::bson;
 use crate::bson::TotalOrd;
 use crate::engine::{BufferReader, BufferWriter, PageAddress};
 use bson::BsonType;
+use either::Either;
 use std::cell::{Ref, RefCell, RefMut};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
@@ -483,5 +484,71 @@ impl From<String> for CaseInsensitiveString {
 impl From<CaseInsensitiveString> for String {
     fn from(value: CaseInsensitiveString) -> Self {
         value.0
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone)]
+pub(super) struct OrdBsonValue<T>(pub T);
+
+impl<T: std::borrow::Borrow<bson::Value>> Eq for OrdBsonValue<T> {}
+
+impl<T: std::borrow::Borrow<bson::Value>> PartialEq<Self> for OrdBsonValue<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl<T: std::borrow::Borrow<bson::Value>> PartialOrd for OrdBsonValue<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T: std::borrow::Borrow<bson::Value>> Ord for OrdBsonValue<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.borrow().total_cmp(other.0.borrow())
+    }
+}
+
+pub(crate) trait CSharpStringUtils {
+    // see https://github.com/dotnet/runtime/blob/ea63985c1cf56b07324f87c54acb4d49875fa360/src/native/libs/System.Globalization.Native/pal_casing.c
+    fn internal_as_str(&self) -> &str;
+
+    fn to_lower_invariant(&self) -> String {
+        // On Windows with InvariantCulture, the LATIN SMALL LETTER DOTLESS I (U+0131)
+        // capitalizes to itself, whereas with Rust it capitalizes to LATIN CAPITAL LETTER I (U+0049).
+        // We special case it to match the Windows invariant behavior.
+        self.internal_as_str()
+            .chars()
+            .flat_map(|c| {
+                if c == '\u{0131}' {
+                    Either::Left(['\u{0131}'].into_iter())
+                } else {
+                    Either::Right(c.to_lowercase())
+                }
+            })
+            .collect()
+    }
+    fn to_upper_invariant(&self) -> String {
+        // On Windows with InvariantCulture, the LATIN CAPITAL LETTER I WITH DOT ABOVE (U+0130)
+        // lower cases to itself, whereas with Rust it lower cases to LATIN SMALL LETTER I (U+0069).
+        // We special case it to match the Windows invariant behavior.
+        self.internal_as_str()
+            .chars()
+            .flat_map(|c| {
+                if c == '\u{0130}' {
+                    Either::Left(['\u{0130}'].into_iter())
+                } else {
+                    Either::Right(c.to_uppercase())
+                }
+            })
+            .collect()
+    }
+}
+
+impl CSharpStringUtils for str {
+    fn internal_as_str(&self) -> &str {
+        self
     }
 }

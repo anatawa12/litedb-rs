@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, SystemTime};
 
@@ -30,6 +31,18 @@ const DAYS_PER_400_YEAR: u32 = DAYS_PER_NORMAL_100_YEAR * 4 + 1; // there is one
 const TICKS_PER_DAY: u64 = TICKS_PER_SECOND * SECONDS_PER_MINUTE * MINUTES_PER_HOUR * HOURS_PER_DAY;
 const TICKS_PER_MILLISECOND: u64 = 10_000;
 const TICKS_PER_SECOND: u64 = 10_000_000;
+
+const fn is_leap(year: u32) -> bool {
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+const fn days_in_month(is_leap: bool) -> &'static [u32; 12] {
+    if is_leap {
+        &[31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        &[31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    }
+}
 
 impl DateTime {
     /// The Minimum value of DateTime.
@@ -110,12 +123,8 @@ impl DateTime {
             return None;
         }
 
-        let is_leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-        let max_days = if is_leap {
-            [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        } else {
-            [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        };
+        let is_leap = is_leap(year);
+        let max_days = days_in_month(is_leap);
         if day < 1 || day > max_days[(month - 1) as usize] {
             return None;
         }
@@ -299,11 +308,32 @@ impl DateTime {
                 .expect("overflow"),
         )
     }
-}
 
-/// The `Debug` for `DateTime` will show time in ISO 8601 extended format
-impl Debug for DateTime {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    pub fn year(&self) -> u32 {
+        self.ymd_leap().0
+    }
+
+    pub fn month(&self) -> u32 {
+        self.ymd_leap().1
+    }
+
+    pub fn day(&self) -> u32 {
+        self.ymd_leap().2
+    }
+
+    pub fn hour(&self) -> u32 {
+        self.hmss().0
+    }
+
+    pub fn minute(&self) -> u32 {
+        self.hmss().1
+    }
+
+    pub fn second(&self) -> u32 {
+        self.hmss().2
+    }
+
+    fn hmss(&self) -> (u32, u32, u32, u32) {
         let ticks = self.ticks();
 
         let sub_ticks = ticks % TICKS_PER_SECOND;
@@ -316,48 +346,54 @@ impl Debug for DateTime {
         let total_hours = total_minutes / MINUTES_PER_HOUR;
 
         let hours = total_hours % HOURS_PER_DAY;
-        let total_days = total_hours / HOURS_PER_DAY;
+        //let total_days = total_hours / HOURS_PER_DAY;
 
-        let (year, is_leap, days_in_year) = days_to_year_and_day_in_year(total_days as u32);
+        (
+            hours as u32,
+            minutes as u32,
+            seconds as u32,
+            sub_ticks as u32,
+        )
+    }
+
+    fn year_leap_days_in_year(&self) -> (u32, bool, u32) {
+        let days = (self.ticks() / TICKS_PER_DAY) as u32;
+
+        let number_of_400_years = days / DAYS_PER_400_YEAR;
+        let days_in_400_years = days % DAYS_PER_400_YEAR;
+
+        let mut number_of_100_years = days_in_400_years / DAYS_PER_NORMAL_100_YEAR;
+        // last 100 year period has one extra day so decrement if 4
+        if number_of_100_years == 4 {
+            number_of_100_years = 3;
+        }
+        let days_in_100_year = days_in_400_years - number_of_100_years * DAYS_PER_NORMAL_100_YEAR;
+
+        let number_of_4_year = days_in_100_year / DAYS_PER_4_YEAR;
+        let days_in_4_year = days_in_100_year % DAYS_PER_4_YEAR;
+
+        let mut number_of_year = days_in_4_year / DAYS_PER_NORMAL_YEAR;
+        if number_of_year == 4 {
+            number_of_year = 3;
+        }
+        let days_in_year = days_in_4_year - number_of_year * DAYS_PER_NORMAL_YEAR;
+
+        let year = number_of_400_years * 400
+            + number_of_100_years * 100
+            + number_of_4_year * 4
+            + number_of_year
+            + 1;
+        // since it's 0-indexed instead of 1-indexed, we have different repr
+        let is_leap = number_of_year == 3 && (number_of_4_year != 24 || number_of_100_years == 3);
+
+        (year, is_leap, days_in_year)
+    }
+
+    fn ymd_leap(&self) -> (u32, u32, u32, bool) {
+        let (year, is_leap, days_in_year) = self.year_leap_days_in_year();
         let (month, day) = day_in_year_to_month_day(days_in_year, is_leap);
 
-        return write!(
-            f,
-            "{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{sub_ticks:07}"
-        );
-
-        fn days_to_year_and_day_in_year(days: u32) -> (u32, bool, u32) {
-            let number_of_400_years = days / DAYS_PER_400_YEAR;
-            let days_in_400_years = days % DAYS_PER_400_YEAR;
-
-            let mut number_of_100_years = days_in_400_years / DAYS_PER_NORMAL_100_YEAR;
-            // last 100 year period has one extra day so decrement if 4
-            if number_of_100_years == 4 {
-                number_of_100_years = 3;
-            }
-            let days_in_100_year =
-                days_in_400_years - number_of_100_years * DAYS_PER_NORMAL_100_YEAR;
-
-            let number_of_4_year = days_in_100_year / DAYS_PER_4_YEAR;
-            let days_in_4_year = days_in_100_year % DAYS_PER_4_YEAR;
-
-            let mut number_of_year = days_in_4_year / DAYS_PER_NORMAL_YEAR;
-            if number_of_year == 4 {
-                number_of_year = 3;
-            }
-            let days_in_year = days_in_4_year - number_of_year * DAYS_PER_NORMAL_YEAR;
-
-            let year = number_of_400_years * 400
-                + number_of_100_years * 100
-                + number_of_4_year * 4
-                + number_of_year
-                + 1;
-            // since it's 0-indexed instead of 1-indexed, we have different repr
-            let is_leap =
-                number_of_year == 3 && (number_of_4_year != 24 || number_of_100_years == 3);
-
-            (year, is_leap, days_in_year)
-        }
+        return (year, month, day, is_leap);
 
         fn day_in_year_to_month_day(days: u32, leap: bool) -> (u32, u32) {
             let mut estimated = days / 32 + 1; // all month has < 32 days per month
@@ -375,6 +411,94 @@ impl Debug for DateTime {
 
             (estimated, day)
         }
+    }
+}
+
+macro_rules! simple_add {
+    ($name: ident, $ty: ty, $step: expr) => {
+        pub fn $name(&self, diff: $ty) -> Option<DateTime> {
+            let diff = diff as i64;
+            let tick = self.ticks() as i64;
+            let tick = tick + diff * $step as i64;
+            if tick < 0 {
+                None
+            } else {
+                DateTime::from_ticks(tick as u64)
+            }
+        }
+    };
+}
+
+impl DateTime {
+    pub fn add_years(&self, diff: i32) -> Option<DateTime> {
+        let in_day = self.ticks() % TICKS_PER_DAY;
+        let (year, month, mut day, _) = self.ymd_leap();
+        let year = year.checked_add_signed(diff)?;
+        if month == 2 && day == 29 && !is_leap(year) {
+            // leap year => normal year
+            day = 28;
+        }
+        DateTime::from_ymd_tick(year, month, day, in_day)
+    }
+
+    pub fn add_months(&self, diff: i32) -> Option<DateTime> {
+        let in_day = self.ticks() % TICKS_PER_DAY;
+        let (mut year, mut month, mut day, _) = self.ymd_leap();
+
+        if diff.is_negative() {
+            let diff = diff.unsigned_abs();
+            // month -= diff
+            let diff_year = diff / 12;
+            let diff_month = diff % 12;
+            if month <= diff_month {
+                // month - diff_month <= 0 so we subtract one more year
+                year = year.checked_sub(diff_year + 1)?;
+                month = month + 12 - diff_month;
+            } else {
+                year = year.checked_sub(diff_year)?;
+                month -= diff_month;
+            }
+        } else {
+            let diff = diff.unsigned_abs();
+            // month += diff
+            let diff_year = diff / 12;
+            let diff_month = diff % 12;
+            if month + diff_month > 12 {
+                year += diff_year + 1;
+                month = month + diff_month - 12;
+            } else {
+                year += diff_year;
+                month += diff_month;
+            }
+        }
+
+        debug_assert!((1..=12).contains(&month), "{month} is invalid");
+
+        day = min(day, days_in_month(is_leap(year))[(month - 1) as usize]);
+
+        DateTime::from_ymd_tick(year, month, day, in_day)
+    }
+
+    simple_add!(add_days, i32, TICKS_PER_DAY);
+    simple_add!(
+        add_hours,
+        i32,
+        TICKS_PER_SECOND * SECONDS_PER_MINUTE * MINUTES_PER_HOUR
+    );
+    simple_add!(add_minutes, i32, TICKS_PER_SECOND * SECONDS_PER_MINUTE);
+    simple_add!(add_seconds, i32, TICKS_PER_SECOND);
+}
+
+/// The `Debug` for `DateTime` will show time in ISO 8601 extended format
+impl Debug for DateTime {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let (hours, minutes, seconds, sub_ticks) = self.hmss();
+        let (year, month, day, _) = self.ymd_leap();
+
+        write!(
+            f,
+            "{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{sub_ticks:07}"
+        )
     }
 }
 
@@ -492,5 +616,72 @@ fn test_parse() {
             .unwrap()
             .ticks(),
         630615797508350000
+    );
+    assert_eq!(
+        DateTime::parse_rfc3339("1999-05-06T09:29:10")
+            .unwrap()
+            .ticks(),
+        630615797500000000
+    );
+}
+
+#[test]
+fn math() {
+    // basic year addition
+    assert_eq!(
+        date![2004-01-31 12:34:56].add_years(1),
+        Some(date![2005-01-31 12:34:56])
+    );
+    assert_eq!(
+        date![2004-01-31 12:34:56].add_years(-1),
+        Some(date![2003-01-31 12:34:56])
+    );
+    // leap year
+    assert_eq!(
+        date![2004-02-29 12:34:56].add_years(1),
+        Some(date![2005-02-28 12:34:56])
+    );
+    assert_eq!(
+        date![2004-02-29 12:34:56].add_years(-1),
+        Some(date![2003-02-28 12:34:56])
+    );
+    // overflow
+    assert_eq!(
+        date![2004-02-29 12:34:56].add_years(7995),
+        Some(date![9999-02-28 12:34:56])
+    );
+    assert_eq!(date![2004-02-29 12:34:56].add_years(7996), None);
+    assert_eq!(date![2004-02-29 12:34:56].add_years(-2004), None);
+    assert_eq!(
+        date![2004-02-29 12:34:56].add_years(-2003),
+        Some(date![0001-02-28 12:34:56])
+    );
+
+    // basic month addition
+    assert_eq!(
+        date![2004-04-15 12:34:56].add_months(1),
+        Some(date![2004-05-15 12:34:56])
+    );
+    assert_eq!(
+        date![2004-04-15 12:34:56].add_months(-1),
+        Some(date![2004-03-15 12:34:56])
+    );
+    // overflow in day
+    assert_eq!(
+        date![2004-05-31 12:34:56].add_months(1),
+        Some(date![2004-06-30 12:34:56])
+    );
+    assert_eq!(
+        date![2004-05-31 12:34:56].add_months(-1),
+        Some(date![2004-04-30 12:34:56])
+    );
+    // overflow in year (jump year)
+    assert_eq!(
+        date![2004-05-15 12:34:56].add_months(8),
+        Some(date![2005-01-15 12:34:56])
+    );
+    assert_eq!(
+        date![2004-05-15 12:34:56].add_months(-5),
+        Some(date![2003-12-15 12:34:56])
     );
 }

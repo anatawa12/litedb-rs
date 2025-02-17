@@ -10,6 +10,7 @@ pub struct ObjectId {
 }
 
 impl ObjectId {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         static INCREMENT: AtomicUsize = AtomicUsize::new(0);
         static MACHINE: LazyLock<u32> = LazyLock::new(|| rand::random::<u32>() & 0xFFFFFF);
@@ -37,6 +38,10 @@ impl ObjectId {
 
     pub fn as_bytes(&self) -> &[u8; 12] {
         &self.bytes
+    }
+
+    pub fn unix_timestamp(&self) -> u32 {
+        u32::from_be_bytes(self.bytes[0..4].try_into().unwrap())
     }
 }
 

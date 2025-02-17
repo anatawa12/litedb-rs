@@ -252,6 +252,25 @@ impl Decimal128 {
     }
 
     #[inline]
+    pub const fn abs(self) -> Self {
+        Self {
+            repr: self.repr & !Self::SIGN_MASK,
+        }
+    }
+
+    pub fn round_digits(mut self, digits: u32) -> Self {
+        assert!(digits < DEC_SCALE_MAX);
+        if self.exponent() as u32 > digits {
+            self = Self::new(
+                self.mantissa() / POWERS_10[(self.exponent() as u32 - digits) as usize],
+                digits,
+                self.is_negative(),
+            );
+        }
+        self
+    }
+
+    #[inline]
     const fn exponent(&self) -> u8 {
         (((self.repr & Self::EXPONENT_MASK) >> Self::EXPONENT_SHIFT) & 0xFF) as u8
     }
@@ -1628,4 +1647,7 @@ fn math_test() {
     eq_bitwise(decimal!(7922816251426433759354395033.5) / decimal!( 1.0000000000000000000000000002), decimal!(7922816251426433759354395031.9));
     eq_bitwise(decimal!(7922816251426433759354395033.5) / decimal!( 0.9999999999999999999999999999), decimal!(7922816251426433759354395034));
     eq_bitwise(decimal!(79228162514264337593543950335) / decimal!(1.0000000000000000000000000001), decimal!(79228162514264337593543950327));
+
+    assert_eq!(decimal!(1000.123).round_digits(0), decimal!(1000));
+    assert_eq!(decimal!(1000.123).round_digits(1), decimal!(1000.1));
 }

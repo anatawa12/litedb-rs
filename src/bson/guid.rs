@@ -9,6 +9,7 @@ pub struct Guid {
 }
 
 impl Guid {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Guid {
         let mut bytes = rand::random::<[u8; 16]>();
         bytes[6] = bytes[6] & 0x0F | 0x40;
