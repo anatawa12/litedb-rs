@@ -118,12 +118,30 @@ macro_rules! predicates {
             })
         }
 
-        pub(super) fn $all(_: SequenceExpr, _: ScalarExpr) -> ScalarExpr {
-            todo!("sequence")
+        pub(super) fn $all(left: SequenceExpr, right: ScalarExpr) -> ScalarExpr {
+            scalar_expr(move |$ctx| {
+                let mut left = left($ctx)?;
+                let $right = right($ctx)?;
+                while let Some($left) = left.next().transpose()? {
+                    if !$compare {
+                        return Ok($ctx.bool(false));
+                    }
+                }
+                return Ok($ctx.bool(true));
+            })
         }
 
-        pub(super) fn $any(_: SequenceExpr, _: ScalarExpr) -> ScalarExpr {
-            todo!("sequence")
+        pub(super) fn $any(left: SequenceExpr, right: ScalarExpr) -> ScalarExpr {
+            scalar_expr(move |$ctx| {
+                let mut left = left($ctx)?;
+                let $right = right($ctx)?;
+                while let Some($left) = left.next().transpose()? {
+                    if $compare {
+                        return Ok($ctx.bool(true));
+                    }
+                }
+                return Ok($ctx.bool(false));
+            })
         }
     };
 }

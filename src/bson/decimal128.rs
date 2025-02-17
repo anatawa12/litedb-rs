@@ -1,4 +1,3 @@
-use super::utils::ToHex;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -313,7 +312,7 @@ impl Decimal128 {
 impl Debug for Decimal128 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("Decimal128")
-            .field(&ToHex(self.bytes()))
+            .field(&hex::encode(self.bytes()))
             .finish()
     }
 }

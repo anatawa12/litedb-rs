@@ -1,4 +1,3 @@
-use super::utils::ToHex;
 use crate::bson::BsonWriter;
 use std::fmt::{Debug, Formatter};
 
@@ -53,6 +52,8 @@ impl Guid {
 
 impl Debug for Guid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Guid").field(&ToHex(self.bytes)).finish()
+        f.debug_tuple("Guid")
+            .field(&hex::encode(self.bytes))
+            .finish()
     }
 }

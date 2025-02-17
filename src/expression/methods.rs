@@ -315,6 +315,7 @@ macro_rules! overflow {
 mod methods {
     use super::*;
     use crate::utils::{CSharpStringUtils, OrdBsonValue};
+    use base64::prelude::*;
     use std::collections::BTreeSet;
 
     //region aggregate
@@ -563,34 +564,43 @@ mod methods {
         )))
     });
 
-    methods!(BINARY, |_, value: scalar| -> scalar {
+    methods!(BINARY, |ctx, value: scalar| -> scalar {
         match value {
             Value::Binary(_) => value,
-            Value::String(_) => {
+            Value::String(base64) => {
                 // parse base64
-                todo!()
+                let bytes = BASE64_STANDARD
+                    .decode(base64)
+                    .map_err(|_| Error::expr_run_error("bad base64"))?;
+                ctx.arena(bson::Binary::new(bytes).into())
             }
             _ => &Value::Null,
         }
     });
 
-    methods!(OBJECTID, |_, value: scalar| -> scalar {
+    methods!(OBJECTID, |ctx, value: scalar| -> scalar {
         match value {
             Value::ObjectId(_) => value,
-            Value::String(_) => {
+            Value::String(hex) => {
                 // parse hex
-                todo!()
+                let mut bytes = [0u8; 12];
+                hex::decode_to_slice(hex, &mut bytes)
+                    .map_err(|_| Error::expr_run_error("bad object id"))?;
+                ctx.arena(bson::ObjectId::from_bytes(bytes).into())
             }
             _ => &Value::Null,
         }
     });
 
-    methods!(GUID, |_, value: scalar| -> scalar {
+    methods!(GUID, |ctx, value: scalar| -> scalar {
         match value {
             Value::Guid(_) => value,
-            Value::String(_) => {
+            Value::String(hex) => {
                 // parse hex
-                todo!()
+                let mut bytes = [0u8; 16];
+                hex::decode_to_slice(hex, &mut bytes)
+                    .map_err(|_| Error::expr_run_error("bad object id"))?;
+                ctx.arena(bson::Guid::from_bytes(bytes).into())
             }
             _ => &Value::Null,
         }
@@ -1418,8 +1428,6 @@ pub(super) struct MethodInfo {
     pub volatile: bool,
     pub create_expression: fn(Vec<BsonExpression>) -> Expression,
 }
-
-// TODO: implement other methods
 
 pub(super) fn string_impl(value: &Value) -> String {
     match value {

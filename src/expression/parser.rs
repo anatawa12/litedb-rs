@@ -30,11 +30,6 @@ struct MethodInfo {
     is_enumerable: bool,
 }
 
-fn get_method(_: &str, _: usize) -> Option<&MethodInfo> {
-    // TODO: currently removed support for method
-    None
-}
-
 trait TryOrElse<T>: Sized {
     fn try_or_else<E, F: FnOnce() -> Result<Self, E>>(self, f: F) -> Result<Self, E>;
 }

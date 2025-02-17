@@ -1,4 +1,3 @@
-use super::utils::ToHex;
 use std::fmt::{Debug, Formatter};
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
@@ -47,6 +46,8 @@ impl ObjectId {
 
 impl Debug for ObjectId {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        f.debug_tuple("ObjectId").field(&ToHex(self.bytes)).finish()
+        f.debug_tuple("ObjectId")
+            .field(&hex::encode(self.bytes))
+            .finish()
     }
 }
