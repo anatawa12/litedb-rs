@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, SystemTime};
-use crate::bson::Value;
 
 /// DateTime in litedb bson
 ///
@@ -103,7 +102,7 @@ impl DateTime {
         Self::from_ymd_tick(year, month, day, 0)
     }
 
-    fn from_ymd_tick(year: u32, month: u32, day: u32, ticks: u64) -> Option<DateTime> {
+    const fn from_ymd_tick(year: u32, month: u32, day: u32, ticks: u64) -> Option<DateTime> {
         if year < 1 || year > 9999 {
             return None;
         }
@@ -142,7 +141,7 @@ impl DateTime {
                 &[0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
             };
 
-            (year_days + month_start[(month - 1) as usize] + (day as u64 - 1))
+            year_days + month_start[(month - 1) as usize] + (day as u64 - 1)
         };
         let day_ticks = days * (24 * 60 * 60 * TICKS_PER_SECOND);
 

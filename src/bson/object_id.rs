@@ -1,7 +1,7 @@
 use super::utils::ToHex;
 use std::fmt::{Debug, Formatter};
-use std::sync::atomic::AtomicUsize;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
 
 /// Represents ObjectId
 #[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -14,7 +14,10 @@ impl ObjectId {
         static INCREMENT: AtomicUsize = AtomicUsize::new(0);
         static MACHINE: LazyLock<u32> = LazyLock::new(|| rand::random::<u32>() & 0xFFFFFF);
 
-        let timestamp = std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let increment = INCREMENT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let machine = *MACHINE;
         let pid = std::process::id();

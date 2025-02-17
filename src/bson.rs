@@ -548,7 +548,10 @@ impl Value {
     }
 
     pub fn is_number(&self) -> bool {
-        matches!(self, Value::Int32(_) | Value::Int64(_) | Value::Double(_) | Value::Decimal(_))
+        matches!(
+            self,
+            Value::Int32(_) | Value::Int64(_) | Value::Double(_) | Value::Decimal(_)
+        )
     }
 
     pub fn to_i32(&self) -> Option<i32> {
@@ -678,7 +681,8 @@ impl TotalOrd for Value {
 }
 
 fn float_to_decimal(f: f64) -> Decimal128 {
-    f.try_into().unwrap_or_else(|_| panic!("overflow converting double to decimal"))
+    f.try_into()
+        .unwrap_or_else(|_| panic!("overflow converting double to decimal"))
 }
 
 macro_rules! math {

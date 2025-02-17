@@ -1,80 +1,29 @@
-use std::str::FromStr;
 use super::*;
 use crate::bson::{DateTime, TotalOrd, Value};
+use std::marker::PhantomData;
+use std::str::FromStr;
 
 pub(super) struct Methods;
 
-macro_rules! method_info {
+// this is treated as function invocation macro in rustfmt so this will be formtted correctly
+macro_rules! methods {
     (
-        $([$($attr: ident)+])*
-        fn $name: ident($ctx: pat$(, $param_name: ident: $param_type: ident)*$(,)?) -> scalar {
-            $($body:tt)*
-        }
-    ) => {{
-        const NAME: &str = stringify!($name);
-        const ARG_COUNT: usize = method_info!(@count $($param_name)*);
-
-        method_info!(@body_impl
-            attr: ,
-            access: ,
-            name: body_impl,
-            ctx: &'ctx ctx,
-            built_args: [],
-            building_args: [$($param_name: $param_type,)*],
-            body: {
-                let $ctx = ctx;
-                Ok({$($body)*})
-            },
-            return_type: [crate::Result<&'ctx Value>],
-        );
-
-        method_info!(@method_define
-            attr: [$([$($attr)+])*],
+        $name: ident,
+        |$ctx: pat_param$(, $param_name: ident: $param_type: ident)*$(,)?| -> scalar $body: block
+    ) => {
+        methods!(@body_impl
+            attr: #[allow(non_snake_case)],
+            access: pub(in super::super),
             name: $name,
             ctx: &'ctx ctx,
             built_args: [],
             building_args: [$($param_name: $param_type,)*],
             body: {
-                body_impl(ctx$(, $param_name)*)
+                let $ctx = ctx;
+                Ok($body)
             },
             return_type: [crate::Result<&'ctx Value>],
         );
-
-        pub(super) fn expr_impl(args: Vec<BsonExpression>) -> (Expression, String) {
-
-            let args_array: [BsonExpression; ARG_COUNT] = args.try_into().unwrap();
-
-            let [$($param_name),*] = args_array;
-
-            $( let $param_name = method_info!(@into_type $param_name, $param_type); )*
-
-            let expr = {
-                $( let $param_name = $param_name.expression; )*
-                scalar_expr(move |ctx| body_impl(ctx$(, $param_name(ctx)? )*))
-            };
-            let source = method_info!(@format
-                args_pattern: "",
-                args: [NAME],
-                building: [$($param_name.source,)*],
-                delim: "",
-            );
-
-            (expr.into(), source)
-        }
-
-        MethodInfo {
-            name: NAME,
-            arg_count: ARG_COUNT,
-            volatile: method_info!(@volatile [$([$($attr)+])*]),
-            create_expression: expr_impl,
-        }
-    }};
-
-    (@count) => {
-        0
-    };
-    (@count $param_name0: ident $($param_name: ident)*) => {
-        1 + method_info!(@count $($param_name)*)
     };
 
     (@body_impl
@@ -103,7 +52,7 @@ macro_rules! method_info {
         body: $body: expr,
         return_type: [$($return_type: tt)*],
     ) => {
-        method_info!(@body_impl
+        methods!(@body_impl
             attr: $(#[$attr])*,
             access: $access,
             name: $name,
@@ -124,7 +73,7 @@ macro_rules! method_info {
         body: $body: expr,
         return_type: [$($return_type: tt)*],
     ) => {
-        method_info!(@body_impl
+        methods!(@body_impl
             attr: $(#[$attr])*,
             access: $access,
             name: $name,
@@ -135,116 +84,143 @@ macro_rules! method_info {
             return_type: [$($return_type)*],
         );
     };
+}
 
-    (@into_type $expr: expr, sequence) => {
-        $expr.into_sequence()
-    };
-    (@into_type $expr: expr, scalar) => {
-        $expr.into_scalar()
-    };
+struct FromBsonExpressionResult<Gen, T> {
+    expression: Gen,
+    source: String,
+    _phantom: PhantomData<T>,
+}
 
-    (@format
-        args_pattern: $args_pattern: expr,
-        args: [$($args: tt)*],
-        building: [],
-        delim: $delim: expr,
-    ) => {
-        format!(concat!("{}(", $args_pattern, ")"), $($args)*)
+impl<Gen, T> FromBsonExpressionResult<Gen, T> {
+    // helper for type inference in macro
+    pub fn t(&self) -> T {
+        unreachable!()
+    }
+}
+
+trait FromBsonExpression: Sized {
+    type Expression;
+    fn from_bson_expr(_: BsonExpression) -> FromBsonExpressionResult<Self::Expression, Self>;
+}
+
+impl FromBsonExpression for &'_ Value {
+    type Expression = ScalarExpr;
+    fn from_bson_expr(expr: BsonExpression) -> FromBsonExpressionResult<Self::Expression, Self> {
+        let expr = expr.into_scalar();
+        FromBsonExpressionResult {
+            expression: expr.expression,
+            source: expr.source,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl FromBsonExpression for ValueIterator<'_, '_> {
+    type Expression = SequenceExpr;
+    fn from_bson_expr(expr: BsonExpression) -> FromBsonExpressionResult<Self::Expression, Self> {
+        let expr = expr.into_sequence();
+        FromBsonExpressionResult {
+            expression: expr.expression,
+            source: expr.source,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+macro_rules! method_info2 {
+    ($name: ident ($($args: ident),*)) => {
+        method_info2!(@gen
+            name: $name,
+            bsonName: $name,
+            args: ($($args),*),
+            volatile: false,
+        )
     };
-    (@format
-        args_pattern: $args_pattern: expr,
-        args: [$($args: tt)*],
-        building: [$current: expr, $($building: tt)*],
-        delim: $delim: expr,
-    ) => {
-        method_info!(@format
-            args_pattern: concat!($args_pattern, $delim, "{}"),
-            args: [$($args)*, $current],
-            building: [$($building)*],
-            delim: $delim,
+    ($name: ident as $bsonName: ident ($($args: ident),*)) => {
+        method_info2!(@gen
+            name: $name,
+            bsonName: $bsonName,
+            args: ($($args),*),
+            volatile: false,
         )
     };
 
-    (@volatile ) => { false };
-    (@volatile [volatile] $($other: tt)*) => { true };
-    (@volatile $prefix: tt $($other: tt)*) => { method_info!(@volatile $($other)*) };
-
-    (@method_define 
-        attr: [],
-        name: $name: ident,
-        ctx: &$ctx_lifetime: lifetime $ctx: ident,
-        built_args: [$($built_args: tt)*],
-        building_args: [$($building_args: tt)*] ,
-        body: $body: expr,
-        return_type: [$($return_type: tt)*],
-    ) => {
-        #[allow(non_local_definitions)]
-        impl Methods {
-            method_info!(@body_impl
-                attr: #[allow(non_snake_case)],
-                access: pub,
-                name: $name,
-                ctx: &$ctx_lifetime $ctx,
-                built_args: [$($built_args)*],
-                building_args: [$($building_args)*],
-                body: $body,
-                return_type: [$($return_type)*],
-            );
-        }
-    };
-    (@method_define 
-        attr: [[method $new_name: ident]],
-        name: $name: ident,
-        ctx: &$ctx_lifetime: lifetime $ctx: ident,
-        built_args: [$($built_args: tt)*],
-        building_args: [$($building_args: tt)*] ,
-        body: $body: expr,
-        return_type: [$($return_type: tt)*],
-    ) => {
-        #[allow(non_local_definitions)]
-        impl Methods {
-            method_info!(@body_impl
-                attr: #[allow(non_snake_case)],
-                access: pub,
-                name: $new_name,
-                ctx: &$ctx_lifetime $ctx,
-                built_args: [$($built_args)*],
-                building_args: [$($building_args)*],
-                body: $body,
-                return_type: [$($return_type)*],
-            );
-        }
-    };
-    (@method_define 
-        attr: [[no_method] $($other: tt)*],
-        name: $name: ident,
-        ctx: &$ctx_lifetime: lifetime $ctx: ident,
-        built_args: [$($built_args: tt)*],
-        building_args: [$($building_args: tt)*] ,
-        body: $body: expr,
-        return_type: [$($return_type: tt)*],
-    ) => {
-        // no method
-    };
-    (@method_define 
-        attr: [$prefix: tt $($other: tt)*],
-        name: $name: ident,
-        ctx: &$ctx_lifetime: lifetime $ctx: ident,
-        built_args: [$($built_args: tt)*],
-        building_args: [$($building_args: tt)*] ,
-        body: $body: expr,
-        return_type: [$($return_type: tt)*],
-    ) => {
-        method_info!(@method_define
-            attr: [$($other)*],
+    (volatile $name: ident ($($args: ident),*)) => {
+        method_info2!(@gen
             name: $name,
-            ctx: &$ctx_lifetime $ctx,
-            built_args: [$($built_args)*],
-            building_args: [$($building_args)*],
-            body: $body,
-            return_type: [$($return_type)*],
-        );
+            bsonName: $name,
+            args: ($($args),*),
+            volatile: true,
+        )
     };
+    (volatile $name: ident as $bsonName: ident ($($args: ident),*)) => {
+        method_info2!(@gen
+            name: $name,
+            bsonName: $bsonName,
+            args: ($($args),*),
+            volatile: true,
+        )
+    };
+
+    (@gen
+        name: $name: ident,
+        bsonName: $bsonName:ident,
+        args: ($($args: ident),*),
+        volatile: $volatile: expr,
+    ) => {
+        {
+            const NAME: &str = stringify!($bsonName);
+            const ARG_COUNT: usize = method_info2!(@count $($args),*);
+
+            pub(super) fn expr_impl(args: Vec<BsonExpression>) -> (Expression, String) {
+
+                let args_array: [BsonExpression; ARG_COUNT] = args.try_into().unwrap();
+
+                let [$($args),*] = args_array;
+
+                $(let $args = FromBsonExpression::from_bson_expr($args);)*
+
+                #[allow(unreachable_code)]
+                if false {
+                    // for type inference
+                    $name(unreachable!()$(, $args.t())*).ok();
+                }
+
+                let expr = scalar_expr(move |ctx| $name(ctx$(, ($args.expression)(ctx)?)*));
+
+                let source = method_info2!(@source NAME$(, $args.source)*);
+
+                (expr.into(), source)
+            }
+
+            MethodInfo {
+                name: NAME,
+                arg_count: ARG_COUNT,
+                volatile: $volatile,
+                create_expression: expr_impl,
+            }
+        }
+    };
+
+    (@source $name: expr) => { format!("{}()", $name) };
+    (@source $name: expr, $arg0: expr $(, $args: expr)*) => {
+        format!(
+            concat!("{}({}"$(, method_info2!(@dummy ",{}", $args))*, ")"),
+            $name,
+            $arg0,
+            $($args, )*
+        )
+    };
+
+    (@dummy $value: expr, $tt: expr) => { $value };
+
+    (@count) => { 0 };
+    (@count $arg0: ident) => {1};
+    (@count $arg0: ident, $arg1: ident) => { 2 };
+    (@count $arg0: ident, $arg1: ident, $arg2: ident) => { 3 };
+    (@count $arg0: ident, $arg1: ident, $arg2: ident, $arg3: ident) => { 4 };
+    (@count $arg0: ident, $arg1: ident, $arg2: ident, $arg3: ident, $arg4: ident) => { 5 };
 }
 
 macro_rules! overflow {
@@ -253,21 +229,23 @@ macro_rules! overflow {
     };
 }
 
-const METHODS: &[MethodInfo] = &[
-    //region aggregate
-    method_info!(fn COUNT(ctx, values: sequence) -> scalar {
+//region aggregate
+mod methods {
+    use super::*;
+
+    methods!(COUNT, |ctx, values: sequence| -> scalar {
         let mut count = 0;
         while let Some(_) = values.next().transpose()? {
             count += 1;
         }
         ctx.arena(Value::Int32(count))
-    }),
-    method_info!(fn MIN(_, values: sequence) -> scalar {
+    });
+
+    methods!(MIN, |_, values: sequence| -> scalar {
         let mut min = &Value::MaxValue;
 
         while let Some(value) = values.next().transpose()? {
-            if value.total_cmp(&min).is_lt()
-            {
+            if value.total_cmp(&min).is_lt() {
                 min = value;
             }
         }
@@ -277,13 +255,13 @@ const METHODS: &[MethodInfo] = &[
         } else {
             min
         }
-    }),
-    method_info!(fn MAX(_, values: sequence) -> scalar {
+    });
+
+    methods!(MAX, |_, values: sequence| -> scalar {
         let mut min = &Value::MinValue;
 
         while let Some(value) = values.next().transpose()? {
-            if value.total_cmp(min).is_gt()
-            {
+            if value.total_cmp(min).is_gt() {
                 min = value;
             }
         }
@@ -293,19 +271,22 @@ const METHODS: &[MethodInfo] = &[
         } else {
             min
         }
-    }),
-    method_info!(fn FIRST(_, values: sequence) -> scalar {
+    });
+
+    methods!(FIRST, |_, values: sequence| -> scalar {
         let mut values = values;
         values.next().transpose()?.unwrap_or(&Value::Null)
-    }),
-    method_info!(fn LAST(_, values: sequence) -> scalar {
+    });
+
+    methods!(LAST, |_, values: sequence| -> scalar {
         let mut last = &Value::Null;
         while let Some(value) = values.next().transpose()? {
             last = value;
         }
         last
-    }),
-    method_info!(fn AVG(ctx, values: sequence) -> scalar {
+    });
+
+    methods!(AVG, |ctx, values: sequence| -> scalar {
         let mut sum = Value::Int32(0);
         let mut count = 0;
 
@@ -315,14 +296,15 @@ const METHODS: &[MethodInfo] = &[
                 count += 1;
             }
         }
-        
+
         if count == 0 {
             &Value::Int32(0)
         } else {
             ctx.arena(&sum / &Value::Int32(count))
         }
-    }),
-    method_info!(fn SUM(ctx, values: sequence) -> scalar {
+    });
+
+    methods!(SUM, |ctx, values: sequence| -> scalar {
         let mut sum = Value::Int32(0);
 
         while let Some(value) = values.next().transpose()? {
@@ -332,29 +314,43 @@ const METHODS: &[MethodInfo] = &[
         }
 
         ctx.arena(sum)
-    }),
-    method_info!(fn ANY(ctx, values: sequence) -> scalar {
+    });
+
+    methods!(ANY, |ctx, values: sequence| -> scalar {
         ctx.bool(values.next().transpose()?.is_some())
-    }),
+    });
+
     //endregion
+
     //region data types
 
     //region new instance
-    method_info!(fn MINVALUE(_) -> scalar { &Value::MinValue }),
-    method_info!([no_method] [volatile] fn OBJECTID(ctx) -> scalar { ctx.arena(Value::ObjectId(bson::ObjectId::new())) }),
-    method_info!([no_method] [volatile] fn GUID(ctx) -> scalar { ctx.arena(Value::Guid(bson::Guid::new())) }),
-    method_info!([no_method] [volatile] fn NOW(ctx) -> scalar { ctx.arena(Value::DateTime(bson::DateTime::now())) }),
-    method_info!([no_method] [volatile] fn NOW_UTC(ctx) -> scalar { ctx.arena(Value::DateTime(bson::DateTime::now())) }), // rust always have UTC
-    method_info!([no_method] [volatile] fn TODAY(ctx) -> scalar { ctx.arena(Value::DateTime(bson::DateTime::today())) }),
-    method_info!(fn MAXVALUE(_) -> scalar { &Value::MaxValue }),
+    methods!(MINVALUE, |_| -> scalar { &Value::MinValue });
+    methods!(OBJECTID_NEW, |ctx| -> scalar {
+        ctx.arena(Value::ObjectId(bson::ObjectId::new()))
+    });
+    methods!(GUID_NEW, |ctx| -> scalar {
+        ctx.arena(Value::Guid(bson::Guid::new()))
+    });
+    methods!(NOW, |ctx| -> scalar {
+        ctx.arena(Value::DateTime(bson::DateTime::now()))
+    });
+    methods!(NOW_UTC, |ctx| -> scalar {
+        ctx.arena(Value::DateTime(bson::DateTime::now()))
+    });
+    methods!(TODAY, |ctx| -> scalar {
+        ctx.arena(Value::DateTime(bson::DateTime::today()))
+    });
+    methods!(MAXVALUE, |_| -> scalar { &Value::MaxValue });
     //endregion
 
     //region DATATYPE
-
-    method_info!(fn INT32(ctx, value: scalar) -> scalar {
+    methods!(INT32, |ctx, value: scalar| -> scalar {
         match *value {
             Value::Int32(_) => value,
-            ref v if v.is_number() => ctx.arena(Value::Int32(v.to_i32().ok_or_else(||overflow!("INT32"))?)),
+            ref v if v.is_number() => {
+                ctx.arena(Value::Int32(v.to_i32().ok_or_else(|| overflow!("INT32"))?))
+            }
             Value::String(ref str) => {
                 if let Ok(v) = i32::from_str(str) {
                     ctx.arena(Value::Int32(v))
@@ -364,12 +360,14 @@ const METHODS: &[MethodInfo] = &[
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!(fn INT64(ctx, value: scalar) -> scalar {
+    methods!(INT64, |ctx, value: scalar| -> scalar {
         match *value {
             Value::Int64(_) => value,
-            ref v if v.is_number() => ctx.arena(Value::Int64(v.to_i64().ok_or_else(||overflow!("INT64"))?)),
+            ref v if v.is_number() => {
+                ctx.arena(Value::Int64(v.to_i64().ok_or_else(|| overflow!("INT64"))?))
+            }
             Value::String(ref str) => {
                 if let Ok(v) = i64::from_str(str) {
                     ctx.arena(Value::Int64(v))
@@ -379,12 +377,14 @@ const METHODS: &[MethodInfo] = &[
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!(fn DOUBLE(ctx, value: scalar) -> scalar {
+    methods!(DOUBLE, |ctx, value: scalar| -> scalar {
         match *value {
             Value::Double(_) => value,
-            ref v if v.is_number() => ctx.arena(Value::Double(v.to_f64().ok_or_else(|| overflow!("Double"))?)),
+            ref v if v.is_number() => ctx.arena(Value::Double(
+                v.to_f64().ok_or_else(|| overflow!("Double"))?,
+            )),
             Value::String(ref str) => {
                 // TODO: culture
                 if let Ok(v) = f64::from_str(str) {
@@ -395,14 +395,19 @@ const METHODS: &[MethodInfo] = &[
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!([no_method] fn DOUBLE(ctx, value: scalar, culture: scalar) -> scalar {
+    methods!(DOUBLE_CULTURE, |ctx,
+                              value: scalar,
+                              culture: scalar|
+     -> scalar {
         // TODO: culture
         let _ = culture;
         match *value {
             Value::Double(_) => value,
-            ref v if v.is_number() => ctx.arena(Value::Double(v.to_f64().ok_or_else(|| overflow!("Double"))?)),
+            ref v if v.is_number() => ctx.arena(Value::Double(
+                v.to_f64().ok_or_else(|| overflow!("Double"))?,
+            )),
             Value::Decimal(v) => ctx.arena(Value::Double(v.to_f64())),
             Value::String(ref str) => {
                 if let Ok(v) = f64::from_str(str) {
@@ -413,12 +418,14 @@ const METHODS: &[MethodInfo] = &[
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!([no_method] fn DECIMAL(ctx, value: scalar) -> scalar {
+    methods!(DECIMAL, |ctx, value: scalar| -> scalar {
         match *value {
             Value::Decimal(_) => value,
-            ref v if v.is_number() => ctx.arena(Value::Decimal(v.to_decimal().ok_or_else(|| overflow!("Decimal"))?)),
+            ref v if v.is_number() => ctx.arena(Value::Decimal(
+                v.to_decimal().ok_or_else(|| overflow!("Decimal"))?,
+            )),
             Value::String(ref str) => {
                 // TODO: culture
                 if let Some(v) = bson::Decimal128::parse(str) {
@@ -429,14 +436,19 @@ const METHODS: &[MethodInfo] = &[
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!([no_method] fn DECIMAL(ctx, value: scalar, culture: scalar) -> scalar {
+    methods!(DECIMAL_CULTURE, |ctx,
+                               value: scalar,
+                               culture: scalar|
+     -> scalar {
         // TODO: culture
         let _ = culture;
         match *value {
             Value::Decimal(_) => value,
-            ref v if v.is_number() => ctx.arena(Value::Decimal(v.to_decimal().ok_or_else(|| overflow!("Decimal"))?)),
+            ref v if v.is_number() => ctx.arena(Value::Decimal(
+                v.to_decimal().ok_or_else(|| overflow!("Decimal"))?,
+            )),
             Value::String(ref str) => {
                 if let Some(v) = bson::Decimal128::parse(str) {
                     ctx.arena(Value::Decimal(v))
@@ -446,55 +458,59 @@ const METHODS: &[MethodInfo] = &[
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!(fn STRING(ctx, value: scalar) -> scalar {
+    methods!(STRING, |ctx, value: scalar| -> scalar {
         match value {
             Value::String(_) => value,
             _ => ctx.arena(Value::String(string_impl(value))),
         }
-    }),
+    });
 
     // ==> there is no convert to BsonDocument, must use { .. } syntax
 
-    method_info!(fn ARRAY(ctx, values: sequence) -> scalar {
-        ctx.arena(Value::Array(bson::Array::from(values.map_ok(|x| x.clone()).collect::<Result<Vec<_>, _>>()?)))
-    }),
+    methods!(ARRAY, |ctx, values: sequence| -> scalar {
+        ctx.arena(Value::Array(bson::Array::from(
+            values
+                .map_ok(|x| x.clone())
+                .collect::<Result<Vec<_>, _>>()?,
+        )))
+    });
 
-    method_info!(fn BINARY(ctx, value: scalar) -> scalar {
+    methods!(BINARY, |_, value: scalar| -> scalar {
         match value {
             Value::Binary(_) => value,
-            Value::String(str) => {
+            Value::String(_) => {
                 // parse base64
                 todo!()
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!(fn OBJECTID(ctx, value: scalar) -> scalar {
+    methods!(OBJECTID, |_, value: scalar| -> scalar {
         match value {
             Value::ObjectId(_) => value,
-            Value::String(str) => {
+            Value::String(_) => {
                 // parse hex
                 todo!()
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!(fn GUID(ctx, value: scalar) -> scalar {
+    methods!(GUID, |_, value: scalar| -> scalar {
         match value {
             Value::Guid(_) => value,
-            Value::String(str) => {
+            Value::String(_) => {
                 // parse hex
                 todo!()
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!(fn BOOLEAN(_, value: scalar) -> scalar {
+    methods!(BOOLEAN, |_, value: scalar| -> scalar {
         match value {
             Value::Boolean(_) => value,
             Value::String(str) => {
@@ -509,122 +525,187 @@ const METHODS: &[MethodInfo] = &[
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!([method DATETIME] fn DATETIME(ctx, value: scalar) -> scalar {
+    methods!(DATETIME, |ctx, value: scalar| -> scalar {
         match value {
             Value::DateTime(_) => value,
             Value::String(str) => {
                 // TODO: culture and more format
-                ctx.arena(Value::DateTime(bson::DateTime::parse_rfc3339(str)
-                    .ok_or_else(|| Error::expr_run_error("invalid date"))?))
+                ctx.arena(Value::DateTime(
+                    bson::DateTime::parse_rfc3339(str)
+                        .ok_or_else(|| Error::expr_run_error("invalid date"))?,
+                ))
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!([method DATETIME_CULTURE] fn DATETIME(ctx, value: scalar, culture: scalar) -> scalar {
+    methods!(DATETIME_CULTURE, |ctx,
+                                value: scalar,
+                                culture: scalar|
+     -> scalar {
         match value {
             Value::DateTime(_) => value,
             Value::String(str) => {
                 // TODO: culture and more format
-                ctx.arena(Value::DateTime(bson::DateTime::parse_rfc3339(str)
-                    .ok_or_else(|| Error::expr_run_error("invalid date"))?))
+                ctx.arena(Value::DateTime(
+                    bson::DateTime::parse_rfc3339(str)
+                        .ok_or_else(|| Error::expr_run_error("invalid date"))?,
+                ))
             }
             _ => &Value::Null,
         }
-    }),
+    });
 
-    method_info!([method DATETIME_UTC] fn DATETIME_UTC(ctx, value: scalar) -> scalar {
-        match value {
-            Value::DateTime(_) => value,
-            Value::String(str) => {
-                // TODO: culture and more format
-                ctx.arena(Value::DateTime(bson::DateTime::parse_rfc3339(str)
-                    .ok_or_else(|| Error::expr_run_error("invalid date"))?))
-            }
-            _ => &Value::Null,
-        }
-    }),
-
-    method_info!([method DATETIME_UTC_CULTURE] fn DATETIME_UTC(ctx, value: scalar, culture: scalar) -> scalar {
-        match value {
-            Value::DateTime(_) => value,
-            Value::String(str) => {
-                // TODO: culture and more format
-                ctx.arena(Value::DateTime(bson::DateTime::parse_rfc3339(str)
-                    .ok_or_else(|| Error::expr_run_error("invalid date"))?))
-            }
-            _ => &Value::Null,
-        }
-    }),
-
-    method_info!([method DATETIME_YMD] fn DATETIME(ctx, year: scalar, month: scalar, day: scalar) -> scalar {
+    methods!(DATETIME_YMD, |ctx,
+                            year: scalar,
+                            month: scalar,
+                            day: scalar|
+     -> scalar {
         if year.is_number() && month.is_number() && day.is_number() {
-            let year = year.to_i32().and_then(|x| x.try_into().ok()).ok_or_else(|| overflow!("Int32"))?;
-            let month = month.to_i32().and_then(|x| x.try_into().ok()).ok_or_else(|| overflow!("Int32"))?;
-            let day = day.to_i32().and_then(|x| x.try_into().ok()).ok_or_else(|| overflow!("Int32"))?;
+            let year = year
+                .to_i32()
+                .and_then(|x| x.try_into().ok())
+                .ok_or_else(|| overflow!("Int32"))?;
+            let month = month
+                .to_i32()
+                .and_then(|x| x.try_into().ok())
+                .ok_or_else(|| overflow!("Int32"))?;
+            let day = day
+                .to_i32()
+                .and_then(|x| x.try_into().ok())
+                .ok_or_else(|| overflow!("Int32"))?;
 
-            ctx.arena(Value::DateTime(DateTime::from_ymd(year, month, day).ok_or_else(|| overflow!("DateTime"))?))
+            ctx.arena(Value::DateTime(
+                DateTime::from_ymd(year, month, day).ok_or_else(|| overflow!("DateTime"))?,
+            ))
         } else {
             &Value::Null
         }
-    }),
-
-    method_info!([method DATETIME_UTC_YMD] fn DATETIME_UTC(ctx, year: scalar, month: scalar, day: scalar) -> scalar {
-        if year.is_number() && month.is_number() && day.is_number() {
-            let year = year.to_i32().and_then(|x| x.try_into().ok()).ok_or_else(|| overflow!("Int32"))?;
-            let month = month.to_i32().and_then(|x| x.try_into().ok()).ok_or_else(|| overflow!("Int32"))?;
-            let day = day.to_i32().and_then(|x| x.try_into().ok()).ok_or_else(|| overflow!("Int32"))?;
-
-            ctx.arena(Value::DateTime(DateTime::from_ymd(year, month, day).ok_or_else(|| overflow!("DateTime"))?))
-        } else {
-            &Value::Null
-        }
-    }),
+    });
 
     //endregion
 
     //region IS_DATETYPE
-    method_info!(fn IS_MINVALUE(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::MinValue)) }),
-    method_info!(fn IS_NULL(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::Null)) }),
-    method_info!(fn IS_INT32(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::Int32(_))) }),
-    method_info!(fn IS_INT64(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::Int64(_))) }),
-    method_info!(fn IS_DOUBLE(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::Double(_))) }),
-    method_info!(fn IS_DECIMAL(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::Decimal(_))) }),
-    method_info!(fn IS_NUMBER(ctx, value: scalar) -> scalar { ctx.bool(value.is_number()) }),
-    method_info!(fn IS_STRING(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::String(_))) }),
-    method_info!(fn IS_DOCUMENT(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::Document(_))) }),
-    method_info!(fn IS_ARRAY(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::Array(_))) }),
-    method_info!(fn IS_BINARY(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::Binary(_))) }),
-    method_info!(fn IS_OBJECTID(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::ObjectId(_))) }),
-    method_info!(fn IS_GUID(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::Guid(_))) }),
-    method_info!(fn IS_BOOLEAN(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::Boolean(_))) }),
-    method_info!(fn IS_DATETIME(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::DateTime(_))) }),
-    method_info!(fn IS_MAXVALUE(ctx, value: scalar) -> scalar { ctx.bool(matches!(value, Value::MaxValue)) }),
+    methods!(IS_MINVALUE, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::MinValue))
+    });
+    methods!(IS_NULL, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::Null))
+    });
+    methods!(IS_INT32, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::Int32(_)))
+    });
+    methods!(IS_INT64, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::Int64(_)))
+    });
+    methods!(IS_DOUBLE, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::Double(_)))
+    });
+    methods!(IS_DECIMAL, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::Decimal(_)))
+    });
+    methods!(IS_NUMBER, |ctx, value: scalar| -> scalar {
+        ctx.bool(value.is_number())
+    });
+    methods!(IS_STRING, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::String(_)))
+    });
+    methods!(IS_DOCUMENT, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::Document(_)))
+    });
+    methods!(IS_ARRAY, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::Array(_)))
+    });
+    methods!(IS_BINARY, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::Binary(_)))
+    });
+    methods!(IS_OBJECTID, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::ObjectId(_)))
+    });
+    methods!(IS_GUID, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::Guid(_)))
+    });
+    methods!(IS_BOOLEAN, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::Boolean(_)))
+    });
+    methods!(IS_DATETIME, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::DateTime(_)))
+    });
+    methods!(IS_MAXVALUE, |ctx, value: scalar| -> scalar {
+        ctx.bool(matches!(value, Value::MaxValue))
+    });
     //endregion
 
-    //region ALIAS
-
-    method_info!(fn INT(ctx, value: scalar) -> scalar { Methods::INT32(ctx, value)? }),
-    method_info!(fn LONG(ctx, value: scalar) -> scalar { Methods::INT64(ctx, value)? }),
-    method_info!(fn BOOL(ctx, value: scalar) -> scalar { Methods::BOOLEAN(ctx, value)? }),
-
-    method_info!(fn DATE(ctx, value: scalar) -> scalar { Methods::DATETIME(ctx, value)? }),
-    method_info!(fn DATE(ctx, value: scalar, culture: scalar) -> scalar { Methods::DATETIME_CULTURE(ctx, value, culture)? }),
-    method_info!(fn DATE_UTC(ctx, value: scalar) -> scalar { Methods::DATETIME_UTC(ctx, value)? }),
-    method_info!(fn DATE_UTC(ctx, value: scalar, culture: scalar) -> scalar { Methods::DATETIME_UTC(ctx, value, culture)? }),
-    method_info!(fn DATE(ctx, year: scalar, month: scalar, day: scalar) -> scalar { Methods::DATETIME_YMD(ctx, year, month, day)? }),
-    method_info!(fn DATE_UTC(ctx, year: scalar, month: scalar, day: scalar) -> scalar { Methods::DATETIME_UTC_YMD(ctx, year, month, day)? }),
-
-    method_info!(fn IS_INT(ctx, value: scalar) -> scalar { Methods::IS_INT32(ctx, value)? }),
-    method_info!(fn IS_LONG(ctx, value: scalar) -> scalar { Methods::IS_INT64(ctx, value)? }),
-    method_info!(fn IS_BOOL(ctx, value: scalar) -> scalar { Methods::IS_BOOLEAN(ctx, value)? }),
-    method_info!(fn IS_DATE(ctx, value: scalar) -> scalar { Methods::IS_DATE(ctx, value)? }),
-
     //endregion
+}
 
-    //endregion
+pub(super) use methods::*;
+
+const METHODS: &[MethodInfo] = &[
+    method_info2!(COUNT(values)),
+    method_info2!(MIN(values)),
+    method_info2!(MAX(values)),
+    method_info2!(FIRST(values)),
+    method_info2!(LAST(values)),
+    method_info2!(AVG(values)),
+    method_info2!(SUM(values)),
+    method_info2!(ANY(values)),
+    method_info2!(MINVALUE()),
+    method_info2!(volatile OBJECTID_NEW as OBJECTID()),
+    method_info2!(volatile GUID_NEW as GUID()),
+    method_info2!(volatile NOW()),
+    method_info2!(volatile NOW_UTC()),
+    method_info2!(volatile TODAY()),
+    method_info2!(MAXVALUE()),
+    method_info2!(INT32(value)),
+    method_info2!(INT64(value)),
+    method_info2!(DOUBLE(value)),
+    method_info2!(DOUBLE_CULTURE as DOUBLE(value, culture)),
+    method_info2!(DECIMAL(value)),
+    method_info2!(DECIMAL_CULTURE as DECIMAL(value, culture)),
+    method_info2!(STRING(value)),
+    method_info2!(ARRAY(value)),
+    method_info2!(BINARY(value)),
+    method_info2!(OBJECTID(value)),
+    method_info2!(GUID(value)),
+    method_info2!(BOOLEAN(value)),
+    method_info2!(DATETIME as DATETIME(value)),
+    method_info2!(DATETIME_CULTURE as DATETIME(value, culture)),
+    method_info2!(DATETIME as DATETIME_UTC(value)),
+    method_info2!(DATETIME_CULTURE as DATETIME_UTC(value, culture)),
+    method_info2!(DATETIME_YMD as DATETIME(year, month, day)),
+    method_info2!(DATETIME_YMD as DATETIME_UTC(year, month, day)),
+    method_info2!(IS_MINVALUE(value)),
+    method_info2!(IS_NULL(value)),
+    method_info2!(IS_INT32(value)),
+    method_info2!(IS_INT64(value)),
+    method_info2!(IS_DOUBLE(value)),
+    method_info2!(IS_DECIMAL(value)),
+    method_info2!(IS_NUMBER(value)),
+    method_info2!(IS_STRING(value)),
+    method_info2!(IS_DOCUMENT(value)),
+    method_info2!(IS_ARRAY(value)),
+    method_info2!(IS_BINARY(value)),
+    method_info2!(IS_OBJECTID(value)),
+    method_info2!(IS_GUID(value)),
+    method_info2!(IS_BOOLEAN(value)),
+    method_info2!(IS_DATETIME(value)),
+    method_info2!(IS_MAXVALUE(value)),
+    method_info2!(INT32 as INT(value)),
+    method_info2!(INT64 as LONG(value)),
+    method_info2!(BOOLEAN as BOOL(value)),
+    method_info2!(DATETIME as DATE(value)),
+    method_info2!(DATETIME_CULTURE as DATE(value, culture)),
+    method_info2!(DATETIME as DATE_UTC(value)),
+    method_info2!(DATETIME_CULTURE as DATE_UTC(value, culture)),
+    method_info2!(DATETIME_YMD as DATE(year, month, day)),
+    method_info2!(DATETIME_YMD as DATE_UTC(year, month, day)),
+    method_info2!(IS_INT32 as IS_INT(value)),
+    method_info2!(IS_INT64 as IS_LONG(value)),
+    method_info2!(IS_BOOLEAN as IS_BOOL(value)),
+    method_info2!(IS_DATETIME as IS_DATE(value)),
 ];
 
 struct MethodInfo {

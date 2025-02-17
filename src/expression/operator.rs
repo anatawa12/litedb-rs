@@ -42,10 +42,16 @@ binary!(add, |left, right| {
         (l, Value::String(r)) => Value::String(format!("{}{r}", methods::string_impl(l))),
         (Value::String(l), r) => Value::String(format!("{l}{}", methods::string_impl(r))),
         // if any side are DateTime and another is number, add days in date
-        (&Value::DateTime(t), v) if v.is_number() => Value::DateTime(t.add_ticks(v.to_i64().ok_or_else(|| Error::expr_run_error("overflows"))?)),
+        (&Value::DateTime(t), v) if v.is_number() => Value::DateTime(
+            t.add_ticks(
+                v.to_i64()
+                    .ok_or_else(|| Error::expr_run_error("overflows"))?,
+            ),
+        ),
         (v, &Value::DateTime(t)) if v.is_number() => Value::DateTime(
             t.add_ticks(
-                v.to_i64().ok_or_else(|| Error::expr_run_error("overflows"))?,
+                v.to_i64()
+                    .ok_or_else(|| Error::expr_run_error("overflows"))?,
             ),
         ),
 
@@ -57,8 +63,18 @@ binary!(add, |left, right| {
 binary!(minus, |left, right| {
     match (left, right) {
         // if any side are DateTime and another is number, add days in date
-        (Value::DateTime(t), v) if v.is_number() => Value::DateTime(t.add_ticks(-v.to_i64().ok_or_else(|| Error::expr_run_error("overflows"))?)),
-        (v, Value::DateTime(t)) if v.is_number() => Value::DateTime(t.add_ticks(-v.to_i64().ok_or_else(|| Error::expr_run_error("overflows"))?)),
+        (Value::DateTime(t), v) if v.is_number() => Value::DateTime(
+            t.add_ticks(
+                -v.to_i64()
+                    .ok_or_else(|| Error::expr_run_error("overflows"))?,
+            ),
+        ),
+        (v, Value::DateTime(t)) if v.is_number() => Value::DateTime(
+            t.add_ticks(
+                -v.to_i64()
+                    .ok_or_else(|| Error::expr_run_error("overflows"))?,
+            ),
+        ),
         // if both sides are number, minus as math
         (l, r) => l - r,
     }
@@ -70,15 +86,18 @@ binary!(divide, |left, right| left / right);
 
 binary!(r#mod, |left, right| {
     let left = if left.is_number() {
-        left.to_i32().ok_or_else(|| Error::expr_run_error("overflows"))?
+        left.to_i32()
+            .ok_or_else(|| Error::expr_run_error("overflows"))?
     } else {
-        return Ok(&Value::Null)
+        return Ok(&Value::Null);
     };
-    
+
     let right = if right.is_number() {
-        right.to_i32().ok_or_else(|| Error::expr_run_error("overflows"))?
+        right
+            .to_i32()
+            .ok_or_else(|| Error::expr_run_error("overflows"))?
     } else {
-        return Ok(&Value::Null)
+        return Ok(&Value::Null);
     };
 
     Value::Int32(left % right)
