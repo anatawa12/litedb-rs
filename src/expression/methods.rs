@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::bson::{DateTime, TotalOrd, Value};
+use crate::utils::{CSharpStringUtils, OrdBsonValue};
 use std::marker::PhantomData;
 use std::str::FromStr;
 
@@ -312,9 +313,9 @@ macro_rules! overflow {
     };
 }
 
-mod methods {
+#[cfg(feature = "expression-methods")]
+mod expression_methods {
     use super::*;
-    use crate::utils::{CSharpStringUtils, OrdBsonValue};
     use base64::prelude::*;
     use std::collections::BTreeSet;
 
@@ -556,13 +557,7 @@ mod methods {
 
     // ==> there is no convert to BsonDocument, must use { .. } syntax
 
-    methods!(ARRAY, |ctx, values: sequence| -> scalar {
-        ctx.arena(Value::Array(bson::Array::from(
-            values
-                .map_ok(|x| x.clone())
-                .collect::<Result<Vec<_>, _>>()?,
-        )))
-    });
+    // ARRAY is in basic methods
 
     methods!(BINARY, |ctx, value: scalar| -> scalar {
         match value {
@@ -955,20 +950,7 @@ mod methods {
         }
     });
 
-    methods!(ITEMS, |ctx, array: scalar| -> sequence {
-        match array {
-            Value::Array(v) => Box::new(v.as_slice().iter().map(Ok)),
-            Value::Binary(v) => {
-                let ctx = ctx.clone();
-                Box::new(
-                    v.bytes()
-                        .iter()
-                        .map(move |&x| Ok(ctx.arena((x as i32).into()))),
-                )
-            }
-            _ => Box::new(std::iter::once(array).map(Ok)),
-        }
-    });
+    // ITEMS is in basic methods
 
     methods!(CONCAT, |_, first: sequence, second: sequence| -> sequence {
         Box::new(first.chain(second))
@@ -1311,115 +1293,146 @@ mod methods {
     // MATCH: no regex
 
     //endregion
+
+    pub(super) const METHODS: &[MethodInfo] = &[
+        method_info2!(COUNT(values)),
+        method_info2!(MIN(values)),
+        method_info2!(MAX(values)),
+        method_info2!(FIRST(values)),
+        method_info2!(LAST(values)),
+        method_info2!(AVG(values)),
+        method_info2!(SUM(values)),
+        method_info2!(ANY(values)),
+        method_info2!(MINVALUE()),
+        method_info2!(volatile OBJECTID_NEW as OBJECTID()),
+        method_info2!(volatile GUID_NEW as GUID()),
+        method_info2!(volatile NOW()),
+        method_info2!(volatile NOW_UTC()),
+        method_info2!(volatile TODAY()),
+        method_info2!(MAXVALUE()),
+        method_info2!(INT32(value)),
+        method_info2!(INT64(value)),
+        method_info2!(DOUBLE(value)),
+        method_info2!(DOUBLE_CULTURE as DOUBLE(value, culture)),
+        method_info2!(DECIMAL(value)),
+        method_info2!(DECIMAL_CULTURE as DECIMAL(value, culture)),
+        method_info2!(STRING(value)),
+        method_info2!(BINARY(value)),
+        method_info2!(OBJECTID(value)),
+        method_info2!(GUID(value)),
+        method_info2!(BOOLEAN(value)),
+        method_info2!(DATETIME as DATETIME(value)),
+        method_info2!(DATETIME_CULTURE as DATETIME(value, culture)),
+        method_info2!(DATETIME as DATETIME_UTC(value)),
+        method_info2!(DATETIME_CULTURE as DATETIME_UTC(value, culture)),
+        method_info2!(DATETIME_YMD as DATETIME(year, month, day)),
+        method_info2!(DATETIME_YMD as DATETIME_UTC(year, month, day)),
+        method_info2!(IS_MINVALUE(value)),
+        method_info2!(IS_NULL(value)),
+        method_info2!(IS_INT32(value)),
+        method_info2!(IS_INT64(value)),
+        method_info2!(IS_DOUBLE(value)),
+        method_info2!(IS_DECIMAL(value)),
+        method_info2!(IS_NUMBER(value)),
+        method_info2!(IS_STRING(value)),
+        method_info2!(IS_DOCUMENT(value)),
+        method_info2!(IS_ARRAY(value)),
+        method_info2!(IS_BINARY(value)),
+        method_info2!(IS_OBJECTID(value)),
+        method_info2!(IS_GUID(value)),
+        method_info2!(IS_BOOLEAN(value)),
+        method_info2!(IS_DATETIME(value)),
+        method_info2!(IS_MAXVALUE(value)),
+        method_info2!(INT32 as INT(value)),
+        method_info2!(INT64 as LONG(value)),
+        method_info2!(BOOLEAN as BOOL(value)),
+        method_info2!(DATETIME as DATE(value)),
+        method_info2!(DATETIME_CULTURE as DATE(value, culture)),
+        method_info2!(DATETIME as DATE_UTC(value)),
+        method_info2!(DATETIME_CULTURE as DATE_UTC(value, culture)),
+        method_info2!(DATETIME_YMD as DATE(year, month, day)),
+        method_info2!(DATETIME_YMD as DATE_UTC(year, month, day)),
+        method_info2!(IS_INT32 as IS_INT(value)),
+        method_info2!(IS_INT64 as IS_LONG(value)),
+        method_info2!(IS_BOOLEAN as IS_BOOL(value)),
+        method_info2!(IS_DATETIME as IS_DATE(value)),
+        method_info2!(YEAR(value)),
+        method_info2!(MONTH(value)),
+        method_info2!(DAY(value)),
+        method_info2!(HOUR(value)),
+        method_info2!(MINUTE(value)),
+        method_info2!(SECOND(value)),
+        method_info2!(DATEADD(interval, time, val)),
+        method_info2!(DATEDIFF(interval, starts, ends)),
+        method_info2!(ABS(value)),
+        method_info2!(ROUND(value, digits)),
+        method_info2!(POW(left, right)),
+        method_info2!(EXTEND(source, extend)),
+        method_info2!(CONCAT(first, second)),
+        method_info2!(KEYS(document)),
+        method_info2!(VALUES(document)),
+        method_info2!(OID_CREATIONTIME(object_id)),
+        method_info2!(COALESCE(left, right)),
+        method_info2!(LENGTH(value)),
+        method_info2!(TOP(values, num)),
+        method_info2!(UNION(left, right)),
+        method_info2!(EXCEPT(left, right)),
+        method_info2!(DISTINCT(values)),
+        method_info2!(volatile RANDOM()),
+        method_info2!(volatile RANDOM_RANGE as RANDOM(min, max)),
+        method_info2!(LOWER(value)),
+        method_info2!(UPPER(value)),
+        method_info2!(LTRIM(value)),
+        method_info2!(RTRIM(value)),
+        method_info2!(TRIM(value)),
+        method_info2!(INDEXOF(value, search)),
+        method_info2!(INDEXOF_START as INDEXOF(value, search, start)),
+        method_info2!(SUBSTRING(value, start)),
+        method_info2!(SUBSTRING_RANGE as SUBSTRING(value, start, idx)),
+        method_info2!(REPLACE(value, search, replace)),
+        method_info2!(LPAD(value, width, char)),
+        method_info2!(RPAD(value, width, char)),
+        method_info2!(SPLIT(value, separator)),
+        method_info2!(JOIN(value)),
+        method_info2!(JOIN_SEPARATOR(value, separator)),
+    ];
 }
 
-pub(super) use methods::*;
+pub(super) use basic_methods::*;
+mod basic_methods {
+    use super::*;
 
-pub(super) const METHODS: &[MethodInfo] = &[
-    method_info2!(COUNT(values)),
-    method_info2!(MIN(values)),
-    method_info2!(MAX(values)),
-    method_info2!(FIRST(values)),
-    method_info2!(LAST(values)),
-    method_info2!(AVG(values)),
-    method_info2!(SUM(values)),
-    method_info2!(ANY(values)),
-    method_info2!(MINVALUE()),
-    method_info2!(volatile OBJECTID_NEW as OBJECTID()),
-    method_info2!(volatile GUID_NEW as GUID()),
-    method_info2!(volatile NOW()),
-    method_info2!(volatile NOW_UTC()),
-    method_info2!(volatile TODAY()),
-    method_info2!(MAXVALUE()),
-    method_info2!(INT32(value)),
-    method_info2!(INT64(value)),
-    method_info2!(DOUBLE(value)),
-    method_info2!(DOUBLE_CULTURE as DOUBLE(value, culture)),
-    method_info2!(DECIMAL(value)),
-    method_info2!(DECIMAL_CULTURE as DECIMAL(value, culture)),
-    method_info2!(STRING(value)),
-    method_info2!(ARRAY(value)),
-    method_info2!(BINARY(value)),
-    method_info2!(OBJECTID(value)),
-    method_info2!(GUID(value)),
-    method_info2!(BOOLEAN(value)),
-    method_info2!(DATETIME as DATETIME(value)),
-    method_info2!(DATETIME_CULTURE as DATETIME(value, culture)),
-    method_info2!(DATETIME as DATETIME_UTC(value)),
-    method_info2!(DATETIME_CULTURE as DATETIME_UTC(value, culture)),
-    method_info2!(DATETIME_YMD as DATETIME(year, month, day)),
-    method_info2!(DATETIME_YMD as DATETIME_UTC(year, month, day)),
-    method_info2!(IS_MINVALUE(value)),
-    method_info2!(IS_NULL(value)),
-    method_info2!(IS_INT32(value)),
-    method_info2!(IS_INT64(value)),
-    method_info2!(IS_DOUBLE(value)),
-    method_info2!(IS_DECIMAL(value)),
-    method_info2!(IS_NUMBER(value)),
-    method_info2!(IS_STRING(value)),
-    method_info2!(IS_DOCUMENT(value)),
-    method_info2!(IS_ARRAY(value)),
-    method_info2!(IS_BINARY(value)),
-    method_info2!(IS_OBJECTID(value)),
-    method_info2!(IS_GUID(value)),
-    method_info2!(IS_BOOLEAN(value)),
-    method_info2!(IS_DATETIME(value)),
-    method_info2!(IS_MAXVALUE(value)),
-    method_info2!(INT32 as INT(value)),
-    method_info2!(INT64 as LONG(value)),
-    method_info2!(BOOLEAN as BOOL(value)),
-    method_info2!(DATETIME as DATE(value)),
-    method_info2!(DATETIME_CULTURE as DATE(value, culture)),
-    method_info2!(DATETIME as DATE_UTC(value)),
-    method_info2!(DATETIME_CULTURE as DATE_UTC(value, culture)),
-    method_info2!(DATETIME_YMD as DATE(year, month, day)),
-    method_info2!(DATETIME_YMD as DATE_UTC(year, month, day)),
-    method_info2!(IS_INT32 as IS_INT(value)),
-    method_info2!(IS_INT64 as IS_LONG(value)),
-    method_info2!(IS_BOOLEAN as IS_BOOL(value)),
-    method_info2!(IS_DATETIME as IS_DATE(value)),
-    method_info2!(YEAR(value)),
-    method_info2!(MONTH(value)),
-    method_info2!(DAY(value)),
-    method_info2!(HOUR(value)),
-    method_info2!(MINUTE(value)),
-    method_info2!(SECOND(value)),
-    method_info2!(DATEADD(interval, time, val)),
-    method_info2!(DATEDIFF(interval, starts, ends)),
-    method_info2!(ABS(value)),
-    method_info2!(ROUND(value, digits)),
-    method_info2!(POW(left, right)),
-    method_info2!(EXTEND(source, extend)),
-    method_info2!(ITEMS(array)),
-    method_info2!(CONCAT(first, second)),
-    method_info2!(KEYS(document)),
-    method_info2!(VALUES(document)),
-    method_info2!(OID_CREATIONTIME(object_id)),
-    method_info2!(COALESCE(left, right)),
-    method_info2!(LENGTH(value)),
-    method_info2!(TOP(values, num)),
-    method_info2!(UNION(left, right)),
-    method_info2!(EXCEPT(left, right)),
-    method_info2!(DISTINCT(values)),
-    method_info2!(volatile RANDOM()),
-    method_info2!(volatile RANDOM_RANGE as RANDOM(min, max)),
-    method_info2!(LOWER(value)),
-    method_info2!(UPPER(value)),
-    method_info2!(LTRIM(value)),
-    method_info2!(RTRIM(value)),
-    method_info2!(TRIM(value)),
-    method_info2!(INDEXOF(value, search)),
-    method_info2!(INDEXOF_START as INDEXOF(value, search, start)),
-    method_info2!(SUBSTRING(value, start)),
-    method_info2!(SUBSTRING_RANGE as SUBSTRING(value, start, idx)),
-    method_info2!(REPLACE(value, search, replace)),
-    method_info2!(LPAD(value, width, char)),
-    method_info2!(RPAD(value, width, char)),
-    method_info2!(SPLIT(value, separator)),
-    method_info2!(JOIN(value)),
-    method_info2!(JOIN_SEPARATOR(value, separator)),
-    /*
-     */
+    methods!(ITEMS, |ctx, array: scalar| -> sequence {
+        match array {
+            Value::Array(v) => Box::new(v.as_slice().iter().map(Ok)),
+            Value::Binary(v) => {
+                let ctx = ctx.clone();
+                Box::new(
+                    v.bytes()
+                        .iter()
+                        .map(move |&x| Ok(ctx.arena((x as i32).into()))),
+                )
+            }
+            _ => Box::new(std::iter::once(array).map(Ok)),
+        }
+    });
+
+    methods!(ARRAY, |ctx, values: sequence| -> scalar {
+        ctx.arena(Value::Array(bson::Array::from(
+            values
+                .map_ok(|x| x.clone())
+                .collect::<Result<Vec<_>, _>>()?,
+        )))
+    });
+
+    pub(super) const METHODS: &[MethodInfo] =
+        &[method_info2!(ITEMS(array)), method_info2!(ARRAY(value))];
+}
+
+pub(super) const METHODS: &[&[MethodInfo]] = &[
+    #[cfg(feature = "expression-methods")]
+    expression_methods::METHODS,
+    basic_methods::METHODS,
 ];
 
 pub(super) struct MethodInfo {

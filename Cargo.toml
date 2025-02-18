@@ -23,5 +23,10 @@ time = { version = "0.3.37", features = ["macros"] }
 tokio = { version = "1.43.0", features = ["rt-multi-thread", "macros", "fs"] }
 
 [features]
+default = ['expression-methods']
 debug-logs = []
 tokio-fs = ['dep:tokio', 'dep:tokio-util']
+# This feature enables support for methods of expression
+# even without this feature, ITEMS / ARRAY method is avaiable since it's 
+# part of builtin (some expression uses them)
+expression-methods = []

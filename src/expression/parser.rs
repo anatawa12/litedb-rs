@@ -1239,6 +1239,8 @@ fn try_parse_method_call(
 
     let Some(method) = methods::METHODS
         .iter()
+        .copied()
+        .flatten()
         .find(|m| m.name == token.value && m.arg_count == pars.len())
     else {
         return Err(LiteException::unexpected_token(
