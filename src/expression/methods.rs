@@ -1,10 +1,8 @@
 #![allow(clippy::module_inception)]
 
 use super::*;
-use crate::bson::{DateTime, TotalOrd, Value};
-use crate::utils::{CSharpStringUtils, OrdBsonValue};
+use crate::bson::Value;
 use std::marker::PhantomData;
-use std::str::FromStr;
 
 // this is treated as function invocation macro in rustfmt so this will be formtted correctly
 macro_rules! methods {
@@ -307,17 +305,20 @@ macro_rules! method_info2 {
     (@count $arg0: ident, $arg1: ident, $arg2: ident, $arg3: ident, $arg4: ident) => { 5 };
 }
 
-macro_rules! overflow {
-    ($expr: expr) => {
-        crate::Error::expr_run_error(&concat!("overflow converting to ", $expr))
-    };
-}
-
 #[cfg(feature = "expression-methods")]
 mod expression_methods {
     use super::*;
+    use crate::bson::{DateTime, TotalOrd};
+    use crate::utils::{CSharpStringUtils, OrdBsonValue};
     use base64::prelude::*;
     use std::collections::BTreeSet;
+    use std::str::FromStr;
+
+    macro_rules! overflow {
+        ($expr: expr) => {
+            crate::Error::expr_run_error(&concat!("overflow converting to ", $expr))
+        };
+    }
 
     //region aggregate
 
