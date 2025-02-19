@@ -230,14 +230,9 @@ impl TransactionService {
 
                 let page_id = page_mut.page_id();
 
-                let buffer = page.as_mut().update_buffer();
-                let position = buffer.position();
+                page.as_mut().update_buffer();
 
-                buffers.push(page.into_base().into_buffer());
-                self.trans_pages
-                    .borrow_mut()
-                    .dirty_pages
-                    .insert(page_id, PagePosition::new(page_id, position));
+                buffers.push((page_id, page.into_base().into_buffer()));
             }
 
             //if commit && self.trans_pages.borrow().header_changed() {
@@ -253,14 +248,24 @@ impl TransactionService {
 
                     *new.buffer_mut() = *buffer.buffer();
 
-                    buffers.push(new);
+                    buffers.push((u32::MAX, new));
                 }
             }
         }
 
         // write all dirty pages, in sequence on log-file and store references into log pages on transPages
         // (works only for Write snapshots)
-        let count = self.disk.write_log_disk(buffers).await?;
+        let count = self
+            .disk
+            .write_log_disk(buffers, |page_address| {
+                if page_address.page_id() != u32::MAX {
+                    self.trans_pages
+                        .borrow_mut()
+                        .dirty_pages
+                        .insert(page_address.page_id(), page_address);
+                }
+            })
+            .await?;
 
         // now, discard all clean pages (because those pages are writable and must be readable)
         // from write snapshots
@@ -355,8 +360,6 @@ impl TransactionService {
         let transaction_id = self.wal_index.next_transaction_id();
 
         // lock on header
-        let mut page_positions = HashMap::<u32, PagePosition>::new();
-
         #[allow(clippy::await_holding_refcell_ref)]
         let mut header = self.header.borrow_mut();
         let r = header.save_point();
@@ -373,14 +376,11 @@ impl TransactionService {
                     .unwrap_or(r.header.free_empty_page_list());
 
                 let buffer = self.disk.new_page();
-                let position = buffer.position();
                 let mut page = BasePage::new(buffer, page_id, PageType::Empty);
                 page.set_next_page_id(next);
                 page.set_transaction_id(transaction_id);
                 page.update_buffer();
-                buffers.push(page.into_buffer());
-
-                page_positions.insert(page_id, PagePosition::new(page_id, position));
+                buffers.push((page_id, page.into_buffer()));
             }
 
             r.header.set_transaction_id(transaction_id);
@@ -392,10 +392,18 @@ impl TransactionService {
             let mut clone = self.disk.new_page();
             *clone.buffer_mut() = *buf.buffer();
 
-            buffers.push(clone);
+            buffers.push((u32::MAX, clone));
         }
 
-        self.disk.write_log_disk(buffers).await?;
+        let mut page_positions = HashMap::<u32, PagePosition>::new();
+
+        self.disk
+            .write_log_disk(buffers, |page_position| {
+                if page_position.page_id() != u32::MAX {
+                    page_positions.insert(page_position.page_id(), page_position);
+                }
+            })
+            .await?;
 
         forget(r);
         drop(header);

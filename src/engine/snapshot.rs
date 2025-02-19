@@ -485,7 +485,7 @@ impl SnapshotPages {
             assert_eq!(
                 free.page_type(),
                 PageType::Empty,
-                "empty page must be defined as empty type"
+                "empty page must be defined as empty type ({page_id})"
             );
 
             self.header

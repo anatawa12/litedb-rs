@@ -62,7 +62,9 @@ impl WalIndexService {
     }
 
     pub fn next_transaction_id(&self) -> u32 {
-        self.last_transaction_id.fetch_add(1, Ordering::SeqCst) + 1
+        self.last_transaction_id
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1)
     }
 
     pub async fn get_page_index(&self, page_id: u32, version: i32) -> (i32, u64) {

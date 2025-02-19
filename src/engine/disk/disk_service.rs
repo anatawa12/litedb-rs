@@ -3,6 +3,7 @@ use crate::Result;
 use crate::engine::Stream;
 use crate::engine::disk::disk_reader::DiskReader;
 use crate::engine::disk::stream_pool::StreamPool;
+use crate::engine::page_position::PagePosition;
 use crate::engine::pages::HeaderPage;
 use crate::engine::*;
 use crate::utils::Collation;
@@ -115,13 +116,17 @@ impl DiskService {
         }
     }
 
-    pub(crate) async fn write_log_disk(&self, pages: Vec<Box<PageBuffer>>) -> Result<usize> {
+    pub(crate) async fn write_log_disk(
+        &self,
+        pages: Vec<(u32, Box<PageBuffer>)>,
+        mut new_page_location: impl FnMut(PagePosition),
+    ) -> Result<usize> {
         let mut count = 0;
         let mut stream = self.log_pool.writeable().await?;
         let _log_write_lock = self.log_lock.lock().await;
 
         // lock on stream
-        for mut page in pages {
+        for (page_id, mut page) in pages {
             let new_length =
                 self.log_length.fetch_add(PAGE_SIZE as i64, Relaxed) + PAGE_SIZE as i64;
             page.set_position_origin(new_length as u64, FileOrigin::Log);
@@ -133,6 +138,8 @@ impl DiskService {
             stream.write_all(page.buffer()).await?;
 
             count += 1;
+
+            new_page_location(PagePosition::new(page_id, new_length as u64));
         }
 
         Ok(count)
