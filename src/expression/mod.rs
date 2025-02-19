@@ -6,6 +6,8 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
 use typed_arena::Arena;
+use crate::expression::parser::DocumentScope;
+use crate::expression::tokenizer::Tokenizer;
 
 mod functions;
 mod methods;
@@ -108,7 +110,7 @@ pub enum BsonExpressionType {
 
 type ValueIterator<'a, 'b> = Box<dyn IEnumerable<'a, 'b> + 'b>;
 
-trait IEnumerable<'a, 'b>: Iterator<Item = super::Result<&'a bson::Value>> {
+pub trait IEnumerable<'a, 'b>: Iterator<Item = super::Result<&'a bson::Value>> {
     fn box_clone(&self) -> ValueIterator<'a, 'b>;
 }
 
@@ -132,7 +134,7 @@ type SequenceExpr =
     Rc<dyn for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<ValueIterator<'ctx, 'ctx>>>;
 
 #[derive(Clone)]
-enum Expression {
+pub enum Expression {
     Scalar(ScalarExpr),
     Sequence(SequenceExpr),
 }
@@ -208,7 +210,7 @@ fn sequence_expr(
 }
 
 #[derive(Clone)]
-struct ExecutionContext<'a> {
+pub struct ExecutionContext<'a> {
     source: ValueIterator<'a, 'a>,
     root: Option<&'a bson::Value>,
     current: Option<&'a bson::Value>,
@@ -258,6 +260,17 @@ pub struct BsonExpression<Expr = Expression> {
 
 type ScalarBsonExpression = BsonExpression<ScalarExpr>;
 type SequenceBsonExpression = BsonExpression<SequenceExpr>;
+
+impl BsonExpression {
+    pub(crate) fn create(expr: &str) -> Result<Self, ParseError> {
+        let mut tokenizer = Tokenizer::new(expr);
+        parser::parse_full_expression(&mut tokenizer, DocumentScope::Root)
+    }
+
+    pub(crate) fn source(&self) -> &str {
+        &self.source
+    }
+}
 
 impl BsonExpression {
     fn is_scalar(&self) -> bool {

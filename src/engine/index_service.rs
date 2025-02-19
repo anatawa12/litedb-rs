@@ -11,6 +11,7 @@ use crate::{Error, Result};
 use std::collections::HashSet;
 use std::hash::{BuildHasher, RandomState};
 use std::pin::Pin;
+use crate::expression::BsonExpression;
 
 // see http://igoro.com/archive/skip-lists-are-fascinating/ for index structure
 pub(crate) struct IndexService<'snapshot> {
@@ -41,7 +42,7 @@ impl IndexService<'_> {
     pub async fn create_index<'indexes>(
         &mut self,
         name: &str,
-        expression: &str,
+        expression: BsonExpression,
         unique: bool,
         collection_page: &'indexes mut CollectionIndexesMut<'_>,
     ) -> Result<&'indexes mut CollectionIndex> {

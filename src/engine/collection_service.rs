@@ -4,6 +4,7 @@ use crate::engine::pages::HeaderPage;
 use crate::engine::snapshot::Snapshot;
 use crate::{Error, Result};
 use std::pin::Pin;
+use crate::expression::BsonExpression;
 
 pub(crate) struct CollectionService<'snapshot> {
     snapshot: &'snapshot mut Snapshot,
@@ -88,9 +89,10 @@ impl<'snapshot> CollectionService<'snapshot> {
         let max_items_count = self.snapshot.disk().max_items_count();
         let mut parts = self.snapshot.as_parts();
         let mut indexer = IndexService::new(parts.index_pages, collation, max_items_count);
+        let expr = BsonExpression::create("$._id").expect("bad bson expression for id");
 
         indexer
-            .create_index("_id", "$._id", true, &mut parts.collection_page)
+            .create_index("_id", expr, true, &mut parts.collection_page)
             .await?;
 
         self.snapshot

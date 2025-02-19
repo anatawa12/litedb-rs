@@ -134,6 +134,14 @@ impl From<bson::ParseError> for Error {
     }
 }
 
+impl From<expression::ParseError> for Error {
+    fn from(err: expression::ParseError) -> Self {
+        Error {
+            message: err.to_string(),
+        }
+    }
+}
+
 impl From<std::string::FromUtf8Error> for Error {
     fn from(err: std::string::FromUtf8Error) -> Self {
         Self::err(err)

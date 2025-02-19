@@ -2,6 +2,7 @@ use crate::Result;
 use crate::engine::buffer_reader::BufferReader;
 use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::page_address::PageAddress;
+use crate::expression::BsonExpression;
 
 pub(crate) struct CollectionIndex {
     slot: u8,
@@ -14,20 +15,22 @@ pub(crate) struct CollectionIndex {
     tail: PageAddress,
     reserved: u8, // previously level max
     free_index_page_list: u32,
+    bson_expr: BsonExpression,
 }
 
 impl CollectionIndex {
-    pub fn new(slot: u8, index_type: u8, name: String, expression: String, unique: bool) -> Self {
+    pub fn new(slot: u8, index_type: u8, name: String, expression: BsonExpression, unique: bool) -> Self {
         Self {
             slot,
             index_type,
             name,
-            expression,
+            expression: expression.source().to_string(),
             unique,
             head: PageAddress::default(),
             tail: PageAddress::default(),
             reserved: 0,
             free_index_page_list: u32::MAX,
+            bson_expr: expression,
         }
     }
 
@@ -41,6 +44,7 @@ impl CollectionIndex {
         let tail = reader.read_page_address();
         let reserved = reader.read_u8();
         let free_index_page_list = reader.read_u32();
+        let parsed = BsonExpression::create(&expression)?;
 
         Ok(Self {
             slot,
@@ -52,6 +56,7 @@ impl CollectionIndex {
             tail,
             reserved,
             free_index_page_list,
+            bson_expr: parsed,
         })
     }
 

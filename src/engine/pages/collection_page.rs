@@ -9,6 +9,7 @@ use crate::{Error, Result};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
+use crate::expression::BsonExpression;
 
 const P_INDEXES: usize = 96; // 96-8192 (64 + 32 header = 96)
 const P_INDEXES_COUNT: usize = PAGE_SIZE - P_INDEXES;
@@ -151,7 +152,7 @@ impl CollectionIndexes {
     fn insert_collection_index(
         &mut self,
         name: &str,
-        expr: &str,
+        expr: BsonExpression,
         unique: bool,
         dirty: &DirtyFlag,
     ) -> Result<&mut CollectionIndex> {
@@ -160,7 +161,7 @@ impl CollectionIndexes {
                 .values()
                 .map(CollectionIndex::get_length)
                 .sum::<usize>()
-            + CollectionIndex::get_length_static(name, expr);
+            + CollectionIndex::get_length_static(name, expr.source());
 
         if self.len() == 255 || total_length >= P_INDEXES_COUNT {
             return Err(Error::collection_index_limit_reached());
@@ -203,7 +204,7 @@ impl CollectionPage {
     pub fn insert_collection_index(
         &mut self,
         name: &str,
-        expr: &str,
+        expr: BsonExpression,
         unique: bool,
     ) -> Result<&mut CollectionIndex> {
         self.indexes
@@ -283,7 +284,7 @@ impl<'a> CollectionIndexesMut<'a> {
     pub fn insert_collection_index(
         &mut self,
         name: &str,
-        expr: &str,
+        expr: BsonExpression,
         unique: bool,
     ) -> Result<&mut CollectionIndex> {
         self.0.insert_collection_index(name, expr, unique, self.1)
