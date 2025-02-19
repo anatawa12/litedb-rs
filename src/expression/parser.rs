@@ -283,10 +283,9 @@ static OPERATORS: &[(&str, BinaryExpression, BsonExpressionType)] = &[
 /// </summary>
 pub fn parse_full_expression(
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
     scope: DocumentScope,
 ) -> Result<BsonExpression> {
-    let first = parse_single_expression(tokenizer, parameters, scope)?;
+    let first = parse_single_expression(tokenizer, scope)?;
     let mut values = vec![first];
     let mut ops = vec![];
 
@@ -297,14 +296,14 @@ pub fn parse_full_expression(
             break;
         };
 
-        let mut expr = parse_single_expression(tokenizer, parameters, scope)?;
+        let mut expr = parse_single_expression(tokenizer, scope)?;
 
         // special BETWEEN "AND" read
         // rustchange: we changed to upper in ReadOperant so we use simple ends with
         if op.ends_with("BETWEEN") {
             tokenizer.read_token().expect_token("AND")?;
 
-            let expr2 = parse_single_expression(tokenizer, parameters, scope)?;
+            let expr2 = parse_single_expression(tokenizer, scope)?;
 
             // convert expr and expr2 into an array with 2 values
             expr = new_array(expr, expr2)?;
@@ -453,27 +452,24 @@ pub fn parse_full_expression(
 /// </summary>
 pub fn parse_single_expression(
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
     scope: DocumentScope,
 ) -> Result<BsonExpression> {
     // read next token and test with all expression parts
     let token = tokenizer.read_token().clone();
 
-    try_parse_double(tokenizer, parameters)?
-        .try_or_else(|| try_parse_int(tokenizer, parameters))?
-        .or_else(|| try_parse_bool(tokenizer, parameters))
-        .or_else(|| try_parse_null(tokenizer, parameters))
-        .or_else(|| try_parse_string(tokenizer, parameters))
-        .try_or_else(|| try_parse_source(tokenizer, parameters, scope))?
-        .try_or_else(|| {
-            try_parse_document(tokenizer, parameters, scope).map(|x| x.map(|x| x.into()))
-        })?
-        .try_or_else(|| try_parse_array(tokenizer, parameters, scope))?
-        .or_else(|| try_parse_parameter(tokenizer, parameters, scope))
-        .try_or_else(|| try_parse_inner_expression(tokenizer, parameters, scope))?
-        .try_or_else(|| try_parse_function(tokenizer, parameters, scope))?
-        .try_or_else(|| try_parse_method_call(tokenizer, parameters, scope))?
-        .try_or_else(|| try_parse_path(tokenizer, parameters, scope))?
+    try_parse_double(tokenizer)?
+        .try_or_else(|| try_parse_int(tokenizer))?
+        .or_else(|| try_parse_bool(tokenizer))
+        .or_else(|| try_parse_null(tokenizer))
+        .or_else(|| try_parse_string(tokenizer))
+        .try_or_else(|| try_parse_source(tokenizer, scope))?
+        .try_or_else(|| try_parse_document(tokenizer, scope).map(|x| x.map(|x| x.into())))?
+        .try_or_else(|| try_parse_array(tokenizer, scope))?
+        .or_else(|| try_parse_parameter(tokenizer, scope))
+        .try_or_else(|| try_parse_inner_expression(tokenizer, scope))?
+        .try_or_else(|| try_parse_function(tokenizer, scope))?
+        .try_or_else(|| try_parse_method_call(tokenizer, scope))?
+        .try_or_else(|| try_parse_path(tokenizer, scope))?
         .ok_or_else(|| LiteException::unexpected_token("unexpected token", &token))
 }
 
@@ -507,7 +503,7 @@ pub fn ParseSelectDocumentBuilder(
      */
 
     while (true) {
-        let expr = parse_full_expression(tokenizer, parameters, DocumentScope::Root)?;
+        let expr = parse_full_expression(tokenizer, DocumentScope::Root)?;
 
         let next = tokenizer.look_ahead();
 
@@ -593,7 +589,6 @@ pub fn ParseSelectDocumentBuilder(
 /// </summary>
 pub fn parse_update_document_builder(
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
 ) -> Result<ScalarBsonExpression> {
     let next = tokenizer.look_ahead();
 
@@ -601,7 +596,7 @@ pub fn parse_update_document_builder(
     if next.typ == TokenType::OpenBrace {
         tokenizer.read_token(); // consume {
 
-        return Ok(try_parse_document(tokenizer, parameters, DocumentScope::Root)?.unwrap());
+        return Ok(try_parse_document(tokenizer, DocumentScope::Root)?.unwrap());
     }
 
     let mut keys = vec![];
@@ -620,7 +615,7 @@ pub fn parse_update_document_builder(
 
         src.push(':');
 
-        let value = parse_full_expression(tokenizer, parameters, DocumentScope::Root)?;
+        let value = parse_full_expression(tokenizer, DocumentScope::Root)?;
 
         let value = value.into_scalar();
 
@@ -673,10 +668,7 @@ pub fn parse_update_document_builder(
 /// <summary>
 /// Try parse double number - return null if not double token
 /// </summary>
-fn try_parse_double(
-    tokenizer: &mut Tokenizer,
-    _parameters: &BsonDocument,
-) -> Result<Option<BsonExpression>> {
+fn try_parse_double(tokenizer: &mut Tokenizer) -> Result<Option<BsonExpression>> {
     let mut value: Option<f64> = None;
 
     if tokenizer.current().typ == TokenType::Double {
@@ -712,10 +704,7 @@ fn try_parse_double(
 /// <summary>
 /// Try parse int number - return null if not int token
 /// </summary>
-fn try_parse_int(
-    tokenizer: &mut Tokenizer,
-    _parameters: &BsonDocument,
-) -> Result<Option<BsonExpression>> {
+fn try_parse_int(tokenizer: &mut Tokenizer) -> Result<Option<BsonExpression>> {
     let mut value: Option<i64> = None;
 
     if tokenizer.current().typ == TokenType::Int {
@@ -767,7 +756,7 @@ fn try_parse_int(
 /// <summary>
 /// Try parse bool - return null if not bool token
 /// </summary>
-fn try_parse_bool(tokenizer: &mut Tokenizer, _parameters: &BsonDocument) -> Option<BsonExpression> {
+fn try_parse_bool(tokenizer: &mut Tokenizer) -> Option<BsonExpression> {
     if tokenizer.current().typ == TokenType::Word
         && (tokenizer.current().is("true") || tokenizer.current().is("false"))
     {
@@ -794,7 +783,7 @@ fn try_parse_bool(tokenizer: &mut Tokenizer, _parameters: &BsonDocument) -> Opti
 /// <summary>
 /// Try parse null constant - return null if not null token
 /// </summary>
-fn try_parse_null(tokenizer: &mut Tokenizer, _parameters: &BsonDocument) -> Option<BsonExpression> {
+fn try_parse_null(tokenizer: &mut Tokenizer) -> Option<BsonExpression> {
     if tokenizer.current().typ == TokenType::Word && tokenizer.current().is("null") {
         let constant = Expression::scalar(|_| Ok(&BsonValue::Null));
 
@@ -819,10 +808,7 @@ fn try_parse_null(tokenizer: &mut Tokenizer, _parameters: &BsonDocument) -> Opti
 /// <summary>
 /// Try parse string with both single/double quote - return null if not string
 /// </summary>
-fn try_parse_string(
-    tokenizer: &mut Tokenizer,
-    _parameters: &BsonDocument,
-) -> Option<BsonExpression> {
+fn try_parse_string(tokenizer: &mut Tokenizer) -> Option<BsonExpression> {
     if tokenizer.current().typ == TokenType::String {
         let str = tokenizer.take_current().value.into_owned();
         let mut source = String::new();
@@ -856,7 +842,6 @@ fn try_parse_string(
 /// </summary>
 fn try_parse_document(
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
     scope: DocumentScope,
 ) -> Result<Option<ScalarBsonExpression>> {
     if tokenizer.current().typ != TokenType::OpenBrace {
@@ -892,7 +877,7 @@ fn try_parse_document(
 
             // test normal notation { a: 1 }
             if tokenizer.current().typ == TokenType::Colon {
-                value = parse_full_expression(tokenizer, parameters, scope)?;
+                value = parse_full_expression(tokenizer, scope)?;
 
                 // read next token here (, or }) because simplified version already did
                 tokenizer.read_token();
@@ -971,7 +956,6 @@ fn try_parse_document(
 /// </summary>
 fn try_parse_source(
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
     _scope: DocumentScope,
 ) -> Result<Option<BsonExpression>> {
     if tokenizer.current().typ != TokenType::Asterisk {
@@ -995,7 +979,7 @@ fn try_parse_source(
     if tokenizer.look_ahead_with_whitespace().typ == TokenType::Period {
         tokenizer.read_token(); // consume .
 
-        let path_expr = parse_single_expression(tokenizer, parameters, DocumentScope::Source)?;
+        let path_expr = parse_single_expression(tokenizer, DocumentScope::Source)?;
 
         //if (path_expr == null) { throw LiteException.unexpected_token(tokenizer.current()); }
 
@@ -1021,7 +1005,6 @@ fn try_parse_source(
 /// </summary>
 fn try_parse_array(
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
     scope: DocumentScope,
 ) -> Result<Option<BsonExpression>> {
     if tokenizer.current().typ != TokenType::OpenBracket {
@@ -1042,7 +1025,7 @@ fn try_parse_array(
     } else {
         while !tokenizer.check_eof()? {
             // read value expression
-            let value = parse_full_expression(tokenizer, parameters, scope)?;
+            let value = parse_full_expression(tokenizer, scope)?;
 
             // document value must be a scalar value
             let value = value.into_scalar();
@@ -1092,11 +1075,7 @@ fn try_parse_array(
 /// <summary>
 /// Try parse parameter - return null if not parameter token
 /// </summary>
-fn try_parse_parameter(
-    tokenizer: &mut Tokenizer,
-    _parameters: &BsonDocument,
-    _scope: DocumentScope,
-) -> Option<BsonExpression> {
+fn try_parse_parameter(tokenizer: &mut Tokenizer, _scope: DocumentScope) -> Option<BsonExpression> {
     if tokenizer.current().typ != TokenType::At {
         return None;
     }
@@ -1128,7 +1107,6 @@ fn try_parse_parameter(
 /// </summary>
 fn try_parse_inner_expression(
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
     scope: DocumentScope,
 ) -> Result<Option<BsonExpression>> {
     if tokenizer.current().typ != TokenType::OpenParenthesis {
@@ -1136,7 +1114,7 @@ fn try_parse_inner_expression(
     }
 
     // read a inner expression inside ( and )
-    let inner = parse_full_expression(tokenizer, parameters, scope)?;
+    let inner = parse_full_expression(tokenizer, scope)?;
 
     // read close )
     tokenizer
@@ -1162,7 +1140,6 @@ fn try_parse_inner_expression(
 /// </summary>
 fn try_parse_method_call(
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
     scope: DocumentScope,
 ) -> Result<Option<BsonExpression>> {
     let token = tokenizer.current().clone();
@@ -1192,7 +1169,7 @@ fn try_parse_method_call(
         src.push_str(&tokenizer.read_token().value); // read )
     } else {
         while !tokenizer.check_eof()? {
-            let parameter = parse_full_expression(tokenizer, parameters, scope)?;
+            let parameter = parse_full_expression(tokenizer, scope)?;
 
             // update is_immutable only when came false
             if !parameter.is_immutable {
@@ -1279,7 +1256,6 @@ fn try_parse_method_call(
 /// </summary>
 fn try_parse_path(
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
     scope: DocumentScope,
 ) -> Result<Option<BsonExpression>> {
     // test $ or @ or WORD
@@ -1347,7 +1323,6 @@ fn try_parse_path(
         let result = match parse_path(
             tokenizer,
             expr,
-            parameters,
             &mut fields,
             &mut is_immutable,
             &mut use_source,
@@ -1387,7 +1362,7 @@ fn try_parse_path(
         Ok(path_expr) => {
             tokenizer.read_token(); // consume .
 
-            let map_expr = parse_single_expression(tokenizer, parameters, DocumentScope::Current)?;
+            let map_expr = parse_single_expression(tokenizer, DocumentScope::Current)?;
 
             //let Some(map_expr) = map_expr else { return Err(LiteException::unexpected_token(tokenizer.current())); };
 
@@ -1418,7 +1393,6 @@ fn try_parse_path(
 fn parse_path(
     tokenizer: &mut Tokenizer,
     expr: ScalarExpr,
-    parameters: &BsonDocument,
     fields: &mut HashSet<CaseInsensitiveString>,
     is_immutable: &mut bool,
     use_source: &mut bool,
@@ -1495,7 +1469,7 @@ fn parse_path(
             Ok(Ok(operator::array_filter_star(expr).into()))
         } else {
             // inner expression
-            inner = parse_full_expression(tokenizer, parameters, DocumentScope::Current)?;
+            inner = parse_full_expression(tokenizer, DocumentScope::Current)?;
 
             //if (inner == null) { throw LiteException.unexpected_token(tokenizer.current()); }
 
@@ -1556,7 +1530,6 @@ fn parse_path(
 /// </summary>
 fn try_parse_function(
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
     scope: DocumentScope,
 ) -> Result<Option<BsonExpression>> {
     if tokenizer.current().typ != TokenType::Word {
@@ -1573,7 +1546,6 @@ fn try_parse_function(
             "MAP",
             BsonExpressionType::Map,
             tokenizer,
-            parameters,
             scope,
             |sequence, expr, args| {
                 if !args.is_empty() {
@@ -1587,7 +1559,6 @@ fn try_parse_function(
             "FILTER",
             BsonExpressionType::Filter,
             tokenizer,
-            parameters,
             scope,
             |sequence, expr, args| {
                 if !args.is_empty() {
@@ -1601,7 +1572,6 @@ fn try_parse_function(
             "SORT",
             BsonExpressionType::Sort,
             tokenizer,
-            parameters,
             scope,
             |sequence, expr, mut args| match args.len() {
                 0 => Some(functions::sort_no_order(sequence, expr)),
@@ -1627,7 +1597,6 @@ fn parse_function(
     function_name: &'static str,
     r#type: BsonExpressionType,
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
     scope: DocumentScope,
     expr_gen: impl FnOnce(SequenceExpr, BsonExpression, Vec<Expression>) -> Option<SequenceExpr>,
 ) -> Result<Option<BsonExpression>> {
@@ -1641,7 +1610,7 @@ fn parse_function(
         .read_token()
         .expect_type([TokenType::OpenParenthesis])?;
 
-    let left = parse_single_expression(tokenizer, parameters, scope)?;
+    let left = parse_single_expression(tokenizer, scope)?;
 
     // if left is a scalar expression, convert into enumerable expression (avoid to use [*] all the time)
     let left = left.into_sequence();
@@ -1669,7 +1638,6 @@ fn parse_function(
 
     let right = parse_full_expression(
         tokenizer,
-        parameters,
         if left.r#type == BsonExpressionType::Source {
             DocumentScope::Source
         } else {
@@ -1689,7 +1657,7 @@ fn parse_function(
 
         // try more parameters ,
         while !tokenizer.check_eof()? {
-            let parameter = parse_full_expression(tokenizer, parameters, scope)?;
+            let parameter = parse_full_expression(tokenizer, scope)?;
 
             // update is_immutable only when came false
             if !parameter.is_immutable {
