@@ -552,3 +552,58 @@ impl CSharpStringUtils for str {
         self
     }
 }
+
+pub(crate) trait StrExtension {
+    fn as_str(&self) -> &str;
+    fn is_word(&self) -> bool {
+        self.as_str()
+            .chars()
+            .enumerate()
+            .all(|(i, c)| is_word_char(c, i == 0))
+    }
+}
+
+impl StrExtension for str {
+    fn as_str(&self) -> &str {
+        self
+    }
+}
+
+impl StrExtension for String {
+    fn as_str(&self) -> &str {
+        self
+    }
+}
+
+pub(crate) fn is_word_char(c: char, first: bool) -> bool {
+    if first {
+        is_letter(c) || c == '_' || c == '$'
+    } else {
+        is_letter_or_digit(c) || c == '_' || c == '$'
+    }
+}
+
+fn is_letter(c: char) -> bool {
+    use unicode_properties::*;
+    matches!(
+        c.general_category(),
+        GeneralCategory::UppercaseLetter
+            | GeneralCategory::LowercaseLetter
+            | GeneralCategory::TitlecaseLetter
+            | GeneralCategory::ModifierLetter
+            | GeneralCategory::OtherLetter
+    )
+}
+
+fn is_letter_or_digit(c: char) -> bool {
+    use unicode_properties::*;
+    matches!(
+        c.general_category(),
+        GeneralCategory::UppercaseLetter
+            | GeneralCategory::LowercaseLetter
+            | GeneralCategory::TitlecaseLetter
+            | GeneralCategory::ModifierLetter
+            | GeneralCategory::OtherLetter
+            | GeneralCategory::DecimalNumber
+    )
+}

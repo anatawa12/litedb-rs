@@ -6,12 +6,12 @@ use crate::engine::utils::{PartialBorrower, PartialRefMut};
 use crate::engine::{
     CollectionIndexesMut, MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress,
 };
+use crate::expression::BsonExpression;
 use crate::utils::{Collation, Order};
 use crate::{Error, Result};
 use std::collections::HashSet;
 use std::hash::{BuildHasher, RandomState};
 use std::pin::Pin;
-use crate::expression::BsonExpression;
 
 // see http://igoro.com/archive/skip-lists-are-fascinating/ for index structure
 pub(crate) struct IndexService<'snapshot> {

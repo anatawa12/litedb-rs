@@ -1,4 +1,6 @@
 use crate::bson;
+use crate::expression::parser::DocumentScope;
+use crate::expression::tokenizer::Tokenizer;
 use crate::utils::{CaseInsensitiveString, Collation};
 use itertools::Itertools as _;
 use std::borrow::Cow;
@@ -6,8 +8,6 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
 use typed_arena::Arena;
-use crate::expression::parser::DocumentScope;
-use crate::expression::tokenizer::Tokenizer;
 
 mod functions;
 mod methods;
@@ -262,12 +262,12 @@ type ScalarBsonExpression = BsonExpression<ScalarExpr>;
 type SequenceBsonExpression = BsonExpression<SequenceExpr>;
 
 impl BsonExpression {
-    pub(crate) fn create(expr: &str) -> Result<Self, ParseError> {
+    pub fn create(expr: &str) -> Result<Self, ParseError> {
         let mut tokenizer = Tokenizer::new(expr);
         parser::parse_full_expression(&mut tokenizer, DocumentScope::Root)
     }
 
-    pub(crate) fn source(&self) -> &str {
+    pub fn source(&self) -> &str {
         &self.source
     }
 }
@@ -514,38 +514,5 @@ impl PartialEq for Token<'_> {
     fn eq(&self, other: &Token) -> bool {
         // no position check
         self.typ == other.typ && self.value == other.value
-    }
-}
-
-fn is_letter(c: char) -> bool {
-    use unicode_properties::*;
-    matches!(
-        c.general_category(),
-        GeneralCategory::UppercaseLetter
-            | GeneralCategory::LowercaseLetter
-            | GeneralCategory::TitlecaseLetter
-            | GeneralCategory::ModifierLetter
-            | GeneralCategory::OtherLetter
-    )
-}
-
-fn is_letter_or_digit(c: char) -> bool {
-    use unicode_properties::*;
-    matches!(
-        c.general_category(),
-        GeneralCategory::UppercaseLetter
-            | GeneralCategory::LowercaseLetter
-            | GeneralCategory::TitlecaseLetter
-            | GeneralCategory::ModifierLetter
-            | GeneralCategory::OtherLetter
-            | GeneralCategory::DecimalNumber
-    )
-}
-
-fn is_word_char(c: char, first: bool) -> bool {
-    if first {
-        is_letter(c) || c == '_' || c == '$'
-    } else {
-        is_letter_or_digit(c) || c == '_' || c == '$'
     }
 }

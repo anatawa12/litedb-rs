@@ -1,6 +1,6 @@
 use super::*;
 use crate::expression::tokenizer::Tokenizer;
-use crate::utils::CaseInsensitiveString;
+use crate::utils::{CaseInsensitiveString, StrExtension};
 use std::collections::HashSet;
 use std::ops::Neg;
 
@@ -32,28 +32,6 @@ enum MethodParamererType {
 impl MethodParamererType {
     fn is_enumerable(&self) -> bool {
         matches!(self, Self::ValueEnumerable)
-    }
-}
-
-trait StrExtension {
-    fn as_str(&self) -> &str;
-    fn is_word(&self) -> bool {
-        self.as_str()
-            .chars()
-            .enumerate()
-            .all(|(i, c)| super::is_word_char(c, i == 0))
-    }
-}
-
-impl StrExtension for str {
-    fn as_str(&self) -> &str {
-        self
-    }
-}
-
-impl StrExtension for String {
-    fn as_str(&self) -> &str {
-        self
     }
 }
 

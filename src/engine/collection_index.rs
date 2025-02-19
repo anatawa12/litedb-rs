@@ -19,7 +19,13 @@ pub(crate) struct CollectionIndex {
 }
 
 impl CollectionIndex {
-    pub fn new(slot: u8, index_type: u8, name: String, expression: BsonExpression, unique: bool) -> Self {
+    pub fn new(
+        slot: u8,
+        index_type: u8,
+        name: String,
+        expression: BsonExpression,
+        unique: bool,
+    ) -> Self {
         Self {
             slot,
             index_type,

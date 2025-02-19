@@ -1,4 +1,5 @@
 use super::{ParseError, Token, TokenType};
+use crate::utils::is_word_char;
 use std::borrow::Cow;
 
 pub(super) struct Tokenizer<'a> {
@@ -175,7 +176,7 @@ impl<'a> TokenizeParser<'a> {
                 self.read_char(c);
                 if self
                     .cur_char()
-                    .map(|c| super::is_word_char(c, true))
+                    .map(|c| is_word_char(c, true))
                     .unwrap_or(false)
                 {
                     token = Token::new(TokenType::Word, self.read_word(begin), self.position);
@@ -288,7 +289,7 @@ impl<'a> TokenizeParser<'a> {
 
             c => {
                 // test if first char is an word
-                if super::is_word_char(c, true) {
+                if is_word_char(c, true) {
                     let begin = self.position;
                     token = Token::new(TokenType::Word, self.read_word(self.position), begin);
                 } else {
@@ -313,7 +314,7 @@ impl<'a> TokenizeParser<'a> {
         self.read_char(self.cur_char().unwrap());
 
         while let Some(c) = self.cur_char() {
-            if !super::is_word_char(c, false) {
+            if !is_word_char(c, false) {
                 break;
             }
             self.read_char(c);
