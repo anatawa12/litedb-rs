@@ -2,6 +2,7 @@ mod memory_stream;
 
 use crate::memory_stream::MemoryStreamFactory;
 use litedb::bson;
+use litedb::expression::BsonExpression;
 use std::sync::{Arc, Mutex};
 
 fn new_database_buffer() -> Arc<Mutex<Vec<u8>>> {
