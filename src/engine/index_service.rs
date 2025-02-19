@@ -73,13 +73,13 @@ impl<'snapshot> IndexService<'snapshot> {
                 page_id,
                 index_slot,
                 MAX_LEVEL_LENGTH,
-                bson::Value::MinValue,
+                bson::Value::MaxValue,
                 PageAddress::EMPTY,
                 length,
             )
             .await?;
+        head.set_next(0, tail.position());
         tail.set_prev(0, head.position());
-        head.set_prev(0, tail.position());
 
         index.set_free_index_page_list(page_id);
         index.set_head(head.position());
