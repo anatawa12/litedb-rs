@@ -248,8 +248,8 @@ impl<'a> IndexNodeMut<'a> {
 
         // write data
         for i in 0..levels {
-            result.set_prev(i, PageAddress::default());
-            result.set_next(i, PageAddress::default());
+            result.set_prev(i, PageAddress::EMPTY);
+            result.set_next(i, PageAddress::EMPTY);
         }
 
         let key_ptr = calc_key_ptr(levels);
@@ -279,7 +279,7 @@ impl<'a> IndexNodeMut<'a> {
     }
 
     pub fn set_next(&mut self, level: u8, address: PageAddress) {
-        self.prev[level as usize] = address;
+        self.next[level as usize] = address;
         self.segment.write_page_address(
             P_PREV_NEXT
                 + (level as usize * PageAddress::SERIALIZED_SIZE * 2)
