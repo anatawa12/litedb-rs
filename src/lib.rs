@@ -108,6 +108,10 @@ impl Error {
     pub(crate) fn document_size_exceed_limit() -> Self {
         Error::err("DocumentSize exceed limit")
     }
+
+    pub(crate) fn index_already_exists(name: &str) -> Error {
+        Error::err(format!("Index already exists: {}", name))
+    }
 }
 
 impl Error {

@@ -44,6 +44,7 @@ macro_rules! transaction_wrapper {
 // method implementations
 mod collection;
 mod delete;
+mod index;
 mod transaction;
 
 pub struct LiteSettings {

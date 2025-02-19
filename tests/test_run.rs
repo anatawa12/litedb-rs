@@ -51,6 +51,16 @@ async fn run_test() {
         .unwrap();
     println!("deleted: {deleted}");
 
+    engine
+        .ensure_index(
+            "unityVersions",
+            "path",
+            BsonExpression::create("Path").unwrap(),
+            false,
+        )
+        .await
+        .unwrap();
+
     engine.checkpoint().await.unwrap();
 
     engine.dispose().await.unwrap();
