@@ -23,25 +23,6 @@ impl MethodParamererType {
     }
 }
 
-struct MethodInfo {
-    name: &'static str,
-    volatile: bool,
-    parameters: Vec<MethodParamererType>,
-    is_enumerable: bool,
-}
-
-trait TryOrElse<T>: Sized {
-    fn try_or_else<E, F: FnOnce() -> Result<Self, E>>(self, f: F) -> Result<Self, E>;
-}
-
-// Proposed new API for Option https://github.com/rust-lang/libs-team/issues/59
-// This would actually use `self` there of course.
-impl<T> TryOrElse<T> for Option<T> {
-    fn try_or_else<E, F: FnOnce() -> Result<Self, E>>(self, f: F) -> Result<Self, E> {
-        if let Some(v) = self { Ok(Some(v)) } else { f() }
-    }
-}
-
 trait StrExtension {
     fn as_str(&self) -> &str;
     fn is_word(&self) -> bool {
@@ -458,18 +439,24 @@ pub fn parse_single_expression(
     let token = tokenizer.read_token().clone();
 
     try_parse_double(tokenizer)?
-        .try_or_else(|| try_parse_int(tokenizer))?
+        .map_or_else(|| try_parse_int(tokenizer), |x| Ok(Some(x)))?
         .or_else(|| try_parse_bool(tokenizer))
         .or_else(|| try_parse_null(tokenizer))
         .or_else(|| try_parse_string(tokenizer))
-        .try_or_else(|| try_parse_source(tokenizer, scope))?
-        .try_or_else(|| try_parse_document(tokenizer, scope).map(|x| x.map(|x| x.into())))?
-        .try_or_else(|| try_parse_array(tokenizer, scope))?
+        .map_or_else(|| try_parse_source(tokenizer, scope), |x| Ok(Some(x)))?
+        .map_or_else(
+            || try_parse_document(tokenizer, scope).map(|x| x.map(|x| x.into())),
+            |x| Ok(Some(x)),
+        )?
+        .map_or_else(|| try_parse_array(tokenizer, scope), |x| Ok(Some(x)))?
         .or_else(|| try_parse_parameter(tokenizer, scope))
-        .try_or_else(|| try_parse_inner_expression(tokenizer, scope))?
-        .try_or_else(|| try_parse_function(tokenizer, scope))?
-        .try_or_else(|| try_parse_method_call(tokenizer, scope))?
-        .try_or_else(|| try_parse_path(tokenizer, scope))?
+        .map_or_else(
+            || try_parse_inner_expression(tokenizer, scope),
+            |x| Ok(Some(x)),
+        )?
+        .map_or_else(|| try_parse_function(tokenizer, scope), |x| Ok(Some(x)))?
+        .map_or_else(|| try_parse_method_call(tokenizer, scope), |x| Ok(Some(x)))?
+        .map_or_else(|| try_parse_path(tokenizer, scope), |x| Ok(Some(x)))?
         .ok_or_else(|| LiteException::unexpected_token("unexpected token", &token))
 }
 
@@ -587,9 +574,7 @@ pub fn ParseSelectDocumentBuilder(
 /// {key0} = {expr0}, .... will be converted into { key: [expr], ... }
 /// {key: value} ... return return a new document
 /// </summary>
-pub fn parse_update_document_builder(
-    tokenizer: &mut Tokenizer,
-) -> Result<ScalarBsonExpression> {
+pub fn parse_update_document_builder(tokenizer: &mut Tokenizer) -> Result<ScalarBsonExpression> {
     let next = tokenizer.look_ahead();
 
     // if starts with { just return a normal document expression
