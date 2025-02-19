@@ -23,6 +23,13 @@ pub(crate) unsafe trait ExtendLifetime<'target> {
     unsafe fn extend_lifetime(self) -> Self::Extended;
 }
 
+unsafe impl<'target, T: 'target> ExtendLifetime<'target> for &'_ mut T {
+    type Extended = &'target mut T;
+    unsafe fn extend_lifetime(self) -> Self::Extended {
+        unsafe { std::mem::transmute::<Self, Self::Extended>(self) }
+    }
+}
+
 impl<TargetRef, Key: Hash + Eq + Copy + Debug> PartialBorrower<TargetRef, Key> {
     pub fn new(target: TargetRef) -> Self {
         Self {
@@ -94,6 +101,42 @@ impl<TargetRef, Key: Hash + Eq + Copy + Debug> PartialBorrower<TargetRef, Key> {
         }
 
         delete(&mut self.target, &key).await
+    }
+
+    pub unsafe fn try_get_borrow<'s, 'r, ShortLives, Extended, Error>(
+        &'s mut self,
+        key: Key,
+        get: impl FnOnce(&'s mut TargetRef, &Key) -> Result<ShortLives, Error>,
+    ) -> Result<PartialRefMut<Extended, Key>, Error>
+    where
+        ShortLives: ExtendLifetime<'r, Extended = Extended>,
+        TargetRef: 'r,
+    {
+        if let Some(borrow) = self.borrowed.borrow().get(&key) {
+            panic!("double reference with key {key:?}. previous reference is {borrow}"); // TODO: make non-hard error?
+        }
+
+        let value: ShortLives = get(&mut self.target, &key)?;
+        self.borrowed
+            .borrow_mut()
+            .insert(key, borrow_status::BorrowStatus::new());
+        Ok(PartialRefMut {
+            value: unsafe { ShortLives::extend_lifetime(value) },
+            key,
+            borrowed: self.borrowed.clone(),
+        })
+    }
+
+    pub unsafe fn try_delete_borrow<'s, Result>(
+        &'s mut self,
+        key: Key,
+        delete: impl FnOnce(&'s mut TargetRef, &Key) -> Result,
+    ) -> Result {
+        if let Some(borrow) = self.borrowed.borrow().get(&key) {
+            panic!("removing using reference {key:?}. previous reference is {borrow}"); // TODO: make non-hard error?
+        }
+
+        delete(&mut self.target, &key)
     }
 }
 

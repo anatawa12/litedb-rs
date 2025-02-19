@@ -238,7 +238,7 @@ pub struct ExecutionContext<'a> {
 
 impl<'a> ExecutionContext<'a> {
     fn new(root: &'a bson::Value, collation: Collation, arena: &'a Arena<bson::Value>) -> Self {
-        static EMPTY_DOCUMENT: LazyLock<bson::Document> = LazyLock::new(|| bson::Document::new());
+        static EMPTY_DOCUMENT: LazyLock<bson::Document> = LazyLock::new(bson::Document::new);
 
         Self {
             source: Box::new(std::iter::once_with(move || root).map(Ok)),

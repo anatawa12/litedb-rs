@@ -4,7 +4,8 @@ use crate::engine::index_node::{IndexNode, IndexNodeMut};
 use crate::engine::snapshot::SnapshotIndexPages;
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
 use crate::engine::{
-    CollectionIndexesMut, MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress,
+    CollectionIndexRef, CollectionIndexes, CollectionIndexesMut, CollectionIndexesPartialBorrow,
+    MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress,
 };
 use crate::expression::BsonExpression;
 use crate::utils::{Collation, Order};
@@ -41,14 +42,14 @@ impl<'snapshot> IndexService<'snapshot> {
 
     pub async fn create_index<'indexes>(
         &mut self,
-        name: &str,
+        name: &'indexes str,
         expression: BsonExpression,
         unique: bool,
-        collection_page: &'indexes mut CollectionIndexesMut<'_>,
-    ) -> Result<&'indexes mut CollectionIndex> {
+        collection_page: &mut CollectionIndexesPartialBorrow<'indexes>,
+    ) -> Result<CollectionIndexRef<'indexes>> {
         let (length, _) = IndexNode::get_node_length(MAX_LEVEL_LENGTH, &bson::Value::MinValue);
 
-        let index = collection_page.insert_collection_index(name, expression, unique)?;
+        let mut index = collection_page.insert_collection_index(name, expression, unique)?;
         let index_slot = index.slot();
 
         let mut index_page = self.index_nodes.snapshot_mut().new_page().await?;
@@ -252,7 +253,7 @@ impl<'snapshot> IndexService<'snapshot> {
     pub async fn delete_all(
         &mut self,
         first_address: PageAddress,
-        collection_page: &mut CollectionIndexesMut<'_>,
+        collection_page: &mut CollectionIndexes,
     ) -> Result<()> {
         // Rust: no count check since we've checked recursion with PartialIndexNodeAccessorMut
         let mut indexes = collection_page.get_collection_indexes_slots_mut();

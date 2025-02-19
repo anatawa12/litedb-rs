@@ -2,6 +2,7 @@ use crate::engine::buffer_reader::BufferReader;
 use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::collection_index::CollectionIndex;
 use crate::engine::pages::{BasePage, PageType};
+use crate::engine::utils::{PartialBorrower, PartialRefMut};
 use crate::engine::{
     DirtyFlag, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer,
 };
@@ -15,8 +16,13 @@ const P_INDEXES: usize = 96; // 96-8192 (64 + 32 header = 96)
 const P_INDEXES_COUNT: usize = PAGE_SIZE - P_INDEXES;
 
 pub(crate) type FreeDataPageList = [u32; PAGE_FREE_LIST_SLOTS];
-pub(crate) struct CollectionIndexes(HashMap<String, CollectionIndex>);
+pub(crate) struct CollectionIndexes(HashMap<String, Box<CollectionIndex>>);
 pub(crate) struct CollectionIndexesMut<'a>(&'a mut CollectionIndexes, &'a DirtyFlag);
+pub(crate) struct CollectionIndexesPartialBorrow<'a>(
+    PartialBorrower<&'a mut CollectionIndexes, &'a str>,
+    &'a DirtyFlag,
+);
+pub(crate) type CollectionIndexRef<'a> = PartialRefMut<&'a mut CollectionIndex, &'a str>;
 
 // all fields are accessed by snapshot for partial borrowing
 pub(crate) struct CollectionPage {
@@ -62,7 +68,7 @@ impl CollectionPage {
 
         for _ in 0..count {
             let index = CollectionIndex::load(&mut reader)?;
-            indexes.insert(index.name().to_string(), index);
+            indexes.insert(index.name().to_string(), Box::new(index));
         }
 
         Ok(Self {
@@ -102,15 +108,15 @@ impl CollectionPage {
     }
 
     pub fn get_collection_index(&self, name: &str) -> Option<&CollectionIndex> {
-        self.indexes.get(name)
+        self.indexes.get(name).map(Box::as_ref)
     }
 
     pub fn get_collection_index_mut(&mut self, name: &str) -> Option<&mut CollectionIndex> {
-        self.indexes.get_mut(name)
+        self.indexes.get_mut(name).map(Box::as_mut)
     }
 
     pub fn get_collection_indexes(&self) -> impl Iterator<Item = &CollectionIndex> {
-        self.indexes.values()
+        self.indexes.values().map(Box::as_ref)
     }
 }
 
@@ -125,7 +131,7 @@ impl CollectionIndexes {
         let mut indexes = vec![None; len];
 
         for index in self.values() {
-            indexes[index.slot() as usize] = Some(index);
+            indexes[index.slot() as usize] = Some(&**index);
         }
 
         indexes
@@ -143,7 +149,7 @@ impl CollectionIndexes {
 
         for index in self.values_mut() {
             let slot = index.slot();
-            indexes[slot as usize] = Some(index);
+            indexes[slot as usize] = Some(&mut **index);
         }
 
         indexes
@@ -159,6 +165,7 @@ impl CollectionIndexes {
         let total_length = 1
             + self
                 .values()
+                .map(Box::as_ref)
                 .map(CollectionIndex::get_length)
                 .sum::<usize>()
             + CollectionIndex::get_length_static(name, expr.source());
@@ -174,9 +181,12 @@ impl CollectionIndexes {
             .map(|x| x as usize + 1)
             .unwrap_or(0) as u8;
 
-        let index = CollectionIndex::new(next_slot, 0, name.into(), expr.into(), unique);
+        let index = CollectionIndex::new(next_slot, 0, name.into(), expr, unique);
 
-        let result = self.entry(name.into()).insert_entry(index).into_mut();
+        let result = self
+            .entry(name.into())
+            .insert_entry(Box::new(index))
+            .into_mut();
         dirty.set();
 
         Ok(result)
@@ -289,10 +299,14 @@ impl<'a> CollectionIndexesMut<'a> {
     ) -> Result<&mut CollectionIndex> {
         self.0.insert_collection_index(name, expr, unique, self.1)
     }
+
+    pub fn partial_borrow(&'a mut self) -> CollectionIndexesPartialBorrow<'a> {
+        CollectionIndexesPartialBorrow(PartialBorrower::new(self.0), self.1)
+    }
 }
 
 impl Deref for CollectionIndexes {
-    type Target = HashMap<String, CollectionIndex>;
+    type Target = HashMap<String, Box<CollectionIndex>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -316,5 +330,38 @@ impl Deref for CollectionIndexesMut<'_> {
 impl DerefMut for CollectionIndexesMut<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0
+    }
+}
+
+impl<'a> CollectionIndexesPartialBorrow<'a> {
+    pub fn new(indexes: &'a mut CollectionIndexes, dirty: &'a DirtyFlag) -> Self {
+        Self(PartialBorrower::new(indexes), dirty)
+    }
+
+    pub fn insert_collection_index(
+        &mut self,
+        name: &'a str,
+        expr: BsonExpression,
+        unique: bool,
+    ) -> Result<CollectionIndexRef<'a>> {
+        unsafe {
+            self.0.try_get_borrow(name, |target, _| {
+                target.insert_collection_index(name, expr, unique, self.1)
+            })
+        }
+    }
+
+    pub fn get(&mut self, name: &'a str) -> Option<CollectionIndexRef<'a>> {
+        unsafe {
+            self.0
+                .try_get_borrow(name, |target, &key| {
+                    target.get_mut(key).map(Box::as_mut).ok_or(())
+                })
+                .ok()
+        }
+    }
+
+    pub(crate) fn pk_index(&mut self) -> CollectionIndexRef<'a> {
+        self.get("_id").unwrap()
     }
 }

@@ -92,7 +92,12 @@ impl<'snapshot> CollectionService<'snapshot> {
         let expr = BsonExpression::create("$._id").expect("bad bson expression for id");
 
         indexer
-            .create_index("_id", expr, true, &mut parts.collection_page)
+            .create_index(
+                "_id",
+                expr,
+                true,
+                &mut parts.collection_page.partial_borrow(),
+            )
             .await?;
 
         self.snapshot
