@@ -103,6 +103,38 @@ impl TransactionLiteEngine<'_> {
             Ok(true)
         }
     }
+
+    pub async fn drop_index(&mut self, collection: &str, name: &str) -> Result<bool> {
+        if name == "_id" {
+            return Err(Error::drop_id_index());
+        }
+
+        let snapshot = self
+            .transaction
+            .create_snapshot(LockMode::Write, collection, true)
+            .await?;
+
+        if snapshot.collection_page().is_none() {
+            return Ok(false);
+        }
+
+        let mut parts = snapshot.as_parts();
+        let mut indexer = IndexService::new(
+            parts.index_pages,
+            self.header.borrow().pragmas().collation(),
+            self.disk.max_items_count(),
+        );
+
+        if parts.collection_page.get(name).is_none() {
+            return Ok(false);
+        };
+
+        indexer.drop_index(&mut parts.collection_page, name).await?;
+
+        parts.collection_page.delete_collection_index(name);
+
+        Ok(true)
+    }
 }
 
 transaction_wrapper!(pub async fn ensure_index(
@@ -112,3 +144,4 @@ transaction_wrapper!(pub async fn ensure_index(
     expression: BsonExpression,
     unique: bool,
 ) -> Result<bool>);
+transaction_wrapper!(pub async fn drop_index(&mut self, collection: &str, name: &str) -> Result<bool>);

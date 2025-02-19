@@ -62,6 +62,8 @@ async fn run_test() {
         .await
         .unwrap();
 
+    engine.drop_index("unityVersions", "Version").await.unwrap();
+
     engine.checkpoint().await.unwrap();
 
     engine.dispose().await.unwrap();

@@ -333,9 +333,10 @@ impl<'snapshot> IndexService<'snapshot> {
 
     pub async fn drop_index(
         &mut self,
-        index: &CollectionIndex,
-        collection_page: CollectionIndexesMut<'_>,
+        collection_page: &mut CollectionIndexesMut<'_>,
+        name: &str,
     ) -> Result<()> {
+        let index = &collection_page[name];
         let slot = index.slot();
         let pk_index = collection_page.pk_index();
 

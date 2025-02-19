@@ -111,10 +111,6 @@ impl CollectionPage {
         self.indexes.get(name).map(Box::as_ref)
     }
 
-    pub fn get_collection_index_mut(&mut self, name: &str) -> Option<&mut CollectionIndex> {
-        self.indexes.get_mut(name).map(Box::as_mut)
-    }
-
     pub fn get_collection_indexes(&self) -> impl Iterator<Item = &CollectionIndex> {
         self.indexes.values().map(Box::as_ref)
     }
@@ -147,7 +143,7 @@ impl CollectionIndexes {
         let mut indexes = vec![];
         indexes.resize_with(len, || None);
 
-        for index in self.values_mut() {
+        for index in self.0.values_mut() {
             let slot = index.slot();
             indexes[slot as usize] = Some(&mut **index);
         }
@@ -184,6 +180,7 @@ impl CollectionIndexes {
         let index = CollectionIndex::new(next_slot, 0, name.into(), expr, unique);
 
         let result = self
+            .0
             .entry(name.into())
             .insert_entry(Box::new(index))
             .into_mut();
@@ -198,19 +195,6 @@ impl CollectionPage {
         self.indexes.get_collection_indexes_slots()
     }
 
-    pub fn get_collection_indexes_slots_mut_with_dirty(
-        &mut self,
-    ) -> (Vec<Option<&mut CollectionIndex>>, &DirtyFlag) {
-        (
-            self.indexes.get_collection_indexes_slots_mut(),
-            &self.base.dirty,
-        )
-    }
-
-    pub fn get_collection_indexes_slots_mut(&mut self) -> Vec<Option<&mut CollectionIndex>> {
-        self.indexes.get_collection_indexes_slots_mut()
-    }
-
     pub fn insert_collection_index(
         &mut self,
         name: &str,
@@ -223,11 +207,11 @@ impl CollectionPage {
 
     pub fn update_collection_index(&mut self, name: &str) -> &mut CollectionIndex {
         self.set_dirty();
-        self.indexes.get_mut(name).unwrap()
+        self.indexes.0.get_mut(name).unwrap()
     }
 
     pub fn delete_collection_index(&mut self, name: &str) {
-        self.indexes.remove(name);
+        self.indexes.0.remove(name);
         self.base.set_dirty();
     }
 }
@@ -300,6 +284,11 @@ impl<'a> CollectionIndexesMut<'a> {
         self.0.insert_collection_index(name, expr, unique, self.1)
     }
 
+    pub fn delete_collection_index(&mut self, name: &str) {
+        self.0.0.remove(name);
+        self.1.set();
+    }
+
     pub fn partial_borrow(&'a mut self) -> CollectionIndexesPartialBorrow<'a> {
         CollectionIndexesPartialBorrow(PartialBorrower::new(self.0), self.1)
     }
@@ -310,12 +299,6 @@ impl Deref for CollectionIndexes {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-impl DerefMut for CollectionIndexes {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
@@ -355,7 +338,7 @@ impl<'a> CollectionIndexesPartialBorrow<'a> {
         unsafe {
             self.0
                 .try_get_borrow(name, |target, &key| {
-                    target.get_mut(key).map(Box::as_mut).ok_or(())
+                    target.0.get_mut(key).map(Box::as_mut).ok_or(())
                 })
                 .ok()
         }

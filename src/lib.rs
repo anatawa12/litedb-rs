@@ -112,6 +112,10 @@ impl Error {
     pub(crate) fn index_already_exists(name: &str) -> Error {
         Error::err(format!("Index already exists: {}", name))
     }
+
+    pub(crate) fn drop_id_index() -> Error {
+        Error::err("Drop _id index is forbidden")
+    }
 }
 
 impl Error {
