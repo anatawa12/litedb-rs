@@ -1,4 +1,4 @@
-use crate::expression::{Error, Token, TokenType};
+use super::{ParseError, Token, TokenType};
 use std::borrow::Cow;
 
 pub(super) struct Tokenizer<'a> {
@@ -31,9 +31,12 @@ impl<'a> Tokenizer<'a> {
         self.ahead.is_none() && self.parser.source.len() <= self.parser.position
     }
 
-    pub fn check_eof(&self) -> Result<bool, Error> {
+    pub fn check_eof(&self) -> Result<bool, ParseError> {
         if self.parser.source.len() <= self.parser.position {
-            return Err(Error::unexpected_token("unexpected eof", self.current()));
+            return Err(ParseError::unexpected_token(
+                self.current(),
+                format_args!("unexpected eof"),
+            ));
         }
 
         Ok(false)

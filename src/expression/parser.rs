@@ -5,10 +5,22 @@ use std::collections::HashSet;
 use std::ops::Neg;
 
 fn expr_error(msg: &str) -> crate::Error {
-    crate::Error::expr_error(msg)
+    crate::Error::expr_run_error(msg)
 }
 
-type Result<T, R = super::Error> = std::result::Result<T, R>;
+macro_rules! unexpected_sequence {
+    ($($tt:tt)*) => {
+        ParseError::unexpected_sequence(format_args!($($tt)*))
+    };
+}
+
+macro_rules! unexpected_token {
+    ($token: expr, $($tt:tt)*) => {
+        ParseError::unexpected_token($token, format_args!($($tt)*))
+    };
+}
+
+type Result<T, R = ParseError> = std::result::Result<T, R>;
 
 type LiteException = super::Error;
 
@@ -309,17 +321,16 @@ pub fn parse_full_expression(
             // test left/right scalar
             let result = match method {
                 BinaryExpression::Unsupported => {
-                    return Err(LiteException::expr_error(&format!("{op} is unsupported")));
+                    return Err(ParseError::unsupported(format_args!(
+                        "operator {op} is unsupported"
+                    )));
                 }
                 BinaryExpression::Sequence(method) => {
                     let left = left.into_sequence();
                     //if left.is_scalar() { return Err(LiteException::expr_error(&format!("Left expression `{}` must return multiples values", left.source))); }
-                    let right = right.into_scalar_or().map_err(|right| {
-                        LiteException::expr_error(&format!(
-                            "Right expression `{}` must return a single value",
-                            right.source
-                        ))
-                    })?;
+                    let right = right
+                        .into_scalar_or()
+                        .map_err(|right| unexpected_sequence!("right hand of {op} (`{right}`)"))?;
 
                     // when operation is AND/OR, use AndAlso|OrElse
                     {
@@ -360,17 +371,13 @@ pub fn parse_full_expression(
                     }
                 }
                 BinaryExpression::Scalar(scalar) => {
-                    let left = left.into_scalar_or().map_err(|left| LiteException::expr_error(&format!(
-                        "Left expression `{}` returns more than one result. Try use ANY or ALL before operant.",
-                        left.source
-                    )))?;
+                    let left = left
+                        .into_scalar_or()
+                        .map_err(|left| unexpected_sequence!("left hand of {op} (`{left}`)"))?;
 
-                    let right = right.into_scalar_or().map_err(|right| {
-                        LiteException::expr_error(&format!(
-                            "Right expression `{}` must return a single value",
-                            right.source
-                        ))
-                    })?;
+                    let right = right
+                        .into_scalar_or()
+                        .map_err(|right| unexpected_sequence!("right hand of {op} (`{right}`)"))?;
 
                     // when operation is AND/OR, use AndAlso|OrElse
                     if r#type == BsonExpressionType::And || r#type == BsonExpressionType::Or {
@@ -457,7 +464,7 @@ pub fn parse_single_expression(
         .map_or_else(|| try_parse_function(tokenizer, scope), |x| Ok(Some(x)))?
         .map_or_else(|| try_parse_method_call(tokenizer, scope), |x| Ok(Some(x)))?
         .map_or_else(|| try_parse_path(tokenizer, scope), |x| Ok(Some(x)))?
-        .ok_or_else(|| LiteException::unexpected_token("unexpected token", &token))
+        .ok_or_else(|| ParseError::unexpected_token(&token, format_args!("not a expression")))
 }
 
 /// <summary>
@@ -657,12 +664,25 @@ fn try_parse_double(tokenizer: &mut Tokenizer) -> Result<Option<BsonExpression>>
     let mut value: Option<f64> = None;
 
     if tokenizer.current().typ == TokenType::Double {
-        value = Some(tokenizer.current().value.parse()?);
+        let token = tokenizer.current();
+        value = Some(
+            token
+                .value
+                .parse()
+                .map_err(|_| unexpected_token!(token, "invalid float"))?,
+        );
     } else if tokenizer.current().typ == TokenType::Minus {
         let ahead = tokenizer.look_ahead_with_whitespace();
 
         if ahead.typ == TokenType::Double {
-            value = Some(tokenizer.read_token().value.parse().map(f64::neg)?);
+            let token = tokenizer.read_token();
+            value = Some(
+                token
+                    .value
+                    .parse()
+                    .map(f64::neg)
+                    .map_err(|_| unexpected_token!(token, "invalid float"))?,
+            );
         }
     }
 
@@ -693,12 +713,24 @@ fn try_parse_int(tokenizer: &mut Tokenizer) -> Result<Option<BsonExpression>> {
     let mut value: Option<i64> = None;
 
     if tokenizer.current().typ == TokenType::Int {
-        value = Some(tokenizer.current().value.parse()?);
+        let token = tokenizer.current();
+        value = Some(
+            token
+                .value
+                .parse()
+                .map_err(|_| unexpected_token!(token, "invalid int"))?,
+        );
     } else if tokenizer.current().typ == TokenType::Minus {
         let ahead = tokenizer.look_ahead_with_whitespace();
 
         if ahead.typ == TokenType::Int {
-            value = Some(-tokenizer.read_token().value.parse::<i64>()?)
+            let token = tokenizer.read_token();
+            value = Some(
+                -token
+                    .value
+                    .parse::<i64>()
+                    .map_err(|_| unexpected_token!(token, "invalid int"))?,
+            )
         }
     }
 
@@ -1205,13 +1237,7 @@ fn try_parse_method_call(
         .flatten()
         .find(|m| m.name == token.value && m.arg_count == pars.len())
     else {
-        return Err(LiteException::unexpected_token(
-            &format!(
-                "Method '{}' does not exist or contains invalid parameters",
-                token.value.to_uppercase()
-            ),
-            &token,
-        ));
+        return Err(ParseError::bad_invocation(&token.value.to_uppercase()));
     };
 
     // test if method are decorated with "Variable" (immutable = false)
@@ -1408,7 +1434,11 @@ fn parse_path(
         if ahead.typ == TokenType::Int {
             // fixed index
             src.push_str(&tokenizer.read_token().value);
-            index = tokenizer.current().value.parse::<i32>()?;
+            let token = tokenizer.current();
+            index = token
+                .value
+                .parse::<i32>()
+                .map_err(|_| unexpected_token!(token, "invalid int"))?;
 
             // read ]
             tokenizer
@@ -1424,7 +1454,11 @@ fn parse_path(
             // fixed negative index
             src.push_str(&tokenizer.read_token().value);
             src.push_str(&tokenizer.read_token().expect_type([TokenType::Int])?.value);
-            index = tokenizer.current().value.parse::<i32>()?;
+            let token = tokenizer.current();
+            index = token
+                .value
+                .parse::<i32>()
+                .map_err(|_| unexpected_token!(token, "invalid int"))?;
 
             // read ]
             tokenizer
@@ -1671,9 +1705,7 @@ fn parse_function(
     src.push(')');
 
     let Some(expression) = expr_gen(left.expression, closure, args) else {
-        return Err(expr_error(&format!(
-            "Invalid function call of {function_name}"
-        )));
+        return Err(ParseError::bad_invocation(function_name));
     };
 
     Ok(Some(BsonExpression {
@@ -1695,18 +1727,12 @@ fn parse_function(
 /// </summary>
 fn new_array(item0: BsonExpression, item1: BsonExpression) -> Result<BsonExpression> {
     // both values must be scalar expressions
-    let item0 = item0.into_scalar_or().map_err(|item0| {
-        LiteException::expr_error(&format!(
-            "Expression `{}` must be a scalar expression",
-            item0.source
-        ))
-    })?;
-    let item1 = item1.into_scalar_or().map_err(|item1| {
-        LiteException::expr_error(&format!(
-            "Expression `{}` must be a scalar expression",
-            item1.source
-        ))
-    })?;
+    let item0 = item0
+        .into_scalar_or()
+        .map_err(|item0| unexpected_sequence!("right hand of BETWEEN (`{item0}`)"))?;
+    let item1 = item1
+        .into_scalar_or()
+        .map_err(|item1| unexpected_sequence!("right hand of BETWEEN (`{item1}`)"))?;
 
     Ok(BsonExpression {
         r#type: BsonExpressionType::Array,
@@ -1804,10 +1830,7 @@ fn read_operant(tokenizer: &mut Tokenizer) -> Result<Option<String>> {
         token = tokenizer.read_token();
 
         if !token.is_operand() {
-            return Err(LiteException::unexpected_token(
-                "Expected valid operand",
-                token,
-            ));
+            return Err(unexpected_token!(token, "Expected valid operand"));
         }
 
         if token.value.starts_with(|x: char| x.is_ascii_alphabetic()) {

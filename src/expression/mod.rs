@@ -3,7 +3,7 @@ use crate::utils::{CaseInsensitiveString, Collation};
 use itertools::Itertools as _;
 use std::borrow::Cow;
 use std::collections::HashSet;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
 use typed_arena::Arena;
 
@@ -13,29 +13,57 @@ mod operator;
 mod parser;
 mod tokenizer;
 
+/// The type represents expression parsing error
+#[derive(Debug)]
+pub struct ParseError(String);
+// TODO: distinguishable with enum
+
+impl ParseError {
+    fn bad_invocation(f: &str) -> Self {
+        Self(format!("Bad invocation of {}", f))
+    }
+
+    #[inline]
+    fn unexpected_sequence(position: std::fmt::Arguments) -> Self {
+        Self(format!(
+            "Scalar expression is expected, but sequence is provided at {position}"
+        ))
+    }
+
+    #[allow(dead_code)]
+    #[inline]
+    fn unexpected_scalar(position: std::fmt::Arguments) -> Self {
+        Self(format!(
+            "Sequence expression is expected, but scalar is provided at {position}"
+        ))
+    }
+
+    #[inline]
+    fn unsupported(thing: std::fmt::Arguments) -> Self {
+        Self(format!("Unsupported expression: {}", thing))
+    }
+
+    #[inline]
+    fn unexpected_token(token: &Token, message: std::fmt::Arguments) -> Self {
+        if token.typ == TokenType::String {
+            Self(format!(r#"unexpected token: {message}: "{}""#, token.value))
+        } else {
+            Self(format!(r#"unexpected token: {message}: {}"#, token.value))
+        }
+    }
+}
+
+impl Display for ParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 type Error = super::Error;
 
 impl Error {
-    fn expr_error(str: &str) -> Self {
-        Self::err(format!("parsing: {}", str))
-    }
     fn expr_run_error(str: &str) -> Self {
         Self::err(format!("executing: {}", str))
-    }
-    fn unexpected_token(str: &str, token: &Token) -> Self {
-        Self::err(format!("unexpected token ({}): {:?}", str, token))
-    }
-}
-
-impl From<std::num::ParseFloatError> for Error {
-    fn from(err: std::num::ParseFloatError) -> Error {
-        Self::err(format!("unexpected token: {}", err))
-    }
-}
-
-impl From<std::num::ParseIntError> for Error {
-    fn from(err: std::num::ParseIntError) -> Error {
-        Self::err(format!("unexpected token: {}", err))
     }
 }
 
@@ -307,6 +335,12 @@ impl From<SequenceBsonExpression> for BsonExpression {
     }
 }
 
+impl<T> Display for BsonExpression<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.source, f)
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 enum TokenType {
     /// `{`
@@ -425,9 +459,12 @@ impl<'a> Token<'a> {
         }
     }
 
-    fn expect_token(&self, token: &str) -> Result<&Self, Error> {
+    fn expect_token(&self, token: &str) -> Result<&Self, ParseError> {
         if !self.is(token) {
-            return Err(Error::unexpected_token("unexpected token", self));
+            return Err(ParseError::unexpected_token(
+                self,
+                format_args!("expected {token}"),
+            ));
         }
         Ok(self)
     }
@@ -436,9 +473,12 @@ impl<'a> Token<'a> {
 trait ExpectTypeTrait: Sized {
     fn token(&self) -> &Token<'_>;
 
-    fn expect_type<const N: usize>(self, types: [TokenType; N]) -> Result<Self, Error> {
+    fn expect_type<const N: usize>(self, types: [TokenType; N]) -> Result<Self, ParseError> {
         if !types.iter().any(|x| x == &self.token().typ) {
-            return Err(Error::unexpected_token("unexpected token", self.token()));
+            return Err(ParseError::unexpected_token(
+                self.token(),
+                format_args!("expected one of {types:?}"),
+            ));
         }
         Ok(self)
     }
