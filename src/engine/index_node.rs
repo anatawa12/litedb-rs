@@ -230,7 +230,7 @@ impl<'a> IndexNodeMut<'a> {
         // write to buffer (read only data)
         segment.write_u8(P_SLOT, slot);
         segment.write_u8(P_LEVELS, levels);
-        segment.write_u8(P_DATA_BLOCK, levels);
+        segment.write_page_address(P_DATA_BLOCK, data_block);
         segment.write_page_address(P_NEXT_NODE, next_node);
 
         let mut result = Self {

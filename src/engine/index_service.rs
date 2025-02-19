@@ -63,7 +63,7 @@ impl<'snapshot> IndexService<'snapshot> {
                 index_slot,
                 MAX_LEVEL_LENGTH,
                 bson::Value::MinValue,
-                PageAddress::default(),
+                PageAddress::EMPTY,
                 length,
             )
             .await?;
@@ -74,7 +74,7 @@ impl<'snapshot> IndexService<'snapshot> {
                 index_slot,
                 MAX_LEVEL_LENGTH,
                 bson::Value::MinValue,
-                PageAddress::default(),
+                PageAddress::EMPTY,
                 length,
             )
             .await?;
