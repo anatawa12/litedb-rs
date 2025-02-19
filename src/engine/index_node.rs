@@ -96,6 +96,21 @@ impl<S, D> IndexNodeShared<S, D> {
             ptr: dirty_ptr,
         }
     }
+
+    fn clone_data<S1, D1>(base: &IndexNodeShared<S1, D1>, segment: S, dirty_ptr: D) -> Self {
+        Self {
+            segment,
+            position: base.position,
+            slot: base.slot,
+            levels: base.levels,
+            key: base.key.clone(),
+            data_block: base.data_block,
+            next_node: base.next_node,
+            prev: base.prev.clone(),
+            next: base.next.clone(),
+            ptr: dirty_ptr,
+        }
+    }
 }
 
 impl<S, D> IndexNodeShared<S, D> {
@@ -284,6 +299,10 @@ impl<'a> IndexNodeMut<'a> {
 
     pub fn into_read_only(self) -> IndexNode {
         IndexNode::copy_data(self, (), ())
+    }
+
+    pub fn to_read_only(&self) -> IndexNode {
+        IndexNode::clone_data(self, (), ())
     }
 }
 

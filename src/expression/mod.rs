@@ -1,12 +1,13 @@
 use crate::bson;
 use crate::expression::parser::DocumentScope;
 use crate::expression::tokenizer::Tokenizer;
-use crate::utils::{CaseInsensitiveString, Collation};
+use crate::utils::{CaseInsensitiveString, Collation, OrdBsonValue};
 use itertools::Itertools as _;
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
+use std::sync::LazyLock;
 use typed_arena::Arena;
 
 mod functions;
@@ -162,6 +163,22 @@ impl Expression {
         }
     }
 
+    pub(crate) fn execute_ref<'a>(
+        &self,
+        ctx: ExecutionContext<'a>,
+    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + use<'_, 'a> {
+        match self {
+            Expression::Scalar(expr) => {
+                either::Either::Left(std::iter::once_with(move || expr(&ctx)))
+            }
+            Expression::Sequence(expr) => either::Either::Right(
+                std::iter::once_with(move || expr(&ctx))
+                    .flatten_ok()
+                    .map(|x| x.and_then(|x| x)),
+            ),
+        }
+    }
+
     pub(crate) fn execute_scalar<'a>(
         &self,
         ctx: ExecutionContext<'a>,
@@ -220,6 +237,19 @@ pub struct ExecutionContext<'a> {
 }
 
 impl<'a> ExecutionContext<'a> {
+    fn new(root: &'a bson::Value, collation: Collation, arena: &'a Arena<bson::Value>) -> Self {
+        static EMPTY_DOCUMENT: LazyLock<bson::Document> = LazyLock::new(|| bson::Document::new());
+
+        Self {
+            source: Box::new(std::iter::once_with(move || root).map(Ok)),
+            current: Some(root),
+            root: Some(root),
+            collation,
+            parameters: &EMPTY_DOCUMENT,
+            arena,
+        }
+    }
+
     fn arena(&self, value: bson::Value) -> &'a bson::Value {
         self.arena.alloc(value)
     }
@@ -270,10 +300,14 @@ impl BsonExpression {
     pub fn source(&self) -> &str {
         &self.source
     }
+
+    pub(crate) fn is_indexable(&self) -> bool {
+        !self.fields.is_empty() && self.is_immutable
+    }
 }
 
 impl BsonExpression {
-    fn is_scalar(&self) -> bool {
+    pub(crate) fn is_scalar(&self) -> bool {
         matches!(self.expression, Expression::Scalar(_))
     }
 
@@ -351,6 +385,42 @@ impl From<SequenceBsonExpression> for BsonExpression {
 impl<T> Display for BsonExpression<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.source, f)
+    }
+}
+
+pub(crate) struct ExecutionScope {
+    arena: Arena<bson::Value>,
+    collation: Collation,
+}
+
+impl ExecutionScope {
+    pub(crate) fn new(collation: Collation) -> Self {
+        Self {
+            arena: Arena::new(),
+            collation,
+        }
+    }
+
+    pub(crate) fn execute<'a>(
+        &'a self,
+        expression: &'a BsonExpression,
+        root: &'a bson::Value,
+    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + use<'a> {
+        let context = ExecutionContext::new(root, self.collation, &self.arena);
+        expression.expression.execute_ref(context)
+    }
+
+    pub(crate) fn get_index_keys<'a>(
+        &'a self,
+        expression: &'a BsonExpression,
+        root: &'a bson::Value,
+    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + use<'a> {
+        let context = ExecutionContext::new(root, self.collation, &self.arena);
+        let mut values = BTreeSet::new();
+        expression
+            .expression
+            .execute_ref(context)
+            .filter_ok(move |&x| values.insert(OrdBsonValue(x)))
     }
 }
 

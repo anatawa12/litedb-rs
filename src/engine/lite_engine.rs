@@ -3,7 +3,7 @@ use crate::engine::lock_service::LockService;
 use crate::engine::pages::HeaderPage;
 use crate::engine::sort_disk::SortDisk;
 use crate::engine::transaction_monitor::TransactionMonitor;
-use crate::engine::transaction_service::LockMode;
+use crate::engine::transaction_service::{LockMode, TransactionService};
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{CONTAINER_SORT_SIZE, FileOrigin, StreamFactory};
 use crate::utils::{CaseInsensitiveString, Collation, Shared};
@@ -17,34 +17,34 @@ use std::rc::Rc;
 // common imports for child modules
 use crate::bson;
 
-macro_rules! auto_transaction {
-    ($this: expr, |$transaction: ident| $body: expr) => {{
-        let this = $this;
-        let mut $transaction = this.monitor.create_transaction(false).await?;
-
-        let result = $body;
-
-        {
-            $transaction.commit().await?;
-            if this.header.borrow().pragmas().checkpoint() > 0 {
-                if this.disk.get_file_length(crate::engine::FileOrigin::Log)
-                    > this.header.borrow().pragmas().checkpoint() as i64
-                        * crate::engine::PAGE_SIZE as i64
-                {
-                    this.wal_index
-                        .try_checkpoint(&this.disk, &this.locker)
-                        .await?;
-                }
+macro_rules! transaction_wrapper {
+    (
+        $vis: vis
+        async fn $name:ident(
+            &mut self,
+            $(
+            $arg_name:ident: $arg_type:ty
+            ),*
+            $(,)?
+        ) -> $return_type:ty
+    ) => {
+        impl LiteEngine {
+            $vis async fn $name(
+                &self,
+                $( $arg_name: $arg_type, )*
+            ) -> $return_type {
+                self.with_transaction(async move |engine| engine.$name(
+                    $( $arg_name, )*
+                ).await).await
             }
         }
-
-        result
-    }};
+    };
 }
 
 // method implementations
 mod collection;
 mod delete;
+mod transaction;
 
 pub struct LiteSettings {
     pub data_stream: Box<dyn StreamFactory>,
@@ -65,6 +65,15 @@ pub struct LiteEngine {
     // settings,
     // system_collections, // we use match
     sequences: Mutex<HashMap<CaseInsensitiveString, i64>>,
+}
+
+pub struct TransactionLiteEngine<'a> {
+    locker: &'a Rc<LockService>,
+    disk: &'a Rc<DiskService>,
+    header: &'a Shared<HeaderPage>,
+    sort_disk: &'a Rc<SortDisk>,
+    sequences: &'a Mutex<HashMap<CaseInsensitiveString, i64>>,
+    transaction: &'a mut TransactionService,
 }
 
 impl LiteEngine {

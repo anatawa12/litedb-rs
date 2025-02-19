@@ -4,6 +4,7 @@ use crate::engine::data_service::DataService;
 pub(crate) const PAGE_SIZE: usize = 8192;
 /// header size of each page
 pub(crate) const PAGE_HEADER_SIZE: usize = 32;
+pub(crate) const INDEX_NAME_MAX_LENGTH: usize = 32;
 pub(crate) const CONTAINER_SORT_SIZE: usize = 100 * PAGE_SIZE;
 pub(crate) const PAGE_FREE_LIST_SLOTS: usize = 5;
 pub(crate) const MAX_INDEX_LENGTH: usize = 1400;

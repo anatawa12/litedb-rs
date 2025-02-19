@@ -34,7 +34,7 @@ impl<'snapshot> IndexService<'snapshot> {
     }
 }
 
-impl IndexService<'_> {
+impl<'snapshot> IndexService<'snapshot> {
     pub fn collation(&self) -> &Collation {
         &self.collation
     }
@@ -92,8 +92,8 @@ impl IndexService<'_> {
         index: &mut CollectionIndex,
         key: bson::Value,
         data_block: PageAddress,
-        last: Option<&IndexNode>,
-    ) -> Result<IndexNodeMutRef<'a>> {
+        last: Option<&mut IndexNodeMutRef<'_>>,
+    ) -> Result<IndexNodeMutRef<'snapshot>> {
         // RustChange: Document is valid since its order is not determinable
         if key == bson::Value::MinValue
             || key == bson::Value::MaxValue
@@ -116,8 +116,8 @@ impl IndexService<'_> {
         key: bson::Value,
         data_block: PageAddress,
         insert_levels: u8,
-        last: Option<&IndexNode>,
-    ) -> Result<IndexNodeMutRef<'a>> {
+        last: Option<&mut IndexNodeMutRef<'_>>,
+    ) -> Result<IndexNodeMutRef<'snapshot>> {
         let (bytes_length, key_length) = IndexNode::get_node_length(insert_levels, &key);
 
         if key_length > MAX_INDEX_KEY_LENGTH {
@@ -205,7 +205,6 @@ impl IndexService<'_> {
                 "last index node must point to null"
             );
 
-            let mut last = self.index_nodes.get_node_mut(last.position()).await?;
             last.set_next_node(node.position());
         }
 
@@ -378,12 +377,12 @@ impl IndexService<'_> {
 }
 
 // region Find
-impl IndexService<'_> {
+impl<'snapshot> IndexService<'snapshot> {
     pub async fn find_all(
         &mut self,
         index: &CollectionIndex,
         order: Order,
-    ) -> Result<Vec<IndexNodeMutRef>> {
+    ) -> Result<Vec<IndexNodeMutRef<'snapshot>>> {
         Self::find_all_accessor(&mut self.index_nodes, index, order).await
     }
     pub async fn find_all_accessor<'s>(
