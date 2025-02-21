@@ -16,7 +16,8 @@ impl LiteEngine {
 }
 
 impl TransactionLiteEngine<'_> {
-    pub async fn drop_collection(&mut self, name: &str) -> Result<bool> {
+    // not public since no user transaction is allowed for drop collection
+    async fn drop_collection(&mut self, name: &str) -> Result<bool> {
         let snapshot = self
             .transaction
             .create_snapshot(LockMode::Write, name, false)
@@ -39,7 +40,8 @@ impl TransactionLiteEngine<'_> {
         Ok(true)
     }
 
-    pub async fn rename_collection(&mut self, collection: &str, new_name: &str) -> Result<bool> {
+    // not public since no user transaction is allowed for drop collection
+    async fn rename_collection(&mut self, collection: &str, new_name: &str) -> Result<bool> {
         if collection == new_name {
             return Ok(true); // Original: errors, this: OK
         }
