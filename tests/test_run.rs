@@ -4,6 +4,7 @@ use crate::memory_stream::MemoryStreamFactory;
 use litedb::bson;
 use litedb::expression::BsonExpression;
 use std::sync::{Arc, Mutex};
+use litedb::engine::BsonAutoId;
 
 fn new_database_buffer() -> Arc<Mutex<Vec<u8>>> {
     let data = include_bytes!("vcc.liteDb");
@@ -63,6 +64,16 @@ async fn run_test() {
         .unwrap();
 
     engine.drop_index("unityVersions", "Version").await.unwrap();
+
+    engine.insert("unityVersions", {
+        let mut doc = bson::Document::new();
+
+        doc.insert("Path".into(), "/Applications/Unity/Hub/Editor/2022.3.49f1_arm64/Unity.app/Contents/MacOS/Unity");
+        doc.insert("Version".into(), "2022.3.49f1");
+        doc.insert("LoadedFromHub".into(), true);
+
+        vec![doc]
+    }, BsonAutoId::ObjectId).await.unwrap();
 
     engine.checkpoint().await.unwrap();
 
