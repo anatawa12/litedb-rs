@@ -6,10 +6,14 @@ use crate::engine::transaction_monitor::TransactionMonitor;
 use crate::engine::transaction_service::{LockMode, TransactionService};
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{CONTAINER_SORT_SIZE, FileOrigin, StreamFactory};
-use crate::utils::{CaseInsensitiveString, Collation, Shared};
+#[cfg(feature = "sequential-index")]
+use crate::utils::CaseInsensitiveString;
+use crate::utils::{Collation, Shared};
 use crate::{Error, Result};
+#[cfg(feature = "sequential-index")]
 use async_lock::Mutex;
 use futures::StreamExt;
+#[cfg(feature = "sequential-index")]
 use std::collections::HashMap;
 use std::pin::pin;
 use std::rc::Rc;
@@ -47,6 +51,7 @@ macro_rules! transaction_wrapper {
 mod collection;
 mod delete;
 mod index;
+#[cfg(feature = "sequential-index")]
 mod sequence;
 mod transaction;
 
@@ -68,6 +73,7 @@ pub struct LiteEngine {
     // state,
     // settings,
     // system_collections, // we use match
+    #[cfg(feature = "sequential-index")]
     sequences: Mutex<HashMap<CaseInsensitiveString, i64>>,
 }
 
@@ -76,6 +82,7 @@ pub struct TransactionLiteEngine<'a> {
     disk: &'a Rc<DiskService>,
     header: &'a Shared<HeaderPage>,
     sort_disk: &'a Rc<SortDisk>,
+    #[cfg(feature = "sequential-index")]
     sequences: &'a Mutex<HashMap<CaseInsensitiveString, i64>>,
     transaction: &'a mut TransactionService,
 }
@@ -154,6 +161,7 @@ impl LiteEngine {
             header,
             monitor,
             sort_disk,
+            #[cfg(feature = "sequential-index")]
             sequences: Mutex::new(HashMap::new()),
         })
     }

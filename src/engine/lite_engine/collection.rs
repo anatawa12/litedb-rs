@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::engine::collection_service::CollectionService;
+#[cfg(feature = "sequential-index")]
 use crate::utils::CaseInsensitiveStr;
 
 impl LiteEngine {
@@ -29,6 +30,7 @@ impl TransactionLiteEngine<'_> {
         snapshot.drop_collection(async || Ok(())).await?;
         self.transaction.safe_point().await?;
 
+        #[cfg(feature = "sequential-index")]
         self.sequences
             .lock()
             .await
