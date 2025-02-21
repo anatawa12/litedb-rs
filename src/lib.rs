@@ -11,7 +11,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::bson::Value;
-use crate::engine::{BasePage, PageType};
+use crate::engine::{BasePage, BsonAutoId, PageType};
 use std::fmt::Display;
 
 #[macro_use]
@@ -115,6 +115,12 @@ impl Error {
 
     pub(crate) fn drop_id_index() -> Error {
         Error::err("Drop _id index is forbidden")
+    }
+
+    pub(crate) fn bad_auto_id(auto_id: BsonAutoId, collection_name: &str, last_id: Value) -> Self {
+        Error::err(format!(
+            "It's not possible use AutoId={auto_id:?} because '{collection_name}' collection contains not only numbers in _id index ({last_id:?})."
+        ))
     }
 }
 

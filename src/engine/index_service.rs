@@ -33,6 +33,10 @@ impl<'snapshot> IndexService<'snapshot> {
             max_item_count,
         }
     }
+
+    pub async fn get_node(&mut self, address: PageAddress) -> Result<IndexNodeMutRef<'snapshot>> {
+        self.index_nodes.get_node_mut(address).await
+    }
 }
 
 impl<'snapshot> IndexService<'snapshot> {

@@ -17,6 +17,8 @@ use std::rc::Rc;
 // common imports for child modules
 use crate::bson;
 
+pub use insert::BsonAutoId;
+
 macro_rules! transaction_wrapper {
     (
         $vis: vis
@@ -45,6 +47,7 @@ macro_rules! transaction_wrapper {
 mod collection;
 mod delete;
 mod index;
+mod sequence;
 mod transaction;
 
 pub struct LiteSettings {
