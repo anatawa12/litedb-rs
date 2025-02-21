@@ -61,7 +61,7 @@ impl TransactionLiteEngine<'_> {
         Ok(count)
     }
 
-    async fn insert_document(
+    pub(super) async fn insert_document(
         collation: Collation,
         #[cfg(feature = "sequential-index")] sequences: &Mutex<HashMap<CaseInsensitiveString, i64>>,
         #[cfg(feature = "sequential-index")] collection: &str,

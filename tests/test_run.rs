@@ -75,18 +75,63 @@ async fn run_test() {
         vec![doc]
     }, BsonAutoId::ObjectId).await.unwrap();
 
-    let updated = engine.update("unityVersions", {
-        let mut doc = bson::Document::new();
+    let updated = engine
+        .update("unityVersions", {
+            let mut doc = bson::Document::new();
 
-        doc.insert("_id".into(), bson::ObjectId::from_bytes(hex::decode("668e1f8a7a74cbd413470ad2").unwrap().try_into().unwrap()));
-        doc.insert("Path".into(), "/Applications/Unity/Hub/Editor/2022.3.6f1/Unity.app/Contents/MacOS/Unity");
-        doc.insert("Version".into(), "2022.3.6f1");
-        doc.insert("LoadedFromHub".into(), false);
+            doc.insert(
+                "_id".into(),
+                bson::ObjectId::from_bytes(
+                    hex::decode("668e1f8a7a74cbd413470ad2")
+                        .unwrap()
+                        .try_into()
+                        .unwrap(),
+                ),
+            );
+            doc.insert(
+                "Path".into(),
+                "/Applications/Unity/Hub/Editor/2022.3.6f1/Unity.app/Contents/MacOS/Unity",
+            );
+            doc.insert("Version".into(), "2022.3.6f1");
+            doc.insert("LoadedFromHub".into(), false);
 
-        vec![doc]
-    }).await.unwrap();
+            vec![doc]
+        })
+        .await
+        .unwrap();
 
     println!("updated {updated}");
+
+    let inserted = engine.upsert("unityVersions", {
+        let mut doc1 = bson::Document::new();
+
+        doc1.insert("Path".into(), "/Applications/Unity/Hub/Editor/6000.0.0b12-x86_64/Unity.app/Contents/MacOS/Unity");
+        doc1.insert("Version".into(), "6000.0.0b12");
+        doc1.insert("LoadedFromHub".into(), false);
+
+
+        let mut doc2 = bson::Document::new();
+
+        doc2.insert(
+            "_id".into(),
+            bson::ObjectId::from_bytes(
+                hex::decode("66475280c17fa4fe9f23dd15")
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            ),
+        );
+        doc2.insert(
+            "Path".into(),
+            "/Applications/Unity/Hub/Editor/6000.0.0b12/Unity.app/Contents/MacOS/Unity",
+        );
+        doc2.insert("Version".into(), "6000.0.0b12");
+        doc2.insert("LoadedFromHub".into(), false);
+
+        vec![doc1, doc2]
+    }, BsonAutoId::ObjectId).await.unwrap();
+
+    println!("upsert  {inserted}");
 
     engine.checkpoint().await.unwrap();
 

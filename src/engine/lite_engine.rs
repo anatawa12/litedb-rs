@@ -56,6 +56,7 @@ mod insert;
 mod sequence;
 mod transaction;
 mod update;
+mod upsert;
 
 pub struct LiteSettings {
     pub data_stream: Box<dyn StreamFactory>,

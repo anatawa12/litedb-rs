@@ -36,6 +36,7 @@ impl TransactionLiteEngine<'_> {
                 &mut data,
             )
             .await?
+            .is_none()
             {
                 count += 1;
             }
@@ -52,7 +53,7 @@ impl TransactionLiteEngine<'_> {
         doc: bson::Document,
         indexer: &mut IndexService<'_>,
         data: &mut DataService<'_>,
-    ) -> Result<bool> {
+    ) -> Result<Option<bson::Document>> {
         let id = doc.get("_id");
 
         // validate id for null, min/max values
@@ -69,7 +70,7 @@ impl TransactionLiteEngine<'_> {
             .await?
         else {
             // if not found document, no updates
-            return Ok(false);
+            return Ok(Some(doc));
         };
 
         // update data storage
@@ -107,7 +108,7 @@ impl TransactionLiteEngine<'_> {
 
         if old_keys.is_empty() && new_keys.is_empty() {
             // early return if no indexes to be updated
-            return Ok(true);
+            return Ok(None);
         }
 
         let to_delete = old_keys
@@ -122,7 +123,7 @@ impl TransactionLiteEngine<'_> {
             .collect::<Vec<_>>();
 
         if to_delete.is_empty() && to_insert.is_empty() {
-            return Ok(true);
+            return Ok(None);
         }
 
         let mut last = indexer
@@ -142,7 +143,7 @@ impl TransactionLiteEngine<'_> {
                 .await?;
         }
 
-        Ok(true)
+        Ok(None)
     }
 }
 
