@@ -279,7 +279,7 @@ impl<'snapshot> IndexService<'snapshot> {
         first_address: PageAddress,
         to_delete: HashSet<PageAddress>,
         collection_page: &mut CollectionIndexesMut<'_>,
-    ) -> Result<IndexNodeMutRef> {
+    ) -> Result<IndexNodeMutRef<'snapshot>> {
         let mut last = first_address;
         // Rust: no count check since we've checked recursion with PartialIndexNodeAccessorMut
         let mut indexes = collection_page.get_collection_indexes_slots_mut();

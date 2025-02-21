@@ -306,6 +306,12 @@ impl Deref for CollectionIndexes {
     }
 }
 
+impl DerefMut for CollectionIndexes {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl Deref for CollectionIndexesMut<'_> {
     type Target = CollectionIndexes;
 

@@ -2,9 +2,9 @@ mod memory_stream;
 
 use crate::memory_stream::MemoryStreamFactory;
 use litedb::bson;
+use litedb::engine::BsonAutoId;
 use litedb::expression::BsonExpression;
 use std::sync::{Arc, Mutex};
-use litedb::engine::BsonAutoId;
 
 fn new_database_buffer() -> Arc<Mutex<Vec<u8>>> {
     let data = include_bytes!("vcc.liteDb");
@@ -70,10 +70,23 @@ async fn run_test() {
 
         doc.insert("Path".into(), "/Applications/Unity/Hub/Editor/2022.3.49f1_arm64/Unity.app/Contents/MacOS/Unity");
         doc.insert("Version".into(), "2022.3.49f1");
-        doc.insert("LoadedFromHub".into(), true);
+        doc.insert("LoadedFromHub".into(), false);
 
         vec![doc]
     }, BsonAutoId::ObjectId).await.unwrap();
+
+    let updated = engine.update("unityVersions", {
+        let mut doc = bson::Document::new();
+
+        doc.insert("_id".into(), bson::ObjectId::from_bytes(hex::decode("668e1f8a7a74cbd413470ad2").unwrap().try_into().unwrap()));
+        doc.insert("Path".into(), "/Applications/Unity/Hub/Editor/2022.3.6f1/Unity.app/Contents/MacOS/Unity");
+        doc.insert("Version".into(), "2022.3.6f1");
+        doc.insert("LoadedFromHub".into(), false);
+
+        vec![doc]
+    }).await.unwrap();
+
+    println!("updated {updated}");
 
     engine.checkpoint().await.unwrap();
 

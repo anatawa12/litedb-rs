@@ -410,11 +410,11 @@ impl ExecutionScope {
         expression.expression.execute_ref(context)
     }
 
-    pub(crate) fn get_index_keys<'a>(
+    pub(crate) fn get_index_keys<'a, 'b>(
         &'a self,
-        expression: &'a BsonExpression,
+        expression: &'b BsonExpression,
         root: &'a bson::Value,
-    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + use<'a> {
+    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + use<'a, 'b> {
         let context = ExecutionContext::new(root, self.collation, &self.arena);
         let mut values = BTreeSet::new();
         expression

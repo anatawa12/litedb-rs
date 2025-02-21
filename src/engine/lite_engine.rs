@@ -55,6 +55,7 @@ mod insert;
 #[cfg(feature = "sequential-index")]
 mod sequence;
 mod transaction;
+mod update;
 
 pub struct LiteSettings {
     pub data_stream: Box<dyn StreamFactory>,

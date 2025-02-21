@@ -98,6 +98,7 @@ impl<'a> DataService<'a> {
                     // try get full page size content (do not add DATA_BLOCK_FIXED_SIZE because will be added in UpdateBlock)
                     //bytes_to_copy = min(bytes_left, dataPage.FreeBytes + current_block.Buffer.Count);
                     //let mut update_block = dataPage.UpdateBlock(current_block, bytes_to_copy);
+                    current_block.set_dirty();
                     bytes_to_copy = current_block.buffer_mut().len();
                     let update_block = current_block;
 

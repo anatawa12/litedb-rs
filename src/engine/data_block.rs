@@ -133,4 +133,8 @@ impl<'a> DataBlockMut<'a> {
         self.segment.write_page_address(P_NEXT_BLOCK, next_block);
         self.dirty_ptr.set();
     }
+
+    pub fn set_dirty(&mut self) {
+        self.dirty_ptr.set();
+    }
 }
