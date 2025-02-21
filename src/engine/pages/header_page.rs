@@ -169,7 +169,7 @@ impl HeaderPage {
 
     pub fn get_collection_page_id(&self, collection: &str) -> u32 {
         self.collections
-            .get(collection)
+            .try_get(collection)
             .map(|x| x.as_i32().unwrap() as u32)
             .unwrap_or(u32::MAX)
     }

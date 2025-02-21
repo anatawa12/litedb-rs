@@ -39,14 +39,7 @@ impl DataPage {
         let page_id = self.page_id();
         let (segment, index, dirty) =
             self.insert_with_dirty(length + DataBlock::DATA_BLOCK_FIXED_SIZE);
-        DataBlockMut::new(
-            page_id,
-            dirty,
-            index,
-            segment,
-            extend,
-            PageAddress::EMPTY,
-        )
+        DataBlockMut::new(page_id, dirty, index, segment, extend, PageAddress::EMPTY)
     }
 
     pub fn update_block(

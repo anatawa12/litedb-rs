@@ -72,7 +72,7 @@ impl TransactionLiteEngine<'_> {
         data: &mut DataService<'_>,
     ) -> Result<()> {
         // if no _id, use AutoId
-        let id = if let Some(id) = doc.get("_id") {
+        let id = if let Some(id) = doc.try_get("_id") {
             #[cfg(feature = "sequential-index")]
             if let Some(id) = id.as_i64() {
                 // update memory sequence of numeric _id
@@ -87,7 +87,7 @@ impl TransactionLiteEngine<'_> {
                 _ => Self::get_sequence(sequences, collection, indexes, indexer, auto_id).await?,
             };
             doc.insert("_id".into(), id);
-            doc.get("_id").unwrap()
+            doc.get("_id")
         };
 
         if matches!(

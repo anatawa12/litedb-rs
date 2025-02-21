@@ -192,7 +192,7 @@ predicates!(r#in, in_all, in_any, |ctx, left, right| {
 // region Path Navigation
 
 pub(super) fn parameter_path(name: String) -> ScalarExpr {
-    scalar_expr(move |ctx| Ok(ctx.parameters.get(&name).unwrap_or(&bson::Value::Null)))
+    scalar_expr(move |ctx| Ok(ctx.parameters.get(&name)))
 }
 
 pub(super) fn member_path(expr: ScalarExpr, path: String) -> ScalarExpr {
@@ -203,7 +203,7 @@ pub(super) fn member_path(expr: ScalarExpr, path: String) -> ScalarExpr {
             let value = expr(ctx)?;
             Ok(value
                 .as_document()
-                .and_then(|x| x.get(&path))
+                .map(|x| x.get(&path))
                 .unwrap_or(&Value::Null))
         })
     }

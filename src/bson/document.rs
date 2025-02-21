@@ -34,9 +34,16 @@ impl Document {
         self.inner.insert(key.into(), value.into());
     }
 
-    /// Gets the value with `key`.
-    pub fn get(&self, key: impl AsRef<str>) -> Option<&Value> {
+    /// Gets the value with `key`, or None if not exists
+    pub fn try_get(&self, key: impl AsRef<str>) -> Option<&Value> {
         self.inner.get(CaseInsensitiveStr::new(key.as_ref()))
+    }
+
+    /// Gets the value with `key`.
+    pub fn get(&self, key: impl AsRef<str>) -> &Value {
+        self.inner
+            .get(CaseInsensitiveStr::new(key.as_ref()))
+            .unwrap_or(&Value::Null)
     }
 
     pub fn get_mut(&mut self, key: impl AsRef<str>) -> Option<&mut Value> {
