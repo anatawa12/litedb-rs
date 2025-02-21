@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::sync::LazyLock;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU32;
 
 /// Represents ObjectId
 #[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -11,7 +11,7 @@ pub struct ObjectId {
 impl ObjectId {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        static INCREMENT: AtomicUsize = AtomicUsize::new(0);
+        static INCREMENT: AtomicU32 = AtomicU32::new(0);
         static MACHINE: LazyLock<u32> = LazyLock::new(|| rand::random::<u32>() & 0xFFFFFF);
 
         let timestamp = std::time::SystemTime::now()
@@ -24,9 +24,9 @@ impl ObjectId {
 
         let mut bytes = [0; 12];
         bytes[0..4].clone_from_slice(&((timestamp & 0xFFFFFFFF) as u32).to_be_bytes());
-        bytes[4..7].clone_from_slice(&machine.to_be_bytes()[..3]);
-        bytes[7..9].clone_from_slice(&pid.to_be_bytes()[..2]);
-        bytes[9..12].clone_from_slice(&increment.to_be_bytes()[..3]);
+        bytes[4..7].clone_from_slice(&machine.to_be_bytes()[1..4]);
+        bytes[7..9].clone_from_slice(&pid.to_be_bytes()[2..4]);
+        bytes[9..12].clone_from_slice(&increment.to_be_bytes()[1..4]);
 
         Self::from_bytes(bytes)
     }
