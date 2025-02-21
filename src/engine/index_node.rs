@@ -223,9 +223,9 @@ impl<'a> IndexNodeMut<'a> {
         data_block: PageAddress,
     ) -> Self {
         let position = PageAddress::new(page_id, index);
-        let next_node = PageAddress::default();
-        let next = vec![PageAddress::default(); levels as usize];
-        let prev = vec![PageAddress::default(); levels as usize];
+        let next_node = PageAddress::EMPTY;
+        let next = vec![PageAddress::EMPTY; levels as usize];
+        let prev = vec![PageAddress::EMPTY; levels as usize];
 
         // write to buffer (read only data)
         segment.write_u8(P_SLOT, slot);

@@ -5,13 +5,6 @@ pub(crate) struct PageAddress {
 }
 
 impl PageAddress {
-    pub(crate) fn default() -> PageAddress {
-        PageAddress {
-            page_id: 0,
-            index: 0,
-        }
-    }
-
     pub const EMPTY: PageAddress = PageAddress {
         page_id: u32::MAX,
         index: u8::MAX,

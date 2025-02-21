@@ -45,7 +45,7 @@ impl DataPage {
             index,
             segment,
             extend,
-            PageAddress::default(),
+            PageAddress::EMPTY,
         )
     }
 
