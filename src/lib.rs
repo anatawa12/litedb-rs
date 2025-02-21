@@ -122,6 +122,13 @@ impl Error {
             "It's not possible use AutoId={auto_id:?} because '{collection_name}' collection contains not only numbers in _id index ({last_id:?})."
         ))
     }
+
+    pub(crate) fn invalid_data_type(field: &str, value: &Value) -> Error {
+        Error::err(format!(
+            "Invalid data type for field {}: {:?}",
+            field, value
+        ))
+    }
 }
 
 impl Error {

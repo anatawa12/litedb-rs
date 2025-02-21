@@ -94,6 +94,10 @@ impl CollectionIndex {
         &self.expression
     }
 
+    pub fn bson_expr(&self) -> &BsonExpression {
+        &self.bson_expr
+    }
+
     pub fn unique(&self) -> bool {
         self.unique
     }

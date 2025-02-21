@@ -151,6 +151,10 @@ impl CollectionIndexes {
         indexes
     }
 
+    pub fn get_collection_indexes_mut(&mut self) -> impl Iterator<Item = &mut CollectionIndex> {
+        self.0.values_mut().map(Box::as_mut)
+    }
+
     fn insert_collection_index(
         &mut self,
         name: &str,

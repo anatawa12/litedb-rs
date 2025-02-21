@@ -51,6 +51,7 @@ macro_rules! transaction_wrapper {
 mod collection;
 mod delete;
 mod index;
+mod insert;
 #[cfg(feature = "sequential-index")]
 mod sequence;
 mod transaction;
