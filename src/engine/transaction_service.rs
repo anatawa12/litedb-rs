@@ -422,7 +422,7 @@ impl TransactionService {
 impl Drop for TransactionService {
     fn drop(&mut self) {
         //if self.state == TransactionState::Active && !self.snapshots.is_empty() {
-        if !self.snapshots.is_empty() {
+        if self.mode == LockMode::Write && !self.snapshots.is_empty() {
             for mut snapshot in std::mem::take(&mut self.snapshots).into_values() {
                 if snapshot.mode() == LockMode::Write {
                     // discard all dirty pages
@@ -444,6 +444,7 @@ impl Drop for TransactionService {
                 drop(snapshot); // release page
             }
         }
+        std::mem::take(&mut self.snapshots); // release pages
 
         self.monitor
             .release_transaction(self.transaction_id, self.max_transaction_size.load(Relaxed));
