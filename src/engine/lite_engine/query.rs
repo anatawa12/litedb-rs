@@ -1,8 +1,9 @@
 use super::*;
-use crate::engine::BufferReader;
+use crate::bson::TotalOrd;
 use crate::engine::data_service::DataService;
 use crate::engine::index_service::IndexService;
-use crate::utils::Order;
+use crate::engine::{BufferReader, PageAddress};
+use crate::utils::Order as InternalOrder;
 use async_stream::try_stream;
 use futures::Stream;
 use futures::prelude::*;
@@ -60,9 +61,36 @@ macro_rules! transaction_stream_wrapper {
     };
 }
 
+#[derive(Copy, Clone)]
+#[repr(i8)]
+pub enum Order {
+    Ascending = 1,
+    Descending = -1,
+}
+
+impl Order {
+    fn to_internal(self) -> InternalOrder {
+        match self {
+            Order::Ascending => InternalOrder::Ascending,
+            Order::Descending => InternalOrder::Descending,
+        }
+    }
+}
+
 impl TransactionLiteEngine<'_> {
-    pub fn get_all(&mut self, collection: &str) -> impl Stream<Item = Result<bson::Document>> {
+    fn find_range_by_index(
+        &mut self,
+        collection: &str,
+        index: &str,
+        min_inclusive: &bson::Value,
+        max_inclusive: &bson::Value,
+        order: Order,
+    ) -> impl Stream<Item = Result<bson::Document>> {
         try_stream! {
+            if max_inclusive.total_cmp(min_inclusive).is_lt() {
+                return;
+            }
+
             let snapshot = self
                 .transaction
                 .create_snapshot(LockMode::Read, collection, false)
@@ -80,22 +108,103 @@ impl TransactionLiteEngine<'_> {
                 self.disk.max_items_count(),
             );
             let mut data = DataService::new(parts.data_pages, self.disk.max_items_count());
+            let collation = self.header.borrow().pragmas().collation();
 
-            let pk_index = collection_page.get("_id").unwrap();
-            for pk_node in indexer.find_all(&pk_index, Order::Ascending).await? {
-                let parts = data.read(pk_node.data_block()).await?;
+            async fn read_data(
+                data: &mut DataService<'_>,
+                data_block: PageAddress,
+            ) -> Result<bson::Document> {
+                let parts = data.read(data_block).await?;
                 let mut buffer_reader =
                     BufferReader::fragmented(parts.iter().map(|x| x.buffer()).collect::<Vec<_>>());
 
-                let doc = buffer_reader.read_document()?;
-
-                yield doc;
+                buffer_reader.read_document()
             }
 
-            drop(pk_index);
+            pub(crate) fn is_edge(this: &bson::Value) -> bool {
+                matches!(this, bson::Value::MinValue | bson::Value::MaxValue)
+            }
+
+            let index = collection_page.get(index).unwrap();
+
+            let (start, end) = match order {
+                Order::Ascending => (min_inclusive, max_inclusive),
+                Order::Descending => (max_inclusive, min_inclusive),
+            };
+            let order = order.to_internal();
+
+            let first = match start {
+                bson::Value::MinValue => Some(indexer.get_node(index.head()).await?),
+                bson::Value::MaxValue => Some(indexer.get_node(index.tail()).await?),
+                start => indexer.find(&index, start, true, order).await?,
+            };
+
+            let mut node = first;
+
+            if let Some(mut node) = node.as_ref() {
+                let mut new_node;
+                // going backward in same value list to get first value
+                while let Some(next_prev) = {
+                    let next_prev = node.get_next_prev(0, -order);
+                    if next_prev.is_empty() {
+                        None
+                    } else {
+                        Some(next_prev)
+                    }
+                } {
+                    new_node = indexer.get_node(next_prev).await?;
+                    if is_edge(new_node.key()) || collation.compare(new_node.key(), start).is_ne() {
+                        break;
+                    }
+                    yield read_data(&mut data, new_node.data_block()).await?;
+                    node = &new_node;
+                }
+            }
+
+            // returns (or not) equals start value
+            while let Some(cur_node) = node.as_ref() {
+                let diff = collation.compare(cur_node.key(), start);
+
+                // if current value are not equals start, go out this loop
+                if diff.is_ne() {
+                    break;
+                }
+
+                if !is_edge(cur_node.key()) {
+                    yield read_data(&mut data, cur_node.data_block()).await?;
+                }
+
+                node = indexer.get_node_opt(cur_node.get_next_prev(0, order)).await?;
+            }
+
+            // navigate using next[0] do next node - if less or equals returns
+            while let Some(cur_node) = node.as_ref() {
+                let diff = collation.compare(cur_node.key(), end);
+
+                if is_edge(cur_node.key()) || order == diff {
+                    break;
+                } else {
+                    yield read_data(&mut data, cur_node.data_block()).await?;
+                }
+
+                node = indexer.get_node_opt(cur_node.get_next_prev(0, order)).await?;
+            }
+
+            drop(node);
+            drop(index);
             drop(collection_page);
             self.transaction.safe_point().await?;
         }
+    }
+
+    pub fn get_all(&mut self, collection: &str) -> impl Stream<Item = Result<bson::Document>> {
+        self.find_range_by_index(
+            collection,
+            "_id",
+            &bson::Value::MinValue,
+            &bson::Value::MaxValue,
+            Order::Ascending,
+        )
     }
 }
 

@@ -37,6 +37,17 @@ impl<'snapshot> IndexService<'snapshot> {
     pub async fn get_node(&mut self, address: PageAddress) -> Result<IndexNodeMutRef<'snapshot>> {
         self.index_nodes.get_node_mut(address).await
     }
+
+    pub async fn get_node_opt(
+        &mut self,
+        address: PageAddress,
+    ) -> Result<Option<IndexNodeMutRef<'snapshot>>> {
+        if address.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(self.index_nodes.get_node_mut(address).await?))
+        }
+    }
 }
 
 impl<'snapshot> IndexService<'snapshot> {
@@ -429,7 +440,7 @@ impl<'snapshot> IndexService<'snapshot> {
         value: &bson::Value,
         sibling: bool,
         order: Order,
-    ) -> Result<Option<IndexNodeMutRef>> {
+    ) -> Result<Option<IndexNodeMutRef<'snapshot>>> {
         let mut left_node = if order == Order::Ascending {
             self.index_nodes.get_node_mut(index.head()).await?
         } else {

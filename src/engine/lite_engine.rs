@@ -22,6 +22,7 @@ use std::rc::Rc;
 use crate::bson;
 
 pub use insert::BsonAutoId;
+pub use query::Order;
 
 macro_rules! transaction_wrapper {
     (

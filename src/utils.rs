@@ -8,7 +8,7 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
+use std::ops::{Deref, Neg};
 use std::rc::Rc;
 
 // TODO: Implement the CompareOptions struct
@@ -360,6 +360,17 @@ pub(crate) enum Order {
 impl PartialEq<Ordering> for Order {
     fn eq(&self, other: &Ordering) -> bool {
         *self as i8 == *other as i8
+    }
+}
+
+impl Neg for Order {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        match self {
+            Order::Ascending => Order::Descending,
+            Order::Descending => Order::Ascending,
+        }
     }
 }
 
