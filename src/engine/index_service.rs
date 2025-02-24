@@ -371,7 +371,7 @@ impl<'snapshot> IndexService<'snapshot> {
                     // delete node from page (mark as dirty)
                     node.removing(|node| {
                         unsafe { Pin::new_unchecked(&mut *node.page_ptr()) }
-                            .delete_index_node_with_buffer(node)
+                            .delete_index_node(node.position().index())
                     })
                 } else {
                     last = node;

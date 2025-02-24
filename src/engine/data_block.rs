@@ -1,6 +1,7 @@
 use crate::engine::DirtyFlag;
 use crate::engine::page_address::PageAddress;
 use crate::utils::BufferSlice;
+use std::marker::PhantomData;
 
 const P_EXTEND: usize = 0; // 00-00 [byte]
 const P_NEXT_BLOCK: usize = 1; // 01-05 [pageAddress]
@@ -52,11 +53,12 @@ impl<'a> DataBlock<'a> {
 }
 
 pub(crate) struct DataBlockMut<'a> {
-    segment: &'a mut BufferSlice,
+    segment: *mut BufferSlice,
     position: PageAddress,
     extend: bool,
     next_block: PageAddress,
-    dirty_ptr: &'a DirtyFlag,
+    dirty_ptr: *const DirtyFlag,
+    _phantom: PhantomData<&'a ()>,
 }
 
 extend_lifetime!(DataBlockMut);
@@ -83,6 +85,7 @@ impl<'a> DataBlockMut<'a> {
             extend,
             next_block,
             dirty_ptr,
+            _phantom: PhantomData,
         }
     }
 
@@ -103,7 +106,16 @@ impl<'a> DataBlockMut<'a> {
             extend,
             next_block,
             dirty_ptr,
+            _phantom: PhantomData,
         }
+    }
+
+    fn segment(&self) -> &BufferSlice {
+        unsafe { &*self.segment }
+    }
+
+    fn segment_mut(&mut self) -> &mut BufferSlice {
+        unsafe { &mut *self.segment }
     }
 
     pub fn position(&self) -> PageAddress {
@@ -119,22 +131,23 @@ impl<'a> DataBlockMut<'a> {
     }
 
     pub fn buffer(&self) -> &BufferSlice {
-        let len = self.segment.len() - P_BUFFER;
-        self.segment.slice(P_BUFFER, len)
+        let len = self.segment().len() - P_BUFFER;
+        self.segment().slice(P_BUFFER, len)
     }
 
     pub fn buffer_mut(&mut self) -> &mut BufferSlice {
-        let len = self.segment.len() - P_BUFFER;
-        self.segment.slice_mut(P_BUFFER, len)
+        let len = self.segment_mut().len() - P_BUFFER;
+        self.segment_mut().slice_mut(P_BUFFER, len)
     }
 
     pub fn set_next_block(&mut self, next_block: PageAddress) {
         self.next_block = next_block;
-        self.segment.write_page_address(P_NEXT_BLOCK, next_block);
-        self.dirty_ptr.set();
+        self.segment_mut()
+            .write_page_address(P_NEXT_BLOCK, next_block);
+        self.set_dirty()
     }
 
     pub fn set_dirty(&mut self) {
-        self.dirty_ptr.set();
+        unsafe { &*self.dirty_ptr }.set();
     }
 }

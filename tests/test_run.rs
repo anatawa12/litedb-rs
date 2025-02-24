@@ -184,7 +184,7 @@ async fn run_test() {
             "version",
             &"2022".to_string().into(),
             &"2023".to_string().into(),
-            Order::Descending
+            Order::Descending,
         )
         .try_for_each(async |doc| {
             println!("version: {:?}", doc.get("version"));

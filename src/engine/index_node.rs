@@ -2,6 +2,7 @@ use crate::Result;
 use crate::bson;
 use crate::engine::{IndexPage, PageAddress};
 use crate::utils::{BufferSlice, Order};
+use std::marker::PhantomData;
 use std::ops::Deref;
 use std::pin::Pin;
 
@@ -27,7 +28,8 @@ pub(crate) struct IndexNodeShared<S, D> {
 }
 
 pub(crate) type IndexNode = IndexNodeShared<(), ()>;
-pub(crate) type IndexNodeMut<'a> = IndexNodeShared<&'a mut BufferSlice, *mut IndexPage>;
+pub(crate) type IndexNodeMut<'a> =
+    IndexNodeShared<*mut BufferSlice, (*mut IndexPage, PhantomData<&'a BufferSlice>)>;
 
 extend_lifetime!(IndexNodeMut);
 
@@ -209,7 +211,13 @@ impl<'a> IndexNodeMut<'a> {
         index: u8,
         segment: &'a mut BufferSlice,
     ) -> Result<Self> {
-        Self::load_inner(page_id, index, segment, |s| s, dirty_ptr)
+        Self::load_inner(
+            page_id,
+            index,
+            segment,
+            |s| s as *mut _,
+            (dirty_ptr, PhantomData),
+        )
     }
 
     pub fn new(
@@ -243,7 +251,7 @@ impl<'a> IndexNodeMut<'a> {
             next_node,
             prev,
             next,
-            ptr: dirty_ptr,
+            ptr: (dirty_ptr, PhantomData),
         };
 
         // write data
@@ -253,25 +261,25 @@ impl<'a> IndexNodeMut<'a> {
         }
 
         let key_ptr = calc_key_ptr(levels);
-        result.segment.write_index_key(key_ptr, &result.key);
+        result.segment().write_index_key(key_ptr, &result.key);
         result.set_dirty();
 
         result
     }
 
     fn set_dirty(&mut self) {
-        unsafe { IndexPage::set_dirty_ptr(self.ptr) };
+        unsafe { IndexPage::set_dirty_ptr(self.ptr.0) };
     }
 
     pub fn set_next_node(&mut self, values: PageAddress) {
         self.next_node = values;
-        self.segment.write_page_address(P_NEXT_NODE, values);
+        self.segment().write_page_address(P_NEXT_NODE, values);
         self.set_dirty();
     }
 
     pub fn set_prev(&mut self, level: u8, address: PageAddress) {
         self.prev[level as usize] = address;
-        self.segment.write_page_address(
+        self.segment().write_page_address(
             P_PREV_NEXT + (level as usize * PageAddress::SERIALIZED_SIZE * 2),
             address,
         );
@@ -280,7 +288,7 @@ impl<'a> IndexNodeMut<'a> {
 
     pub fn set_next(&mut self, level: u8, address: PageAddress) {
         self.next[level as usize] = address;
-        self.segment.write_page_address(
+        self.segment().write_page_address(
             P_PREV_NEXT
                 + (level as usize * PageAddress::SERIALIZED_SIZE * 2)
                 + PageAddress::SERIALIZED_SIZE,
@@ -290,11 +298,15 @@ impl<'a> IndexNodeMut<'a> {
     }
 
     pub fn page_ptr(&self) -> *mut IndexPage {
-        self.ptr
+        self.ptr.0
+    }
+
+    pub fn segment(&mut self) -> &'a mut BufferSlice {
+        unsafe { &mut *self.segment }
     }
 
     pub fn into_segment(self) -> &'a mut BufferSlice {
-        self.segment
+        unsafe { &mut *self.segment }
     }
 
     pub fn into_read_only(self) -> IndexNode {
@@ -310,6 +322,6 @@ impl<'a> IndexNodeMut<'a> {
 impl IndexNodeMut<'_> {
     pub(crate) fn remove_from_page(self) {
         let page = unsafe { Pin::new_unchecked(&mut *self.page_ptr()) };
-        page.delete_index_node_with_buffer(self);
+        page.delete_index_node(self.position.index());
     }
 }
