@@ -206,9 +206,45 @@ impl TransactionLiteEngine<'_> {
             Order::Ascending,
         )
     }
+
+    pub fn get_range_indexed(
+        &mut self,
+        collection: &str,
+        index: &str,
+        min_inclusive: &bson::Value,
+        max_inclusive: &bson::Value,
+        order: Order,
+    ) -> impl Stream<Item = Result<bson::Document>> {
+        self.find_range_by_index(collection, index, min_inclusive, max_inclusive, order)
+    }
+
+    pub fn get_by_index(
+        &mut self,
+        collection: &str,
+        index: &str,
+        find: &bson::Value,
+    ) -> impl Stream<Item = Result<bson::Document>> {
+        self.find_range_by_index(collection, index, find, find, Order::Ascending)
+    }
 }
 
 transaction_stream_wrapper!(pub fn get_all(
     &mut self,
     collection: &str,
+) -> impl Stream<Item = Result<bson::Document>>);
+
+transaction_stream_wrapper!(pub fn get_range_indexed(
+    &mut self,
+    collection: &str,
+    index: &str,
+    min_inclusive: &bson::Value,
+    max_inclusive: &bson::Value,
+    order: Order,
+) -> impl Stream<Item = Result<bson::Document>>);
+
+transaction_stream_wrapper!(pub fn get_by_index(
+    &mut self,
+    collection: &str,
+    index: &str,
+    find: &bson::Value,
 ) -> impl Stream<Item = Result<bson::Document>>);

@@ -3,7 +3,7 @@ mod memory_stream;
 use crate::memory_stream::MemoryStreamFactory;
 use futures::prelude::*;
 use litedb::bson;
-use litedb::engine::BsonAutoId;
+use litedb::engine::{BsonAutoId, Order};
 use litedb::expression::BsonExpression;
 use std::sync::{Arc, Mutex};
 
@@ -59,6 +59,16 @@ async fn run_test() {
             "unityVersions",
             "path",
             BsonExpression::create("Path").unwrap(),
+            false,
+        )
+        .await
+        .unwrap();
+
+    engine
+        .ensure_index(
+            "unityVersions",
+            "version",
+            BsonExpression::create("Version").unwrap(),
             false,
         )
         .await
@@ -138,6 +148,44 @@ async fn run_test() {
 
     engine
         .get_all("unityVersions")
+        .try_for_each(async |doc| {
+            println!("version: {:?}", doc.get("version"));
+            println!("LoadedFromHub: {:?}", doc.get("LoadedFromHub"));
+            println!("Path: {:?}", doc.get("Path"));
+            println!();
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    println!("find by version: ");
+
+    engine
+        .get_by_index(
+            "unityVersions",
+            "version",
+            &"2022.3.49f1".to_string().into(),
+        )
+        .try_for_each(async |doc| {
+            println!("version: {:?}", doc.get("version"));
+            println!("LoadedFromHub: {:?}", doc.get("LoadedFromHub"));
+            println!("Path: {:?}", doc.get("Path"));
+            println!();
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    println!("find by version range: ");
+
+    engine
+        .get_range_indexed(
+            "unityVersions",
+            "version",
+            &"2022".to_string().into(),
+            &"2023".to_string().into(),
+            Order::Descending
+        )
         .try_for_each(async |doc| {
             println!("version: {:?}", doc.get("version"));
             println!("LoadedFromHub: {:?}", doc.get("LoadedFromHub"));
