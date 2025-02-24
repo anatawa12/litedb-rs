@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::engine::disk::memory_cache::MemoryCache;
 use crate::engine::disk::stream_pool::{StreamGuard, StreamPool};
-use crate::engine::{FileOrigin, PageBuffer, FileStream};
+use crate::engine::{FileOrigin, FileStream, PageBuffer};
 use futures::io;
 use futures::prelude::*;
 use std::cell::OnceCell;

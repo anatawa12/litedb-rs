@@ -1,6 +1,7 @@
 mod memory_stream;
 
 use crate::memory_stream::MemoryStreamFactory;
+use futures::prelude::*;
 use litedb::bson;
 use litedb::engine::BsonAutoId;
 use litedb::expression::BsonExpression;
@@ -132,6 +133,20 @@ async fn run_test() {
     }, BsonAutoId::ObjectId).await.unwrap();
 
     println!("upsert  {inserted}");
+
+    println!("get all unityVersions: ");
+
+    engine
+        .get_all("unityVersions")
+        .try_for_each(async |doc| {
+            println!("version: {:?}", doc.get("version"));
+            println!("LoadedFromHub: {:?}", doc.get("LoadedFromHub"));
+            println!("Path: {:?}", doc.get("Path"));
+            println!();
+            Ok(())
+        })
+        .await
+        .unwrap();
 
     engine.checkpoint().await.unwrap();
 

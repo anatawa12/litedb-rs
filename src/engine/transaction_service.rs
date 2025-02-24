@@ -417,6 +417,10 @@ impl TransactionService {
 
         Ok(())
     }
+
+    pub(crate) fn is_read_only(&self) -> bool {
+        self.mode == LockMode::Read
+    }
 }
 
 impl Drop for TransactionService {
