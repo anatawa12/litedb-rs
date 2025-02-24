@@ -1,5 +1,5 @@
 use futures::prelude::*;
-use litedb::engine::Stream;
+use litedb::engine::FileStream;
 use std::cmp::max;
 use std::future::Future;
 use std::io;
@@ -36,7 +36,7 @@ impl litedb::engine::StreamFactory for MemoryStreamFactory {
     fn get_stream(
         &self,
         writable: bool,
-    ) -> Pin<Box<dyn Future<Output = litedb::Result<Box<dyn Stream>>> + '_>> {
+    ) -> Pin<Box<dyn Future<Output = litedb::Result<Box<dyn FileStream>>> + '_>> {
         Box::pin(async move {
             let mut buffer = self.buffer.lock().await;
             if !writable && buffer.is_none() {
@@ -49,7 +49,7 @@ impl litedb::engine::StreamFactory for MemoryStreamFactory {
             Ok(Box::new(MemoryStream {
                 buffer,
                 position: 0,
-            }) as Box<dyn Stream>)
+            }) as Box<dyn FileStream>)
         })
     }
 
@@ -77,7 +77,7 @@ impl litedb::engine::StreamFactory for MemoryStreamFactory {
     }
 }
 
-impl litedb::engine::Stream for MemoryStream {
+impl litedb::engine::FileStream for MemoryStream {
     fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output = litedb::Result<()>> + '_>> {
         Box::pin(async move {
             self.buffer.lock().unwrap().resize(len as usize, 0);

@@ -1,6 +1,6 @@
 use super::memory_cache::MemoryCache;
 use crate::Result;
-use crate::engine::Stream;
+use crate::engine::FileStream;
 use crate::engine::disk::disk_reader::DiskReader;
 use crate::engine::disk::stream_pool::StreamPool;
 use crate::engine::page_position::PagePosition;
@@ -63,7 +63,7 @@ impl DiskService {
         &self.cache
     }
 
-    async fn initialize(stream: &mut dyn Stream, collation: Option<Collation>) -> Result<()> {
+    async fn initialize(stream: &mut dyn FileStream, collation: Option<Collation>) -> Result<()> {
         let collation = collation.unwrap_or_default();
 
         let buffer = Box::new(PageBuffer::new(0));

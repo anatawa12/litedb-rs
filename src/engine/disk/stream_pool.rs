@@ -1,13 +1,13 @@
 use crate::Result;
-use crate::engine::{Stream, StreamFactory};
+use crate::engine::{FileStream, StreamFactory};
 use async_lock::{Mutex, OnceCell};
 use std::ops::{Deref, DerefMut};
 
-type StreamStorage = Option<Box<dyn Stream>>;
+type StreamStorage = Option<Box<dyn FileStream>>;
 
 pub(crate) struct StreamPool {
     streams: opool::Pool<StreamStorageFactory, StreamStorage>,
-    writable_cell: OnceCell<Mutex<Box<dyn Stream>>>,
+    writable_cell: OnceCell<Mutex<Box<dyn FileStream>>>,
     factory: Box<dyn StreamFactory>,
 }
 
@@ -24,7 +24,7 @@ pub(crate) struct StreamGuard<'a> {
 }
 
 impl Deref for StreamGuard<'_> {
-    type Target = dyn Stream;
+    type Target = dyn FileStream;
 
     fn deref(&self) -> &Self::Target {
         self.inner.as_ref().as_ref().unwrap().deref()
@@ -38,11 +38,11 @@ impl DerefMut for StreamGuard<'_> {
 }
 
 pub(crate) struct WriteableScope<'a> {
-    inner: async_lock::MutexGuard<'a, Box<dyn Stream>>,
+    inner: async_lock::MutexGuard<'a, Box<dyn FileStream>>,
 }
 
 impl Deref for WriteableScope<'_> {
-    type Target = dyn Stream;
+    type Target = dyn FileStream;
 
     fn deref(&self) -> &Self::Target {
         self.inner.as_ref()
@@ -87,7 +87,7 @@ impl StreamPool {
         Ok(WriteableScope { inner })
     }
 
-    pub async fn writeable_mut(&mut self) -> Result<&mut dyn Stream> {
+    pub async fn writeable_mut(&mut self) -> Result<&mut dyn FileStream> {
         self.writeable().await?;
         Ok(self.writable_cell.get_mut().unwrap().get_mut().as_mut())
     }

@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::engine::disk::memory_cache::MemoryCache;
 use crate::engine::disk::stream_pool::{StreamGuard, StreamPool};
-use crate::engine::{FileOrigin, PageBuffer, Stream};
+use crate::engine::{FileOrigin, PageBuffer, FileStream};
 use futures::io;
 use futures::prelude::*;
 use std::cell::OnceCell;
@@ -21,11 +21,11 @@ struct StreamHolder<'a> {
 }
 
 impl StreamHolder<'_> {
-    async fn get_stream(&mut self, origin: FileOrigin) -> Result<&mut dyn Stream> {
+    async fn get_stream(&mut self, origin: FileOrigin) -> Result<&mut dyn FileStream> {
         async fn inner<'a, 'b>(
             pool: &'b StreamPool,
             cell: &'a mut OnceCell<StreamGuard<'b>>,
-        ) -> Result<&'a mut dyn Stream> {
+        ) -> Result<&'a mut dyn FileStream> {
             if cell.get_mut().is_none() {
                 let stream = pool.rent().await?;
                 cell.set(stream).ok().unwrap();
@@ -83,7 +83,7 @@ impl<'a> DiskReader<'a> {
         self.cache.new_page()
     }
 
-    async fn read_stream(stream: &mut dyn Stream, position: u64, buf: &mut [u8]) -> Result<()> {
+    async fn read_stream(stream: &mut dyn FileStream, position: u64, buf: &mut [u8]) -> Result<()> {
         stream.seek(io::SeekFrom::Start(position)).await?;
         stream.read_exact(buf).await?;
         Ok(())

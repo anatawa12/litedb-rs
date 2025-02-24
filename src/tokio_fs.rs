@@ -1,4 +1,4 @@
-use crate::engine::Stream;
+use crate::engine::FileStream;
 use futures::prelude::*;
 use std::pin::Pin;
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -17,17 +17,17 @@ impl crate::engine::StreamFactory for TokioStreamFactory {
     fn get_stream(
         &self,
         writable: bool,
-    ) -> Pin<Box<dyn Future<Output = crate::Result<Box<dyn Stream>>> + '_>> {
+    ) -> Pin<Box<dyn Future<Output = crate::Result<Box<dyn FileStream>>> + '_>> {
         Box::pin(async move {
             if writable {
                 Ok(
                     Box::new(tokio::fs::File::create(self.path.clone()).await?.compat())
-                        as Box<dyn Stream>,
+                        as Box<dyn FileStream>,
                 )
             } else {
                 Ok(
                     Box::new(tokio::fs::File::open(self.path.clone()).await?.compat())
-                        as Box<dyn Stream>,
+                        as Box<dyn FileStream>,
                 )
             }
         })
@@ -50,7 +50,7 @@ impl crate::engine::StreamFactory for TokioStreamFactory {
     }
 }
 
-impl Stream for tokio_util::compat::Compat<tokio::fs::File> {
+impl FileStream for tokio_util::compat::Compat<tokio::fs::File> {
     fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output = crate::Result<()>> + '_>> {
         Box::pin(async move { Ok(self.get_ref().set_len(len).await?) })
     }
