@@ -2,9 +2,9 @@ mod memory_stream;
 
 use crate::memory_stream::MemoryStreamFactory;
 use futures::prelude::*;
-use litedb::bson;
-use litedb::engine::{BsonAutoId, Order};
-use litedb::expression::BsonExpression;
+use vrc_get_litedb::bson;
+use vrc_get_litedb::engine::{BsonAutoId, Order};
+use vrc_get_litedb::expression::BsonExpression;
 use std::sync::{Arc, Mutex};
 
 fn new_database_buffer() -> Arc<Mutex<Vec<u8>>> {
@@ -12,20 +12,18 @@ fn new_database_buffer() -> Arc<Mutex<Vec<u8>>> {
     Arc::new(Mutex::new(Vec::from(data)))
 }
 
-async fn open_database(data: &Arc<Mutex<Vec<u8>>>) -> litedb::engine::LiteEngine {
+async fn open_database(data: &Arc<Mutex<Vec<u8>>>) -> vrc_get_litedb::engine::LiteEngine {
     let main = MemoryStreamFactory::with_data(data.clone());
     let log = MemoryStreamFactory::absent();
-    let temp = MemoryStreamFactory::absent();
 
-    let settings = litedb::engine::LiteSettings {
+    let settings = vrc_get_litedb::engine::LiteSettings {
         data_stream: Box::new(main),
         log_stream: Box::new(log),
-        temp_stream: Box::new(temp),
         auto_build: false,
         collation: None,
     };
 
-    litedb::engine::LiteEngine::new(settings).await.unwrap()
+    vrc_get_litedb::engine::LiteEngine::new(settings).await.unwrap()
 }
 
 #[tokio::test]
