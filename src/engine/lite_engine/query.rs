@@ -37,7 +37,6 @@ macro_rules! transaction_stream_wrapper {
                     let mut engine = TransactionLiteEngine {
                         disk: &self.disk,
                         header: &self.header,
-                        sort_disk: &self.sort_disk,
                         #[cfg(feature = "sequential-index")]
                         sequences: &self.sequences,
                         transaction: &mut transaction,

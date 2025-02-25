@@ -19,7 +19,6 @@ mod page_buffer;
 mod page_position;
 mod pages;
 mod snapshot;
-mod sort_disk;
 mod transaction_monitor;
 mod transaction_pages;
 mod transaction_service;

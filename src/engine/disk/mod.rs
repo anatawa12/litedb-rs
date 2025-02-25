@@ -4,4 +4,3 @@ mod memory_cache;
 mod stream_pool;
 
 pub(crate) use disk_service::*;
-pub(crate) use stream_pool::*;

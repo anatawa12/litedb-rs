@@ -1,11 +1,10 @@
 use crate::engine::disk::DiskService;
 use crate::engine::lock_service::LockService;
 use crate::engine::pages::HeaderPage;
-use crate::engine::sort_disk::SortDisk;
 use crate::engine::transaction_monitor::TransactionMonitor;
 use crate::engine::transaction_service::{LockMode, TransactionService};
 use crate::engine::wal_index_service::WalIndexService;
-use crate::engine::{CONTAINER_SORT_SIZE, FileOrigin, StreamFactory};
+use crate::engine::{FileOrigin, StreamFactory};
 #[cfg(feature = "sequential-index")]
 use crate::utils::CaseInsensitiveString;
 use crate::utils::{Collation, Shared};
@@ -63,7 +62,6 @@ mod upsert;
 pub struct LiteSettings {
     pub data_stream: Box<dyn StreamFactory>,
     pub log_stream: Box<dyn StreamFactory>,
-    pub temp_stream: Box<dyn StreamFactory>,
     pub auto_build: bool,
     pub collation: Option<Collation>,
 }
@@ -74,7 +72,6 @@ pub struct LiteEngine {
     wal_index: Rc<WalIndexService>,
     header: Shared<HeaderPage>,
     monitor: Rc<TransactionMonitor>,
-    sort_disk: Rc<SortDisk>,
     // state,
     // settings,
     // system_collections, // we use match
@@ -85,7 +82,6 @@ pub struct LiteEngine {
 pub struct TransactionLiteEngine<'a> {
     disk: &'a Rc<DiskService>,
     header: &'a Shared<HeaderPage>,
-    sort_disk: &'a Rc<SortDisk>,
     #[cfg(feature = "sequential-index")]
     sequences: &'a Mutex<HashMap<CaseInsensitiveString, i64>>,
     transaction: &'a mut TransactionService,
@@ -137,9 +133,6 @@ impl LiteEngine {
             wal_index.restore_index(&mut header, &disk).await?;
         }
 
-        let sort_disk = SortDisk::new(settings.temp_stream, CONTAINER_SORT_SIZE);
-        let sort_disk = Rc::new(sort_disk);
-
         let header = Shared::new(header);
         let locker = Rc::new(locker);
         let disk = Rc::new(disk);
@@ -164,7 +157,6 @@ impl LiteEngine {
             wal_index,
             header,
             monitor,
-            sort_disk,
             #[cfg(feature = "sequential-index")]
             sequences: Mutex::new(HashMap::new()),
         })
