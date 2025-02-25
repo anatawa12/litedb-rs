@@ -10,7 +10,6 @@ impl LiteEngine {
         let mut transaction = self.monitor.create_transaction(false).await?;
 
         let mut engine = TransactionLiteEngine {
-            locker: &self.locker,
             disk: &self.disk,
             header: &self.header,
             sort_disk: &self.sort_disk,

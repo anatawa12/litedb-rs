@@ -401,11 +401,11 @@ impl ExecutionScope {
         }
     }
 
-    pub(crate) fn execute<'a>(
+    pub(crate) fn execute<'a, 'b>(
         &'a self,
-        expression: &'a BsonExpression,
+        expression: &'b BsonExpression,
         root: &'a bson::Value,
-    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + use<'a> {
+    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + use<'a, 'b> {
         let context = ExecutionContext::new(root, self.collation, &self.arena);
         expression.expression.execute_ref(context)
     }
@@ -415,11 +415,8 @@ impl ExecutionScope {
         expression: &'b BsonExpression,
         root: &'a bson::Value,
     ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + use<'a, 'b> {
-        let context = ExecutionContext::new(root, self.collation, &self.arena);
         let mut values = BTreeSet::new();
-        expression
-            .expression
-            .execute_ref(context)
+        self.execute(expression, root)
             .filter_ok(move |&x| values.insert(OrdBsonValue(x)))
     }
 }
@@ -501,6 +498,7 @@ enum TokenType {
 struct Token<'a> {
     pub typ: TokenType,
     value: Cow<'a, str>,
+    #[allow(dead_code)]
     position: usize,
 }
 
@@ -515,10 +513,6 @@ impl<'a> Token<'a> {
 
     pub fn is(&self, str: &str) -> bool {
         self.typ == TokenType::Word && self.value.eq_ignore_ascii_case(str)
-    }
-
-    pub fn is_case(&self, str: &str) -> bool {
-        self.typ == TokenType::Word && self.value == str
     }
 
     pub fn is_operand(&self) -> bool {

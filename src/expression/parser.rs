@@ -22,19 +22,6 @@ macro_rules! unexpected_token {
 
 type Result<T, R = ParseError> = std::result::Result<T, R>;
 
-type LiteException = super::Error;
-
-enum MethodParamererType {
-    ValueEnumerable,
-    Value,
-}
-
-impl MethodParamererType {
-    fn is_enumerable(&self) -> bool {
-        matches!(self, Self::ValueEnumerable)
-    }
-}
-
 fn append_quoted(mut str: &str, builder: &mut String) {
     builder.push('"');
     while let Some((left, right)) = str.split_once('"') {
@@ -45,9 +32,6 @@ fn append_quoted(mut str: &str, builder: &mut String) {
     builder.push_str(str);
     builder.push('"');
 }
-
-type BsonDocument = crate::bson::Document;
-type BsonValue = crate::bson::Value;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub(super) enum DocumentScope {
@@ -451,7 +435,7 @@ pub fn parse_single_expression(
 #[cfg(any())] // rust: disable for now
 pub fn ParseSelectDocumentBuilder(
     tokenizer: &mut Tokenizer,
-    parameters: &BsonDocument,
+    parameters: &bson::Document,
 ) -> Result<BsonExpression> {
     // creating unique field names
     let fields = vec![];
@@ -537,7 +521,7 @@ pub fn ParseSelectDocumentBuilder(
 
     /*
        let mut arrKeys = expression.NewArrayInit(typeof(string), fields.Select(x => expression.Constant(x.Key)).ToArray());
-       let mut arrValues = expression.NewArrayInit(typeof(BsonValue), fields.Select(x => x.value.expression).ToArray());
+       let mut arrValues = expression.NewArrayInit(typeof(bson::Value), fields.Select(x => x.value.expression).ToArray());
 
        return Ok(BsonExpression
        {
@@ -559,6 +543,7 @@ pub fn ParseSelectDocumentBuilder(
 /// {key0} = {expr0}, .... will be converted into { key: [expr], ... }
 /// {key: value} ... return return a new document
 /// </summary>
+#[allow(dead_code)]
 pub fn parse_update_document_builder(tokenizer: &mut Tokenizer) -> Result<ScalarBsonExpression> {
     let next = tokenizer.look_ahead();
 
@@ -665,7 +650,7 @@ fn try_parse_double(tokenizer: &mut Tokenizer) -> Result<Option<BsonExpression>>
     }
 
     if let Some(number) = value {
-        let constant = Expression::scalar(move |ctx| Ok(ctx.arena(BsonValue::Double(number))));
+        let constant = Expression::scalar(move |ctx| Ok(ctx.arena(bson::Value::Double(number))));
 
         return Ok(Some(BsonExpression {
             r#type: BsonExpressionType::Double,
@@ -714,7 +699,7 @@ fn try_parse_int(tokenizer: &mut Tokenizer) -> Result<Option<BsonExpression>> {
 
     if let Some(i64) = value {
         if let Ok(i32) = i32::try_from(i64) {
-            let constant32 = Expression::scalar(move |ctx| Ok(ctx.arena(BsonValue::Int32(i32))));
+            let constant32 = Expression::scalar(move |ctx| Ok(ctx.arena(bson::Value::Int32(i32))));
 
             return Ok(Some(BsonExpression {
                 r#type: BsonExpressionType::Int,
@@ -730,7 +715,7 @@ fn try_parse_int(tokenizer: &mut Tokenizer) -> Result<Option<BsonExpression>> {
             }));
         }
 
-        let constant64 = Expression::scalar(move |ctx| Ok(ctx.arena(BsonValue::Int64(i64))));
+        let constant64 = Expression::scalar(move |ctx| Ok(ctx.arena(bson::Value::Int64(i64))));
 
         return Ok(Some(BsonExpression {
             r#type: BsonExpressionType::Int,
@@ -780,7 +765,7 @@ fn try_parse_bool(tokenizer: &mut Tokenizer) -> Option<BsonExpression> {
 /// </summary>
 fn try_parse_null(tokenizer: &mut Tokenizer) -> Option<BsonExpression> {
     if tokenizer.current().typ == TokenType::Word && tokenizer.current().is("null") {
-        let constant = Expression::scalar(|_| Ok(&BsonValue::Null));
+        let constant = Expression::scalar(|_| Ok(&bson::Value::Null));
 
         return Some(BsonExpression {
             r#type: BsonExpressionType::Null,
@@ -809,7 +794,7 @@ fn try_parse_string(tokenizer: &mut Tokenizer) -> Option<BsonExpression> {
         let mut source = String::new();
         append_quoted(&str, &mut source);
 
-        let bstr = BsonValue::String(str);
+        let bstr = bson::Value::String(str);
         let constant = Expression::scalar(move |ctx| Ok(ctx.arena(bstr.clone())));
 
         return Some(BsonExpression {
@@ -1879,7 +1864,7 @@ pub(super) fn create_logic_expression(
     left: ScalarBsonExpression,
     right: ScalarBsonExpression,
 ) -> ScalarBsonExpression {
-    // convert BsonValue into Boolean
+    // convert bson::Value into Boolean
     let bool_left = left.expression.clone();
     let bool_right = right.expression.clone();
 
@@ -1913,8 +1898,8 @@ pub(super) fn create_logic_expression(
         "OR"
     };
 
-    // and convert back Boolean to BsonValue
-    //let mut ctor = typeof(BsonValue)
+    // and convert back Boolean to bson::Value
+    //let mut ctor = typeof(bson::Value)
     //    .GetConstructors()
     //    .First(x => x.GetParameters().FirstOrDefault()?.ParameterType == typeof(bool));
 
@@ -1946,7 +1931,7 @@ pub(super) fn create_conditional_expression(
     if_true: ScalarBsonExpression,
     if_false: ScalarBsonExpression,
 ) -> ScalarBsonExpression {
-    // convert BsonValue into Boolean
+    // convert bson::Value into Boolean
     let text_expr = test.expression;
     let if_true_expr = if_true.expression;
     let if_false_expr = if_false.expression;

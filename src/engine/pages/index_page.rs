@@ -27,6 +27,7 @@ impl IndexPage {
         })
     }
 
+    #[allow(dead_code)] // basically mutable variant is used
     pub fn get_index_node(&self, index: u8) -> Result<IndexNode> {
         let segment = self.base.get(index);
         IndexNode::load(self.page_id(), index, segment)
@@ -68,10 +69,7 @@ impl IndexPage {
         self.base().delete(index);
     }
 
-    pub fn delete_index_node_with_buffer(self: Pin<&mut Self>, index: IndexNodeMut<'_>) {
-        self.base().delete(index.position().index());
-    }
-
+    #[allow(dead_code)] // upstream unused
     pub fn get_index_nodes(&self) -> impl Iterator<Item = Result<IndexNode>> {
         self.base.get_used_indices().map(|i| self.get_index_node(i))
     }

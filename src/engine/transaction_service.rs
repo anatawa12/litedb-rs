@@ -80,18 +80,22 @@ impl TransactionService {
         self.transaction_id
     }
 
+    #[allow(dead_code)] // used in $transactions
     pub fn start_time(&self) -> SystemTime {
         self.start_time
     }
 
+    #[allow(dead_code)] // used in $transactions
     pub fn thread_id(&self) -> ThreadId {
         self.thread_id
     }
 
+    #[allow(dead_code)] // used in $transactions
     pub fn query_only(&self) -> bool {
         self.query_only
     }
 
+    #[allow(dead_code)] // used in $transactions
     pub fn max_transaction_size(&self) -> &AtomicU32 {
         &self.max_transaction_size
     }

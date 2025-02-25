@@ -7,11 +7,10 @@
  *! [LiteDB]: https://www.litedb.org/
  */
 
-#![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
 
 use crate::bson::Value;
-use crate::engine::{BasePage, BsonAutoId, PageType};
+use crate::engine::{BasePage, PageType};
 use std::fmt::Display;
 
 #[macro_use]
@@ -74,13 +73,6 @@ impl Error {
         Error::err(format!("Invalid collection name: {}", name))
     }
 
-    pub(crate) fn no_free_space_page(page_id: u32, available: usize, need: usize) -> Error {
-        Error::err(format!(
-            "No free space in page: {} (available: {}, need: {})",
-            page_id, available, need
-        ))
-    }
-
     pub(crate) fn invalid_bson() -> Error {
         Error::err("Invalid BSON")
     }
@@ -117,7 +109,8 @@ impl Error {
         Error::err("Drop _id index is forbidden")
     }
 
-    pub(crate) fn bad_auto_id(auto_id: BsonAutoId, collection_name: &str, last_id: Value) -> Self {
+    #[cfg(feature = "sequential-index")]
+    pub(crate) fn bad_auto_id(auto_id: engine::BsonAutoId, collection_name: &str, last_id: Value) -> Self {
         Error::err(format!(
             "It's not possible use AutoId={auto_id:?} because '{collection_name}' collection contains not only numbers in _id index ({last_id:?})."
         ))

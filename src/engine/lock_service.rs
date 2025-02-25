@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 // this class should have interior mutability
 pub(crate) struct LockService {
+    #[allow(dead_code)] // basically indexes variant is used
     pragma: EnginePragmas,
     transaction: Arc<RwLock<()>>,
     collections: Mutex<HashMap<String, Arc<Mutex<()>>>>,
@@ -53,14 +54,17 @@ impl LockService {
 }
 
 pub(crate) struct ExclusiveScope {
+    #[allow(dead_code)] // scope
     lock: RwLockWriteGuardArc<()>,
 }
 
 pub(crate) struct CollectionLockScope {
+    #[allow(dead_code)] // scope
     lock: MutexGuardArc<()>,
 }
 
 #[must_use]
 pub(crate) struct TransactionScope {
+    #[allow(dead_code)] // scope
     lock: RwLockReadGuardArc<()>,
 }

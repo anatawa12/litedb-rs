@@ -68,7 +68,7 @@ impl TransactionLiteEngine<'_> {
                 .await?;
             let exec_context = ExecutionScope::new(self.header.borrow().pragmas().collation());
 
-            let pk_index = collection_page.get("_id").unwrap();
+            let pk_index = collection_page.pk_index();
             for mut pk_node in indexer.find_all(&pk_index, Order::Ascending).await? {
                 let parts = data.read(pk_node.data_block()).await?;
                 let mut buffer_reader =

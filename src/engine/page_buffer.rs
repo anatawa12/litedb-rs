@@ -54,6 +54,7 @@ impl fmt::Debug for PositionOrigin {
 }
 
 pub(crate) struct PageBuffer {
+    #[allow(dead_code)]
     unique_id: i32,
     position: u64,
     origin: Option<FileOrigin>,
@@ -95,6 +96,7 @@ impl PageBuffer {
         unsafe { &raw mut (*this).buffer as *mut _ }
     }
 
+    #[allow(dead_code)]
     pub(super) fn update_time(&self) {
         // NO LRU for now
         // Interlocked.Exchange(ref page.Timestamp, DateTime.UtcNow.Ticks)

@@ -65,6 +65,7 @@ impl DirtyFlag {
         self.0.load(Relaxed)
     }
 
+    #[allow(dead_code)]
     pub fn reset(&self) {
         self.0.store(false, Relaxed);
     }
@@ -260,6 +261,7 @@ impl BasePage {
         self.highest_index
     }
 
+    #[allow(dead_code)]
     pub fn col_id(&self) -> u32 {
         self.col_id
     }
@@ -300,6 +302,7 @@ impl BasePage {
         self.dirty.is_set()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn dirty_flag(&self) -> &DirtyFlag {
         &self.dirty
     }
@@ -506,10 +509,6 @@ impl BasePage {
         self.delete_inner(index, |this, position, length| {
             partial_slice_mut!(this, position, length).clear(0, length)
         });
-    }
-
-    pub fn delete_with_buffer(&mut self, index: u8, buffer: &mut BufferSlice) {
-        self.delete_inner(index, |_, _, _| buffer.clear(0, buffer.len()));
     }
 
     fn delete_inner(&mut self, index: u8, clear_buffer: impl FnOnce(&mut Self, usize, usize)) {

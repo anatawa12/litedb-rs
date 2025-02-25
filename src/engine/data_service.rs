@@ -9,6 +9,7 @@ use std::cmp::min;
 
 pub(crate) struct DataService<'a> {
     data_blocks: PartialDataBlockAccessorMut<'a>,
+    #[allow(dead_code)]
     max_item_count: u32,
 }
 

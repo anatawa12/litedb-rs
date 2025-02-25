@@ -10,6 +10,7 @@ pub(crate) struct BufferReader<'a> {
     global_position: usize,
 }
 
+#[allow(dead_code)]
 impl<'a> BufferReader<'a> {
     pub fn single(slice: &'a BufferSlice) -> Self {
         Self::fragmented([slice])
@@ -94,6 +95,7 @@ impl<'a> BufferReader<'a> {
     }
 }
 
+#[allow(dead_code)]
 impl BufferReader<'_> {
     fn read<T, const S: usize>(&mut self, f: impl Fn([u8; S]) -> T) -> T {
         let mut array = [0u8; S];

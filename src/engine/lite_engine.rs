@@ -83,7 +83,6 @@ pub struct LiteEngine {
 }
 
 pub struct TransactionLiteEngine<'a> {
-    locker: &'a Rc<LockService>,
     disk: &'a Rc<DiskService>,
     header: &'a Shared<HeaderPage>,
     sort_disk: &'a Rc<SortDisk>,

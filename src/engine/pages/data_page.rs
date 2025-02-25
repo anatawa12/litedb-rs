@@ -42,6 +42,7 @@ impl DataPage {
         DataBlockMut::new(page_id, dirty, index, segment, extend, PageAddress::EMPTY)
     }
 
+    #[allow(dead_code)] // we dont def lag generally due to implementation limitations
     pub fn update_block(
         &mut self,
         index: u8,
@@ -60,6 +61,7 @@ impl DataPage {
         self.delete(index)
     }
 
+    #[allow(dead_code)] // unused in upstream
     pub fn get_blocks(&self) -> impl Iterator<Item = PageAddress> {
         self.base
             .get_used_indices()

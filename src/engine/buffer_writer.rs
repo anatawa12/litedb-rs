@@ -58,6 +58,7 @@ impl<'a> BufferWriter<'a> {
     }
 }
 
+#[allow(dead_code)]
 impl BufferWriter<'_> {
     fn write(&mut self, mut data: &[u8]) {
         while !data.is_empty() {

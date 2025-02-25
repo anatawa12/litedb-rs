@@ -28,6 +28,7 @@ macro_rules! into_non_drop {
         }
 
         const _: () = {
+            #[allow(unused)]
             struct Destructed $(< $($lifetime),* $($generics $(: $constraint0 )*),* >)? {
                 $($(#[$field_meta])* $field_vis $field_name: $field_ty,)*
             }

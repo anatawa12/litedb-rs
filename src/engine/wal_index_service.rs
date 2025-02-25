@@ -43,6 +43,7 @@ impl WalIndexService {
         self.lock.read().await.current_read_version
     }
 
+    #[allow(dead_code)] // used in sys database
     pub fn last_transaction_id(&self) -> i32 {
         self.last_transaction_id.load(Ordering::Relaxed) as i32
     }

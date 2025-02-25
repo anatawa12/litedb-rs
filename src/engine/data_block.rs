@@ -7,6 +7,7 @@ const P_EXTEND: usize = 0; // 00-00 [byte]
 const P_NEXT_BLOCK: usize = 1; // 01-05 [pageAddress]
 const P_BUFFER: usize = 6; // 06-EOF [byte[]]
 
+#[allow(dead_code)]
 pub(crate) struct DataBlock<'a> {
     segment: &'a BufferSlice,
     position: PageAddress,
@@ -15,6 +16,7 @@ pub(crate) struct DataBlock<'a> {
     buffer: &'a BufferSlice,
 }
 
+#[allow(dead_code)]
 impl<'a> DataBlock<'a> {
     pub const DATA_BLOCK_FIXED_SIZE: usize = 1 + PageAddress::SERIALIZED_SIZE;
     pub const P_EXTEND: usize = P_EXTEND;
@@ -55,6 +57,7 @@ impl<'a> DataBlock<'a> {
 pub(crate) struct DataBlockMut<'a> {
     segment: *mut BufferSlice,
     position: PageAddress,
+    #[allow(dead_code)]
     extend: bool,
     next_block: PageAddress,
     dirty_ptr: *const DirtyFlag,
@@ -122,6 +125,7 @@ impl<'a> DataBlockMut<'a> {
         self.position
     }
 
+    #[allow(dead_code)]
     pub fn extend(&self) -> bool {
         self.extend
     }

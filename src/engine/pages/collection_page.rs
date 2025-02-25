@@ -103,10 +103,12 @@ impl CollectionPage {
         self.base.update_buffer()
     }
 
+    #[allow(dead_code)] // basically indexes variant is used
     pub fn pk_index(&self) -> &CollectionIndex {
         self.indexes.pk_index()
     }
 
+    #[allow(dead_code)] // basically indexes variant is used
     pub fn get_collection_index(&self, name: &str) -> Option<&CollectionIndex> {
         self.indexes.get(name).map(Box::as_ref)
     }
@@ -195,10 +197,12 @@ impl CollectionIndexes {
 }
 
 impl CollectionPage {
+    #[allow(dead_code)] // basically indexes variant is used
     pub fn get_collection_indexes_slots(&self) -> Vec<Option<&CollectionIndex>> {
         self.indexes.get_collection_indexes_slots()
     }
 
+    #[allow(dead_code)] // basically indexes variant is used
     pub fn insert_collection_index(
         &mut self,
         name: &str,
@@ -209,11 +213,13 @@ impl CollectionPage {
             .insert_collection_index(name, expr, unique, &self.base.dirty)
     }
 
+    #[allow(dead_code)] // basically indexes variant is used
     pub fn update_collection_index(&mut self, name: &str) -> &mut CollectionIndex {
         self.set_dirty();
         self.indexes.0.get_mut(name).unwrap()
     }
 
+    #[allow(dead_code)] // basically indexes variant is used
     pub fn delete_collection_index(&mut self, name: &str) {
         self.indexes.0.remove(name);
         self.base.set_dirty();
@@ -279,6 +285,7 @@ impl<'a> CollectionIndexesMut<'a> {
         Self(indexes, dirty)
     }
 
+    #[allow(dead_code)] // basically partial borrow variant is used
     pub fn insert_collection_index(
         &mut self,
         name: &str,
@@ -294,7 +301,7 @@ impl<'a> CollectionIndexesMut<'a> {
     }
 
     pub fn partial_borrow(&'a mut self) -> CollectionIndexesPartialBorrow<'a> {
-        CollectionIndexesPartialBorrow(PartialBorrower::new(self.0), self.1)
+        CollectionIndexesPartialBorrow::new(self.0, self.1)
     }
 }
 

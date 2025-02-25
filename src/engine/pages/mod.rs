@@ -27,6 +27,7 @@ pub(crate) trait Page: AsRef<BasePage> + AsMut<BasePage> + Any {
 }
 
 // No Trait Upcasting yet.(trait_upcasting unstable) so I copied implementation of any here
+#[allow(dead_code)]
 impl dyn Page {
     #[inline]
     pub fn is<T: Page>(&self) -> bool {

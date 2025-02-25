@@ -105,7 +105,6 @@ macro_rules! methods {
 
 struct FromBsonExpressionResult<Gen, T> {
     expression: Gen,
-    source: String,
     _phantom: PhantomData<T>,
 }
 
@@ -127,7 +126,6 @@ impl FromBsonExpression for &'_ Value {
         let expr = expr.into_scalar();
         FromBsonExpressionResult {
             expression: expr.expression,
-            source: expr.source,
             _phantom: PhantomData,
         }
     }
@@ -139,7 +137,6 @@ impl FromBsonExpression for ValueIterator<'_, '_> {
         let expr = expr.into_sequence();
         FromBsonExpressionResult {
             expression: expr.expression,
-            source: expr.source,
             _phantom: PhantomData,
         }
     }

@@ -132,6 +132,7 @@ impl<'a, R: BsonReader> LimitReader<'a, R> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_remaining(reader: &'a mut R, remaining: usize) -> Self {
         Self { reader, remaining }
     }

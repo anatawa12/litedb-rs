@@ -29,8 +29,10 @@ macro_rules! inner {
 }
 
 pub(crate) struct Snapshot {
+    #[allow(dead_code)] // the socpe variable
     lock_scope: Option<CollectionLockScope>,
 
+    #[allow(dead_code)] // used in $snapshots
     transaction_id: u32,
 
     mode: LockMode,
@@ -47,6 +49,7 @@ pub(crate) struct SnapshotPages {
     wal_index: Rc<WalIndexService>,
     trans_pages: Shared<TransactionPages>,
     read_version: i32,
+    transaction_id: u32,
     local_pages: HashMap<u32, Pin<Box<dyn Page>>>,
     collection_page_id: Option<u32>,
 }
@@ -96,6 +99,7 @@ impl Snapshot {
                 trans_pages,
                 wal_index,
                 read_version,
+                transaction_id,
                 collection_page_id: None,
                 local_pages: HashMap::new(),
             },
@@ -140,14 +144,11 @@ impl Snapshot {
         &self.page_collection.disk
     }
 
-    pub fn wal_index(&self) -> &Rc<WalIndexService> {
-        &self.page_collection.wal_index
-    }
-
     pub fn mode(&self) -> LockMode {
         self.mode
     }
 
+    #[allow(dead_code)]
     pub fn collection_name(&self) -> &str {
         &self.collection_name
     }
@@ -159,6 +160,7 @@ impl Snapshot {
             .map(Pin::get_ref)
     }
 
+    #[allow(dead_code)]
     pub fn collection_page_mut(&mut self) -> Option<&mut CollectionPage> {
         self.collection_page
             .as_mut()
@@ -166,14 +168,17 @@ impl Snapshot {
             .map(Pin::get_mut)
     }
 
+    #[allow(dead_code)]
     pub fn local_pages(&self) -> impl Iterator<Item = Pin<&dyn Page>> {
         self.page_collection.local_pages.values().map(Pin::as_ref)
     }
 
+    #[allow(dead_code)] // used in $snapshots
     pub fn read_version(&self) -> i32 {
         self.page_collection.read_version
     }
 
+    #[allow(dead_code)]
     pub fn get_writable_pages(
         &self,
         dirty: bool,
@@ -231,6 +236,7 @@ impl Snapshot {
         x.into_iter().flatten()
     }
 
+    #[allow(dead_code)] // basically removing vairant is used
     pub fn get_writable_pages_mut(
         &mut self,
         dirty: bool,
@@ -346,6 +352,8 @@ impl SnapshotPages {
                 .await?;
             let dirty = T::load(buffer)?;
 
+            debug_assert!(dirty.as_ref().transaction_id() == self.transaction_id);
+
             return Ok(PageWithAdditionalInfo {
                 page: dirty,
                 origin: Some(FileOrigin::Log),
@@ -395,6 +403,8 @@ impl SnapshotPages {
                 .read_writable_page(page_position, FileOrigin::Data)
                 .await?;
             let data_page = T::load(buffer)?;
+
+            debug_assert!(data_page.as_ref().transaction_id() != 0 || !data_page.as_ref().is_confirmed());
 
             Ok(PageWithAdditionalInfo {
                 page: data_page,
@@ -902,6 +912,7 @@ impl SnapshotDataPages<'_> {
         inner!(self).get_page(page_id, false).await
     }
 
+    #[allow(dead_code)]
     pub async fn new_page(&mut self) -> Result<Pin<&mut DataPage>> {
         inner!(self).new_page().await
     }

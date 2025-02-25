@@ -38,6 +38,7 @@ impl<TargetRef, Key: Hash + Eq + Copy + Debug> PartialBorrower<TargetRef, Key> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn target(&self) -> &TargetRef {
         &self.target
     }
@@ -127,10 +128,11 @@ impl<TargetRef, Key: Hash + Eq + Copy + Debug> PartialBorrower<TargetRef, Key> {
         })
     }
 
-    pub unsafe fn try_delete_borrow<'s, Result>(
-        &'s mut self,
+    #[allow(dead_code)]
+    pub unsafe fn try_delete_borrow<Result>(
+        &mut self,
         key: Key,
-        delete: impl FnOnce(&'s mut TargetRef, &Key) -> Result,
+        delete: impl FnOnce(&mut TargetRef, &Key) -> Result,
     ) -> Result {
         if let Some(borrow) = self.borrowed.borrow().get(&key) {
             panic!("removing using reference {key:?}. previous reference is {borrow}"); // TODO: make non-hard error?

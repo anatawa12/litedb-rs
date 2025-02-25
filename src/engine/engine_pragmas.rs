@@ -43,6 +43,7 @@ impl Default for EnginePragmas {
     }
 }
 
+#[allow(dead_code)]
 impl EnginePragmas {
     pub fn read(buffer: &PageBuffer) -> crate::Result<Self> {
         let pragmas = EnginePragmas::default();

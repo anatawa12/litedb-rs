@@ -17,7 +17,7 @@ const P_FREE_EMPTY_PAGE_ID: usize = 60; // 60-63 (4 bytes)
 const P_LAST_PAGE_ID: usize = 64; // 64-67 (4 bytes)
 const P_CREATION_TIME: usize = 68; // 68-75 (8 bytes)
 
-const P_PRAGMAS: usize = 76; // 76-190 (115 bytes)
+//const P_PRAGMAS: usize = 76; // 76-190 (115 bytes)
 const P_INVALID_DATAFILE_STATE: usize = 191; // 191-191 (1 byte)
 
 const P_COLLECTIONS: usize = 192; // 192-8159 (8064 bytes)
@@ -127,6 +127,7 @@ impl HeaderPage {
         &self.pragmas
     }
 
+    #[allow(dead_code)] // we dont have option to change pragmas now
     pub fn pragmas_mut(&mut self) -> &mut EnginePragmas {
         &mut self.pragmas
     }

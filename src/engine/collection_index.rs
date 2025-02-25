@@ -82,6 +82,7 @@ impl CollectionIndex {
         self.slot
     }
 
+    #[allow(dead_code)] // reserved
     pub fn index_type(&self) -> u8 {
         self.index_type
     }
@@ -118,6 +119,7 @@ impl CollectionIndex {
         self.tail = page;
     }
 
+    #[allow(dead_code)] // reserved
     pub fn reserved(&self) -> u8 {
         self.reserved
     }

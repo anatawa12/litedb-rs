@@ -305,10 +305,12 @@ impl<'a> IndexNodeMut<'a> {
         unsafe { &mut *self.segment }
     }
 
+    #[allow(dead_code)]
     pub fn into_segment(self) -> &'a mut BufferSlice {
         unsafe { &mut *self.segment }
     }
 
+    #[allow(dead_code)]
     pub fn into_read_only(self) -> IndexNode {
         IndexNode::copy_data(self, (), ())
     }

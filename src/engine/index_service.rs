@@ -51,6 +51,7 @@ impl<'snapshot> IndexService<'snapshot> {
 }
 
 impl<'snapshot> IndexService<'snapshot> {
+    #[allow(dead_code)]
     pub fn collation(&self) -> &Collation {
         &self.collation
     }

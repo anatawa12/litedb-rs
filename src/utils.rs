@@ -90,6 +90,7 @@ impl BufferSlice {
         self.buffer[offset]
     }
 
+    #[allow(dead_code)]
     pub fn read_i16(&self, offset: usize) -> i16 {
         i16::from_le_bytes(self.buffer[offset..][..2].try_into().unwrap())
     }
@@ -214,6 +215,7 @@ impl BufferSlice {
         self.buffer[offset] = value;
     }
 
+    #[allow(dead_code)]
     pub fn write_i16(&mut self, offset: usize, value: i16) {
         self.buffer[offset..][..2].copy_from_slice(&value.to_le_bytes());
     }
@@ -250,6 +252,7 @@ impl BufferSlice {
         self.buffer[offset..][..value.len()].copy_from_slice(value);
     }
 
+    #[allow(dead_code)]
     pub fn write_string(&mut self, offset: usize, value: &str) {
         self.write_bytes(offset, value.as_bytes());
     }

@@ -46,8 +46,6 @@ const POWERS_10: &[u128; 29] = &[
     10000000000000000000000000000,
 ];
 
-const MAX_POWERS_10: u128 = 10000000000000000000000000000;
-
 const DEC_SCALE_MAX: u32 = 28;
 
 impl Decimal128 {
@@ -1120,6 +1118,7 @@ impl I192 {
         Some(Self { low, mid, high })
     }
 
+    #[allow(dead_code)]
     fn add_overflowing(self, rhs: Self) -> (Self, bool) {
         fn full_adder(a: u64, b: u64, carry: bool) -> (u64, bool) {
             let (tmp, c0) = a.overflowing_add(b);
