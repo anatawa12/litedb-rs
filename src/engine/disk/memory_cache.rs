@@ -84,6 +84,7 @@ impl MemoryCache {
             .new_page(i64::MAX as u64, FileOrigin::Data)
     }
 
+    #[allow(dead_code)]
     fn get_key(position: u64, origin: FileOrigin) -> u64 {
         assert!(
             position < i64::MAX as u64,

@@ -57,6 +57,7 @@ impl<'a> DiskReader<'a> {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn read_page(&mut self, position: u64, origin: FileOrigin) -> Result<Rc<PageBuffer>> {
         let stream = self.streams.get_stream(origin).await?;
         self.cache
