@@ -161,3 +161,12 @@ impl From<std::string::FromUtf8Error> for Error {
         Self::err(err)
     }
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for Error {
+}
