@@ -2,9 +2,9 @@ use crate::Result;
 use crate::engine::disk::memory_cache::MemoryCache;
 use crate::engine::disk::stream_pool::{StreamGuard, StreamPool};
 use crate::engine::{FileOrigin, FileStream, PageBuffer};
+use async_lock::OnceCell;
 use futures::io;
 use futures::prelude::*;
-use std::cell::OnceCell;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
@@ -26,10 +26,7 @@ impl StreamHolder<'_> {
             pool: &'b StreamPool,
             cell: &'a mut OnceCell<StreamGuard<'b>>,
         ) -> Result<&'a mut dyn FileStream> {
-            if cell.get_mut().is_none() {
-                let stream = pool.rent().await?;
-                cell.set(stream).ok().unwrap();
-            }
+            cell.get_or_try_init(async || pool.rent().await).await?;
             Ok(StreamGuard::deref_mut(cell.get_mut().unwrap()))
         }
 
