@@ -4,12 +4,11 @@ use crate::bson::TotalOrd;
 use crate::engine::{BufferReader, BufferWriter, IndexNode, MAX_INDEX_KEY_LENGTH, PageAddress};
 use bson::BsonType;
 use either::Either;
-use std::cell::{Ref, RefCell, RefMut};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::{Deref, Neg};
-use std::rc::Rc;
+use std::ops::{Deref, DerefMut, Neg};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 // TODO: Implement the CompareOptions struct
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -393,22 +392,56 @@ impl Neg for Order {
 ///
 /// We may extend to Arc<Mutex<T>> in the future
 pub(crate) struct Shared<T> {
-    inner: Rc<RefCell<T>>,
+    inner: Arc<RwLock<T>>,
 }
 
 impl<T> Shared<T> {
     pub fn new(inner: T) -> Self {
         Self {
-            inner: Rc::new(RefCell::new(inner)),
+            inner: Arc::new(RwLock::new(inner)),
         }
     }
 
     pub fn borrow(&self) -> Ref<T> {
-        self.inner.borrow()
+        Ref {
+            guard: self.inner.read().unwrap(),
+        }
     }
 
     pub fn borrow_mut(&self) -> RefMut<T> {
-        self.inner.borrow_mut()
+        RefMut {
+            guard: self.inner.write().unwrap(),
+        }
+    }
+}
+
+pub(crate) struct Ref<'a, T> {
+    guard: RwLockReadGuard<'a, T>,
+}
+
+pub(crate) struct RefMut<'a, T> {
+    guard: RwLockWriteGuard<'a, T>,
+}
+
+impl<T> Deref for Ref<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.guard.deref()
+    }
+}
+
+impl<T> Deref for RefMut<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.guard.deref()
+    }
+}
+
+impl<T> DerefMut for RefMut<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.guard.deref_mut()
     }
 }
 
