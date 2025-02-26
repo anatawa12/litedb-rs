@@ -65,8 +65,8 @@ impl<'a> BufferReader<'a> {
         Ok(bson::Document::parse_document(self)?)
     }
 
-    pub(crate) fn read_array(&self) -> Result<bson::Array> {
-        todo!()
+    pub(crate) fn read_array(&mut self) -> Result<bson::Array> {
+        Ok(bson::Array::parse_array(self)?)
     }
 
     pub fn skip(&mut self, mut bytes: usize) {
