@@ -6,7 +6,7 @@ use futures::io;
 use futures::prelude::*;
 use std::cell::OnceCell;
 use std::ops::DerefMut;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub(crate) struct DiskReader<'a> {
     cache: &'a MemoryCache,
@@ -58,7 +58,11 @@ impl<'a> DiskReader<'a> {
     }
 
     #[allow(dead_code)]
-    pub async fn read_page(&mut self, position: u64, origin: FileOrigin) -> Result<Rc<PageBuffer>> {
+    pub async fn read_page(
+        &mut self,
+        position: u64,
+        origin: FileOrigin,
+    ) -> Result<Arc<PageBuffer>> {
         let stream = self.streams.get_stream(origin).await?;
         self.cache
             .get_readable_page(position, origin, async |pos, buf| {

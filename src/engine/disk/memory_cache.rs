@@ -3,15 +3,14 @@ use async_lock::Mutex as AsyncMutex;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::ops::AsyncFnOnce;
-use std::rc::Rc;
-use std::sync::Mutex as StdMutex;
+use std::sync::{Arc, Mutex as StdMutex};
 // Difference between original MemoryCache.cs
 // - Reference counter is with Arc instead of ShareCounter
 // - Writable page is represented as Box<PageBuffer>
 
 // TODO: Implement FreePageCache
 pub(crate) struct MemoryCache {
-    readable: StdMutex<HashMap<PositionOrigin, Rc<PageBuffer>>>,
+    readable: StdMutex<HashMap<PositionOrigin, Arc<PageBuffer>>>,
     read_lock: AsyncMutex<()>,
     free_page_cache: FreePageCache,
 }
@@ -30,7 +29,7 @@ impl MemoryCache {
         position: u64,
         origin: FileOrigin,
         factory: impl AsyncFnOnce(u64, &mut PageBufferArray) -> Result<()>,
-    ) -> Result<Rc<PageBuffer>> {
+    ) -> Result<Arc<PageBuffer>> {
         let key = PositionOrigin::new(position, origin);
         if let Some(existing) = self.readable.lock().unwrap().get(&key) {
             existing.update_time();
@@ -49,7 +48,7 @@ impl MemoryCache {
         // we ensured the page is not read by other thread(s) so read and write
         let mut page = self.free_page_cache.get_free_page();
 
-        let as_mut = Rc::get_mut(&mut page).unwrap();
+        let as_mut = Arc::get_mut(&mut page).unwrap();
         as_mut.set_position_origin(position, origin);
         factory(position, as_mut.buffer_mut()).await?;
 
@@ -100,7 +99,7 @@ impl MemoryCache {
     pub fn try_move_to_readable(
         &self,
         page: Box<PageBuffer>,
-    ) -> std::result::Result<Rc<PageBuffer>, Box<PageBuffer>> {
+    ) -> std::result::Result<Arc<PageBuffer>, Box<PageBuffer>> {
         debug_assert!(page.position() != u64::MAX);
         // page.wriable
         debug_assert!(page.origin().is_some());
@@ -112,11 +111,11 @@ impl MemoryCache {
                 // there already is. failed to make readable
                 Err(page)
             }
-            Entry::Vacant(v) => Ok(v.insert(Rc::new(*page)).clone()),
+            Entry::Vacant(v) => Ok(v.insert(Arc::new(*page)).clone()),
         }
     }
 
-    pub(crate) fn move_to_readable(&self, page: Box<PageBuffer>) -> Rc<PageBuffer> {
+    pub(crate) fn move_to_readable(&self, page: Box<PageBuffer>) -> Arc<PageBuffer> {
         debug_assert!(page.position() != u64::MAX);
         // page.wriable
         debug_assert!(page.origin().is_some());
@@ -126,10 +125,10 @@ impl MemoryCache {
 
         match self.readable.lock().unwrap().entry(key) {
             Entry::Occupied(mut o) => {
-                //assert_eq!(Rc::strong_count(o.get()), 1, "user must ensure this page is not in use when marked as read only");
+                //assert_eq!(Arc::strong_count(o.get()), 1, "user must ensure this page is not in use when marked as read only");
                 debug_assert_eq!(o.get().origin(), Some(origin), "origin must be same");
 
-                *Rc::get_mut(o.get_mut())
+                *Arc::get_mut(o.get_mut())
                     .expect("user must ensure this page is not in use when marked as read only")
                     .buffer_mut() = *page.buffer();
 
@@ -137,7 +136,7 @@ impl MemoryCache {
 
                 o.get().clone()
             }
-            Entry::Vacant(v) => v.insert(Rc::new(*page)).clone(),
+            Entry::Vacant(v) => v.insert(Arc::new(*page)).clone(),
         }
     }
 
@@ -146,7 +145,7 @@ impl MemoryCache {
             .lock()
             .unwrap()
             .values()
-            .map(|x| Rc::strong_count(x) - 1)
+            .map(|x| Arc::strong_count(x) - 1)
             .sum()
     }
 
@@ -163,9 +162,9 @@ impl FreePageCache {
         FreePageCache {}
     }
 
-    fn get_free_page(&self) -> Rc<PageBuffer> {
+    fn get_free_page(&self) -> Arc<PageBuffer> {
         // NO free page cache
-        Rc::new(PageBuffer::new(0))
+        Arc::new(PageBuffer::new(0))
     }
 
     fn new_page(&self, position: u64, origin: FileOrigin) -> Box<PageBuffer> {
