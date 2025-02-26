@@ -7,7 +7,6 @@ use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::{Arc, LazyLock};
-use typed_arena::Arena;
 
 mod functions;
 mod methods;
@@ -110,13 +109,13 @@ pub enum BsonExpressionType {
 
 type ValueIterator<'a, 'b> = Box<dyn IEnumerable<'a, 'b> + 'b>;
 
-pub trait IEnumerable<'a, 'b>: Iterator<Item = super::Result<&'a bson::Value>> {
+pub trait IEnumerable<'a, 'b>: Iterator<Item = super::Result<&'a bson::Value>> + Sync + Send {
     fn box_clone(&self) -> ValueIterator<'a, 'b>;
 }
 
 impl<'a, 'b, T> IEnumerable<'a, 'b> for T
 where
-    T: Iterator<Item = super::Result<&'a bson::Value>> + Clone + 'b,
+    T: Iterator<Item = super::Result<&'a bson::Value>> + Clone + Sync + Send + 'b,
 {
     fn box_clone(&self) -> ValueIterator<'a, 'b> {
         Box::new(Clone::clone(self))
@@ -173,7 +172,7 @@ impl Expression {
     pub(crate) fn execute_ref<'a>(
         &self,
         ctx: ExecutionContext<'a>,
-    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + use<'_, 'a> {
+    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + Sync + Send + use<'_, 'a> {
         match self {
             Expression::Scalar(expr) => {
                 either::Either::Left(std::iter::once_with(move || expr(&ctx)))
@@ -238,6 +237,8 @@ fn sequence_expr(
     Arc::new(sequence)
 }
 
+type Arena = thread_local::ThreadLocal<typed_arena::Arena<bson::Value>>;
+
 #[derive(Clone)]
 pub struct ExecutionContext<'a> {
     source: ValueIterator<'a, 'a>,
@@ -245,11 +246,11 @@ pub struct ExecutionContext<'a> {
     current: Option<&'a bson::Value>,
     collation: Collation,
     parameters: &'a bson::Document,
-    arena: &'a Arena<bson::Value>,
+    arena: &'a Arena,
 }
 
 impl<'a> ExecutionContext<'a> {
-    fn new(root: &'a bson::Value, collation: Collation, arena: &'a Arena<bson::Value>) -> Self {
+    fn new(root: &'a bson::Value, collation: Collation, arena: &'a Arena) -> Self {
         static EMPTY_DOCUMENT: LazyLock<bson::Document> = LazyLock::new(bson::Document::new);
 
         Self {
@@ -263,7 +264,7 @@ impl<'a> ExecutionContext<'a> {
     }
 
     fn arena(&self, value: bson::Value) -> &'a bson::Value {
-        self.arena.alloc(value)
+        self.arena.get_or(|| typed_arena::Arena::new()).alloc(value)
     }
 
     fn bool(&self, b: bool) -> &'a bson::Value {
@@ -401,7 +402,7 @@ impl<T> Display for BsonExpression<T> {
 }
 
 pub(crate) struct ExecutionScope {
-    arena: Arena<bson::Value>,
+    arena: Arena,
     collation: Collation,
 }
 
@@ -417,7 +418,7 @@ impl ExecutionScope {
         &'a self,
         expression: &'b BsonExpression,
         root: &'a bson::Value,
-    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + use<'a, 'b> {
+    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + Sync + Send + use<'a, 'b> {
         let context = ExecutionContext::new(root, self.collation, &self.arena);
         expression.expression.execute_ref(context)
     }
@@ -426,7 +427,7 @@ impl ExecutionScope {
         &'a self,
         expression: &'b BsonExpression,
         root: &'a bson::Value,
-    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + use<'a, 'b> {
+    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + Sync + Send + use<'a, 'b> {
         let mut values = BTreeSet::new();
         self.execute(expression, root)
             .filter_ok(move |&x| values.insert(OrdBsonValue(x)))

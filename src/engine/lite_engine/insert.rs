@@ -125,3 +125,11 @@ transaction_wrapper!(pub async fn insert(
     docs: Vec<bson::Document>,
     auto_id: BsonAutoId,
 ) -> Result<usize>);
+
+#[allow(dead_code)]
+fn _type_check<'a>() {
+    use crate::utils::checker::*;
+
+    check_sync_send(dummy::<LiteEngine>().insert(dummy(), dummy(), dummy()));
+    check_sync_send(dummy::<TransactionLiteEngine>().insert(dummy(), dummy(), dummy()));
+}
