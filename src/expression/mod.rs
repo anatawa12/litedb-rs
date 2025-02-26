@@ -529,7 +529,7 @@ impl<'a> Token<'a> {
             | TokenType::LessOrEquals
             | TokenType::NotEquals => true,
             TokenType::Word => matches!(
-                self.value.to_uppercase().as_str(),
+                self.value.to_ascii_uppercase().as_str(),
                 "BETWEEN" | "LIKE" | "IN" | "AND" | "OR"
             ),
             _ => false,

@@ -265,7 +265,7 @@ pub fn parse_full_expression(
         }
 
         values.push(expr);
-        ops.push(op.to_uppercase());
+        ops.push(op.to_ascii_uppercase());
     }
 
     let mut order = 0;
@@ -1141,7 +1141,7 @@ fn try_parse_method_call(
     let mut use_source = false;
     let mut fields = HashSet::new();
 
-    src.push_str(&token.value.to_uppercase());
+    src.push_str(&token.value.to_ascii_uppercase());
     src.push('(');
 
     // method call with no parameters
@@ -1200,7 +1200,7 @@ fn try_parse_method_call(
         .flatten()
         .find(|m| m.name == token.value && m.arg_count == pars.len())
     else {
-        return Err(ParseError::bad_invocation(&token.value.to_uppercase()));
+        return Err(ParseError::bad_invocation(&token.value.to_ascii_uppercase()));
     };
 
     // test if method are decorated with "Variable" (immutable = false)
@@ -1521,7 +1521,7 @@ fn try_parse_function(
         return Ok(None);
     }
 
-    let token = tokenizer.current().value.to_uppercase();
+    let token = tokenizer.current().value.to_ascii_uppercase();
 
     match token.as_str() {
         "MAP" => parse_function(
@@ -1779,14 +1779,14 @@ fn read_operant(tokenizer: &mut Tokenizer) -> Result<Option<String>> {
     let mut token = tokenizer.look_ahead();
 
     if token.is_operand() {
-        let operant = token.value.to_uppercase();
+        let operant = token.value.to_ascii_uppercase();
         tokenizer.read_token(); // consume operant
 
         return Ok(Some(operant));
     }
 
     if token.is("ALL") || token.is("ANY") {
-        let key = token.value.to_uppercase();
+        let key = token.value.to_ascii_uppercase();
 
         tokenizer.read_token(); // consume operant
 
@@ -1797,7 +1797,7 @@ fn read_operant(tokenizer: &mut Tokenizer) -> Result<Option<String>> {
         }
 
         if token.value.starts_with(|x: char| x.is_ascii_alphabetic()) {
-            return Ok(Some(format!("{} {}", key, token.value.to_uppercase())));
+            return Ok(Some(format!("{} {}", key, token.value.to_ascii_uppercase())));
         } else {
             return Ok(Some(format!("{}{}", key, token.value)));
         }

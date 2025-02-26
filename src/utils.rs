@@ -348,6 +348,7 @@ impl BufferSlice {
         Self::new_mut(&mut self.buffer[offset..][..count])
     }
 
+    #[allow(dead_code)]
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
         &mut self.buffer
     }
@@ -436,18 +437,16 @@ impl CaseInsensitiveStr {
 
 impl Hash for CaseInsensitiveStr {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        for c in self.0.chars() {
-            for c in c.to_uppercase() {
-                state.write_u32(c as u32);
-            }
+        for c in self.0.chars().flat_map(char::to_upper_invariant) {
+            state.write_u32(c as u32);
         }
     }
 }
 
 impl PartialEq for CaseInsensitiveStr {
     fn eq(&self, other: &Self) -> bool {
-        let this = self.0.chars().flat_map(char::to_uppercase);
-        let other = other.0.chars().flat_map(char::to_uppercase);
+        let this = self.0.chars().flat_map(char::to_upper_invariant);
+        let other = other.0.chars().flat_map(char::to_upper_invariant);
         this.eq(other)
     }
 }
@@ -525,23 +524,88 @@ impl<T: std::borrow::Borrow<bson::Value>> Ord for OrdBsonValue<T> {
     }
 }
 
+pub(crate) trait CSharpCharUtils {
+    fn internal_to_char(self) -> char;
+
+    fn to_lower_invariant(self) -> ToLowerInvariant {
+        let c = self.internal_to_char();
+        if c == '\u{0131}' {
+            ToLowerInvariant(Either::Left(true))
+        } else {
+            ToLowerInvariant(Either::Right(c.to_lowercase()))
+        }
+    }
+
+    fn to_upper_invariant(self) -> ToUpperInvariant {
+        let c = self.internal_to_char();
+        if c == '\u{0130}' {
+            ToUpperInvariant(Either::Left(true))
+        } else {
+            ToUpperInvariant(Either::Right(c.to_uppercase()))
+        }
+    }
+}
+
+impl CSharpCharUtils for char {
+    fn internal_to_char(self) -> char {
+        self
+    }
+}
+
+struct ToLowerInvariant(Either<bool, std::char::ToLowercase>);
+
+impl Iterator for ToLowerInvariant {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // On Windows with InvariantCulture, the LATIN SMALL LETTER DOTLESS I (U+0131)
+        // capitalizes to itself, whereas with Rust it capitalizes to LATIN CAPITAL LETTER I (U+0049).
+        // We special case it to match the Windows invariant behavior.
+        match self.0 {
+            Either::Left(ref mut to_consume) => {
+                if *to_consume {
+                    *to_consume = false;
+                    Some('\u{0131}')
+                } else {
+                    None
+                }
+            }
+            Either::Right(ref mut iter) => iter.next(),
+        }
+    }
+}
+
+struct ToUpperInvariant(Either<bool, std::char::ToUppercase>);
+
+impl Iterator for ToUpperInvariant {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // On Windows with InvariantCulture, the LATIN SMALL LETTER DOTLESS I (U+0131)
+        // capitalizes to itself, whereas with Rust it capitalizes to LATIN CAPITAL LETTER I (U+0049).
+        // We special case it to match the Windows invariant behavior.
+        match self.0 {
+            Either::Left(ref mut to_consume) => {
+                if *to_consume {
+                    *to_consume = false;
+                    Some('\u{0130}')
+                } else {
+                    None
+                }
+            }
+            Either::Right(ref mut iter) => iter.next(),
+        }
+    }
+}
+
 pub(crate) trait CSharpStringUtils {
     // see https://github.com/dotnet/runtime/blob/ea63985c1cf56b07324f87c54acb4d49875fa360/src/native/libs/System.Globalization.Native/pal_casing.c
     fn internal_as_str(&self) -> &str;
 
     fn to_lower_invariant(&self) -> String {
-        // On Windows with InvariantCulture, the LATIN SMALL LETTER DOTLESS I (U+0131)
-        // capitalizes to itself, whereas with Rust it capitalizes to LATIN CAPITAL LETTER I (U+0049).
-        // We special case it to match the Windows invariant behavior.
         self.internal_as_str()
             .chars()
-            .flat_map(|c| {
-                if c == '\u{0131}' {
-                    Either::Left(['\u{0131}'].into_iter())
-                } else {
-                    Either::Right(c.to_lowercase())
-                }
-            })
+            .flat_map(char::to_lower_invariant)
             .collect()
     }
     fn to_upper_invariant(&self) -> String {
@@ -550,13 +614,7 @@ pub(crate) trait CSharpStringUtils {
         // We special case it to match the Windows invariant behavior.
         self.internal_as_str()
             .chars()
-            .flat_map(|c| {
-                if c == '\u{0130}' {
-                    Either::Left(['\u{0130}'].into_iter())
-                } else {
-                    Either::Right(c.to_uppercase())
-                }
-            })
+            .flat_map(char::to_upper_invariant)
             .collect()
     }
 }

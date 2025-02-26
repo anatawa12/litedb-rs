@@ -253,6 +253,7 @@ impl BasePage {
         self.fragmented_bytes
     }
 
+    #[allow(dead_code)]
     pub fn next_free_position(&self) -> u16 {
         self.next_free_position
     }
@@ -569,6 +570,7 @@ impl BasePage {
         self.set_dirty();
     }
 
+    #[allow(dead_code)]
     pub fn update(&mut self, index: u8, length: usize) -> &mut BufferSlice {
         self.update_with_dirty(index, length).0
     }
