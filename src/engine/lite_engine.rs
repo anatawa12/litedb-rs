@@ -90,7 +90,6 @@ pub struct TransactionLiteEngine<'a> {
 impl LiteEngine {
     pub async fn new(settings: LiteSettings) -> Result<Self> {
         // SystemCollection
-        // sequences
         // TODO: upgrade
 
         let disk = DiskService::new(

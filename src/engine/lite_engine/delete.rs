@@ -42,8 +42,6 @@ impl TransactionLiteEngine<'_> {
                 continue;
             };
 
-            // TODO: state validation?
-
             data.delete(pk_node.data_block()).await?;
             let index_position = pk_node.position();
 
@@ -53,7 +51,6 @@ impl TransactionLiteEngine<'_> {
                 .delete_all(index_position, &mut parts.collection_page)
                 .await?;
 
-            // TODO: safe point
             //transaction.safe_point().await?;
 
             count += 1;

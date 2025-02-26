@@ -29,7 +29,6 @@ const P_NEXT_FREE_POSITION: usize = 28; // 28-29 [ushort]
 const P_HIGHEST_INDEX: usize = 30; // 30-30 [byte]
 
 pub(crate) struct BasePage {
-    // TODO: should we use a reference, or passed from caller when needed instead of storing it here?
     buffer: Box<PageBuffer>,
     page_id: u32,
     page_type: PageType,

@@ -121,7 +121,7 @@ impl BufferWriter<'_> {
     }
 
     pub fn write_cstring(&mut self, value: &str) {
-        // TODO: check if value does not contain null byte
+        debug_assert!(value.as_bytes().iter().all(|x| *x != 0));
         self.write(value.as_bytes());
         self.write(&[0]);
     }

@@ -1,7 +1,7 @@
 use crate::Error;
 use crate::bson;
 use crate::bson::TotalOrd;
-use crate::engine::{BufferReader, BufferWriter, PageAddress};
+use crate::engine::{BufferReader, BufferWriter, IndexNode, PageAddress, MAX_INDEX_KEY_LENGTH};
 use bson::BsonType;
 use either::Either;
 use std::cell::{Ref, RefCell, RefMut};
@@ -54,7 +54,6 @@ impl Collation {
     }
 
     //    pub(crate) fn sql_like(&self, left: &str, right: &str) -> bool {
-    //        todo!()
     //    }
 }
 
@@ -118,8 +117,6 @@ impl BufferSlice {
     pub fn read_f64(&self, offset: usize) -> f64 {
         f64::from_le_bytes(self.buffer[offset..][..8].try_into().unwrap())
     }
-
-    // TODO: Decimal
 
     pub fn read_bytes(&self, offset: usize, length: usize) -> &[u8] {
         &self.buffer[offset..][..length]
@@ -267,7 +264,8 @@ impl BufferSlice {
     }
 
     pub fn write_index_key(&mut self, offset: usize, value: &bson::Value) {
-        // TODO: check for key length
+        debug_assert!(IndexNode::get_key_length(value, true) <= MAX_INDEX_KEY_LENGTH);
+
         fn make_extended_length(tag: BsonType, length: usize) -> [u8; 2] {
             assert!(length <= 1024);
 
@@ -524,7 +522,7 @@ impl<T: std::borrow::Borrow<bson::Value>> Ord for OrdBsonValue<T> {
     }
 }
 
-pub(crate) trait CSharpCharUtils {
+pub(crate) trait CSharpCharUtils : Sized {
     fn internal_to_char(self) -> char;
 
     fn to_lower_invariant(self) -> ToLowerInvariant {
@@ -552,7 +550,7 @@ impl CSharpCharUtils for char {
     }
 }
 
-struct ToLowerInvariant(Either<bool, std::char::ToLowercase>);
+pub(crate) struct ToLowerInvariant(Either<bool, std::char::ToLowercase>);
 
 impl Iterator for ToLowerInvariant {
     type Item = char;
@@ -575,7 +573,7 @@ impl Iterator for ToLowerInvariant {
     }
 }
 
-struct ToUpperInvariant(Either<bool, std::char::ToUppercase>);
+pub(crate) struct ToUpperInvariant(Either<bool, std::char::ToUppercase>);
 
 impl Iterator for ToUpperInvariant {
     type Item = char;
@@ -598,6 +596,7 @@ impl Iterator for ToUpperInvariant {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) trait CSharpStringUtils {
     // see https://github.com/dotnet/runtime/blob/ea63985c1cf56b07324f87c54acb4d49875fa360/src/native/libs/System.Globalization.Native/pal_casing.c
     fn internal_as_str(&self) -> &str;

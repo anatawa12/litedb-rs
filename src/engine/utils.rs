@@ -10,7 +10,6 @@ type BorrowChecker<Key> = Shared<HashMap<Key, borrow_status::BorrowStatus>>;
 ///
 /// This class is a helper for partial borrow that collision can be avoided by the Key.
 /// If double borrow is being happening, it will panic.
-// TODO? support read only borrows
 pub(crate) struct PartialBorrower<TargetRef, Key> {
     target: TargetRef,
     borrowed: BorrowChecker<Key>,
@@ -78,7 +77,7 @@ impl<TargetRef, Key: Hash + Eq + Copy + Debug> PartialBorrower<TargetRef, Key> {
         TargetRef: 'r,
     {
         if let Some(borrow) = self.borrowed.borrow().get(&key) {
-            panic!("double reference with key {key:?}. previous reference is {borrow}"); // TODO: make non-hard error?
+            panic!("double reference with key {key:?}. previous reference is {borrow}");
         }
 
         let value: ShortLives = get(&mut self.target, &key).await?;
@@ -98,7 +97,7 @@ impl<TargetRef, Key: Hash + Eq + Copy + Debug> PartialBorrower<TargetRef, Key> {
         delete: impl AsyncFnOnce(&'s mut TargetRef, &Key) -> Result,
     ) -> Result {
         if let Some(borrow) = self.borrowed.borrow().get(&key) {
-            panic!("removing using reference {key:?}. previous reference is {borrow}"); // TODO: make non-hard error?
+            panic!("removing using reference {key:?}. previous reference is {borrow}");
         }
 
         delete(&mut self.target, &key).await
@@ -114,7 +113,7 @@ impl<TargetRef, Key: Hash + Eq + Copy + Debug> PartialBorrower<TargetRef, Key> {
         TargetRef: 'r,
     {
         if let Some(borrow) = self.borrowed.borrow().get(&key) {
-            panic!("double reference with key {key:?}. previous reference is {borrow}"); // TODO: make non-hard error?
+            panic!("double reference with key {key:?}. previous reference is {borrow}");
         }
 
         let value: ShortLives = get(&mut self.target, &key)?;
@@ -135,7 +134,7 @@ impl<TargetRef, Key: Hash + Eq + Copy + Debug> PartialBorrower<TargetRef, Key> {
         delete: impl FnOnce(&mut TargetRef, &Key) -> Result,
     ) -> Result {
         if let Some(borrow) = self.borrowed.borrow().get(&key) {
-            panic!("removing using reference {key:?}. previous reference is {borrow}"); // TODO: make non-hard error?
+            panic!("removing using reference {key:?}. previous reference is {borrow}");
         }
 
         delete(&mut self.target, &key)
@@ -196,7 +195,6 @@ impl<Value, Key: Hash + Eq> DerefMut for PartialRefMut<Value, Key> {
     }
 }
 
-// TODO: option to disable backtrace check
 mod borrow_status {
     use std::backtrace::Backtrace;
     use std::fmt::{Display, Formatter};

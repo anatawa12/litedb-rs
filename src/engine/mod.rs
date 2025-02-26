@@ -25,6 +25,7 @@ mod transaction_service;
 pub(crate) mod utils;
 mod wal_index_service;
 
+pub(crate) use index_node::*;
 pub(crate) use super::Result;
 pub(crate) use buffer_reader::*;
 pub(crate) use buffer_writer::*;

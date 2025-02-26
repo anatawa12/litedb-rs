@@ -54,7 +54,6 @@ impl EnginePragmas {
             buffer.read_i32(P_COLLATION_LCID),
             CompareOptions(buffer.read_i32(P_COLLATION_SORT)),
         );
-        // TODO: -1 for unlimited?
         inner.timeout = Duration::from_secs(buffer.read_i32(P_TIMEOUT) as u64);
         let limit_size = buffer.read_i64(P_LIMIT_SIZE);
         inner.limit_size = if limit_size == 0 {

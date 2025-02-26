@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{bson, Result};
 use crate::engine::disk::DiskService;
 use crate::engine::lock_service::{LockService, TransactionScope};
 use crate::engine::page_position::PagePosition;
@@ -16,7 +16,6 @@ use std::rc::Rc;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering::Relaxed;
 use std::thread::ThreadId;
-use std::time::SystemTime;
 
 into_non_drop! {
 pub(crate) struct TransactionService {
@@ -30,7 +29,7 @@ pub(crate) struct TransactionService {
     trans_pages: Shared<TransactionPages>, // Fn TransactionPages will be shared with SnapShot so Rc
 
     transaction_id: u32,
-    start_time: SystemTime, // TODO: which DateTime type to use?
+    start_time: bson::DateTime,
     query_only: bool,
 
     mode: LockMode,
@@ -65,7 +64,7 @@ impl TransactionService {
             query_only,
 
             mode: LockMode::Read,
-            start_time: SystemTime::now(),
+            start_time: bson::DateTime::now(),
             thread_id: std::thread::current().id(),
             trans_pages: Shared::new(TransactionPages::new()),
             trans_lock_scope: None,
@@ -81,7 +80,7 @@ impl TransactionService {
     }
 
     #[allow(dead_code)] // used in $transactions
-    pub fn start_time(&self) -> SystemTime {
+    pub fn start_time(&self) -> bson::DateTime {
         self.start_time
     }
 

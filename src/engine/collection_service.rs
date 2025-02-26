@@ -5,6 +5,7 @@ use crate::engine::snapshot::Snapshot;
 use crate::expression::BsonExpression;
 use crate::{Error, Result};
 use std::pin::Pin;
+use crate::utils::StrExtension;
 
 pub(crate) struct CollectionService<'snapshot> {
     snapshot: &'snapshot mut Snapshot,
@@ -19,38 +20,14 @@ impl<'snapshot> CollectionService<'snapshot> {
         if name.len() > header.get_available_collection_space() {
             return Err(Error::name_length_header_space(name));
         }
-        if !is_word(name) {
+        if !name.is_word() {
             return Err(Error::invalid_collection_name(name));
         }
         if name.starts_with("$") {
             return Err(Error::invalid_collection_name(name));
         }
 
-        return Ok(());
-
-        fn is_word(s: &str) -> bool {
-            // TODO: move to common place
-            // TODO: support unicode letter?
-            if s.is_empty() {
-                return false;
-            }
-
-            let mut is_first = true;
-
-            for c in s.chars() {
-                let valid_c = if is_first {
-                    c.is_alphabetic() || c == '_' || c == '$'
-                } else {
-                    c.is_alphanumeric() || c == '_' || c == '$'
-                };
-                if !valid_c {
-                    return false;
-                }
-                is_first = false;
-            }
-
-            true
-        }
+        Ok(())
     }
 
     pub async fn get(
