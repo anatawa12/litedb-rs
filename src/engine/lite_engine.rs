@@ -162,24 +162,22 @@ impl LiteEngine {
         })
     }
 
-    pub async fn soft_close(&mut self) -> Result<()> {
-        // TODO: close other services
-        self.wal_index
-            .try_checkpoint(&self.disk, &self.locker)
-            .await?;
-
-        Ok(())
-    }
-
     pub async fn checkpoint(&self) -> Result<()> {
         self.wal_index.checkpoint(&self.disk, &self.locker).await
     }
 
     pub async fn dispose(self) -> Result<()> {
         drop(self.monitor);
+        if self.header.borrow().pragmas().checkpoint() > 0 {
+            self.wal_index
+                .try_checkpoint(&self.disk, &self.locker)
+                .await?;
+        }
         if let Some(disk) = Rc::into_inner(self.disk) {
             disk.dispose().await;
         }
+        // sort_disk
+        drop(self.locker);
         Ok(())
     }
 }
