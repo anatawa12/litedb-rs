@@ -74,3 +74,11 @@ impl TransactionLiteEngine<'_> {
 
 transaction_wrapper!(pub async fn drop_collection(&mut self, name: &str) -> Result<bool>);
 transaction_wrapper!(pub async fn rename_collection(&mut self, collection: &str, new_name: &str) -> Result<bool>);
+
+#[allow(dead_code)]
+fn _type_check<'a>() {
+    use crate::utils::checker::*;
+
+    check_sync_send(dummy::<LiteEngine>().drop_collection(dummy()));
+    check_sync_send(dummy::<LiteEngine>().rename_collection(dummy(), dummy()));
+}

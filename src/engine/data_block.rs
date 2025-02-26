@@ -2,6 +2,7 @@ use crate::engine::DirtyFlag;
 use crate::engine::page_address::PageAddress;
 use crate::utils::BufferSlice;
 use std::marker::PhantomData;
+use crate::engine::utils::SendPtr;
 
 const P_EXTEND: usize = 0; // 00-00 [byte]
 const P_NEXT_BLOCK: usize = 1; // 01-05 [pageAddress]
@@ -55,12 +56,12 @@ impl<'a> DataBlock<'a> {
 }
 
 pub(crate) struct DataBlockMut<'a> {
-    segment: *mut BufferSlice,
+    segment: SendPtr<BufferSlice>,
     position: PageAddress,
     #[allow(dead_code)]
     extend: bool,
     next_block: PageAddress,
-    dirty_ptr: *const DirtyFlag,
+    dirty_ptr: SendPtr<DirtyFlag>,
     _phantom: PhantomData<&'a ()>,
 }
 
@@ -83,11 +84,11 @@ impl<'a> DataBlockMut<'a> {
         dirty_ptr.set();
 
         Self {
-            segment,
+            segment: SendPtr(segment),
             position,
             extend,
             next_block,
-            dirty_ptr,
+            dirty_ptr: SendPtr(dirty_ptr as *const _ as *mut _),
             _phantom: PhantomData,
         }
     }
@@ -104,21 +105,21 @@ impl<'a> DataBlockMut<'a> {
         let next_block = segment.read_page_address(P_NEXT_BLOCK);
 
         Self {
-            segment,
+            segment: SendPtr(segment),
             position,
             extend,
             next_block,
-            dirty_ptr,
+            dirty_ptr: SendPtr(dirty_ptr as *const _ as *mut _),
             _phantom: PhantomData,
         }
     }
 
     fn segment(&self) -> &BufferSlice {
-        unsafe { &*self.segment }
+        unsafe { &*self.segment.0 }
     }
 
     fn segment_mut(&mut self) -> &mut BufferSlice {
-        unsafe { &mut *self.segment }
+        unsafe { &mut *self.segment.0 }
     }
 
     pub fn position(&self) -> PageAddress {
@@ -152,6 +153,6 @@ impl<'a> DataBlockMut<'a> {
     }
 
     pub fn set_dirty(&mut self) {
-        unsafe { &*self.dirty_ptr }.set();
+        unsafe { &*self.dirty_ptr.0 }.set();
     }
 }

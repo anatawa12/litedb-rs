@@ -62,3 +62,11 @@ impl TransactionLiteEngine<'_> {
 }
 
 transaction_wrapper!(pub async fn delete(&mut self, collection: &str, ids: &[bson::Value]) -> Result<usize>);
+
+#[allow(dead_code)]
+fn _type_check<'a>() {
+    use crate::utils::checker::*;
+
+    check_sync_send(dummy::<TransactionLiteEngine>().delete(dummy(), dummy()));
+    check_sync_send(dummy::<LiteEngine>().delete(dummy(), dummy()));
+}

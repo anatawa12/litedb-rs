@@ -619,10 +619,10 @@ impl SnapshotDataPages<'_> {
 impl SnapshotIndexPages<'_> {
     pub async fn add_or_remove_free_index_list(
         &mut self,
-        page: *mut IndexPage,
+        page: SendPtr<IndexPage>,
         start_page_id: &mut u32,
     ) -> Result<()> {
-        let page = unsafe { &mut *page };
+        let page = unsafe { &mut *page.0 };
         let new_slot = IndexPage::free_index_slot(page.free_bytes());
         let is_on_list = page.page_list_slot() == 0;
         let must_keep = new_slot == 0;
@@ -842,7 +842,7 @@ impl Snapshot {
             for node in
                 IndexService::find_all_accessor(&mut accessor, index, Order::Ascending).await?
             {
-                index_pages.insert(unsafe { &*node.page_ptr() }.page_id());
+                index_pages.insert(unsafe { &*node.page_ptr().0 }.page_id());
                 safe_point().await?;
             }
         }

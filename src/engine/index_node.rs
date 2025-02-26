@@ -298,8 +298,8 @@ impl<'a> IndexNodeMut<'a> {
         self.set_dirty();
     }
 
-    pub fn page_ptr(&self) -> *mut IndexPage {
-        self.ptr.0.0
+    pub fn page_ptr(&self) -> SendPtr<IndexPage> {
+        self.ptr.0
     }
 
     pub fn segment(&mut self) -> &'a mut BufferSlice {
@@ -324,7 +324,7 @@ impl<'a> IndexNodeMut<'a> {
 // lifetime utility
 impl IndexNodeMut<'_> {
     pub(crate) fn remove_from_page(self) {
-        let page = unsafe { Pin::new_unchecked(&mut *self.page_ptr()) };
+        let page = unsafe { Pin::new_unchecked(&mut *self.page_ptr().0) };
         page.delete_index_node(self.position.index());
     }
 }

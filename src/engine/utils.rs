@@ -2,7 +2,7 @@ use crate::utils::Shared;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::{AsyncFnOnce, Deref, DerefMut};
+use std::ops::{Deref, DerefMut};
 
 type BorrowChecker<Key> = Shared<HashMap<Key, borrow_status::BorrowStatus>>;
 
@@ -46,14 +46,16 @@ impl<TargetRef, Key: Hash + Eq + Copy + Debug> PartialBorrower<TargetRef, Key> {
         &mut self.target
     }
 
-    pub async unsafe fn try_create_borrow_async<'s, 'r, ShortLives, Extended, Error>(
+    // Using legacy FnOnce pattern due to rust issue: https://github.com/rust-lang/rust/issues/126350
+    pub async unsafe fn try_create_borrow_async<'s, 'r, ShortLives, Extended, Error, Fut>(
         &'s mut self,
-        new: impl AsyncFnOnce(&'s mut TargetRef) -> Result<ShortLives, Error>,
+        new: impl FnOnce(&'s mut TargetRef) -> Fut,
         key: impl FnOnce(&ShortLives) -> Key,
     ) -> Result<PartialRefMut<Extended, Key>, Error>
     where
         ShortLives: ExtendLifetime<'r, Extended = Extended>,
         TargetRef: 'r,
+        Fut: Future<Output = Result<ShortLives, Error>>,
     {
         let value: ShortLives = new(&mut self.target).await?;
         let key = key(&value);
@@ -67,40 +69,45 @@ impl<TargetRef, Key: Hash + Eq + Copy + Debug> PartialBorrower<TargetRef, Key> {
         })
     }
 
-    pub async unsafe fn try_get_borrow_async<'s, 'r, ShortLives, Extended, Error>(
+    // Using legacy FnOnce pattern due to rust issue: https://github.com/rust-lang/rust/issues/126350
+    pub async unsafe fn try_get_borrow_async<'s, 'r, 'a, ShortLives, Extended, Error, Fut>(
         &'s mut self,
-        key: Key,
-        get: impl AsyncFnOnce(&'s mut TargetRef, &Key) -> Result<ShortLives, Error>,
+        key: &'a Key,
+        get: impl FnOnce(&'s mut TargetRef, &'a Key) -> Fut,
     ) -> Result<PartialRefMut<Extended, Key>, Error>
     where
         ShortLives: ExtendLifetime<'r, Extended = Extended>,
         TargetRef: 'r,
+        Fut: Future<Output = Result<ShortLives, Error>>,
     {
-        if let Some(borrow) = self.borrowed.borrow().get(&key) {
+        if let Some(borrow) = self.borrowed.borrow().get(key) {
             panic!("double reference with key {key:?}. previous reference is {borrow}");
         }
 
-        let value: ShortLives = get(&mut self.target, &key).await?;
+        let value: ShortLives = get(&mut self.target, key).await?;
         self.borrowed
             .borrow_mut()
-            .insert(key, borrow_status::BorrowStatus::new());
+            .insert(*key, borrow_status::BorrowStatus::new());
         Ok(PartialRefMut {
             value: unsafe { ShortLives::extend_lifetime(value) },
-            key,
+            key: *key,
             borrowed: self.borrowed.clone(),
         })
     }
 
-    pub async unsafe fn try_delete_borrow_async<'s, Result>(
+    pub async unsafe fn try_delete_borrow_async<'s, 'a, Result, Fut>(
         &'s mut self,
-        key: Key,
-        delete: impl AsyncFnOnce(&'s mut TargetRef, &Key) -> Result,
-    ) -> Result {
-        if let Some(borrow) = self.borrowed.borrow().get(&key) {
+        key: &'a Key,
+        delete: impl FnOnce(&'s mut TargetRef, &'a Key) -> Fut,
+    ) -> Result
+    where
+        Fut: Future<Output = Result>,
+    {
+        if let Some(borrow) = self.borrowed.borrow().get(key) {
             panic!("removing using reference {key:?}. previous reference is {borrow}");
         }
 
-        delete(&mut self.target, &key).await
+        delete(&mut self.target, key).await
     }
 
     pub unsafe fn try_get_borrow<'s, 'r, ShortLives, Extended, Error>(
@@ -232,6 +239,13 @@ pub struct SendPtr<T: ?Sized>(pub *mut T);
 
 unsafe impl<'a, T: 'a + ?Sized> Send for SendPtr<T> where &'a T: Send {}
 unsafe impl<'a, T: 'a + ?Sized> Sync for SendPtr<T> where &'a T: Sync {}
+
+impl<T> Clone for SendPtr<T> {
+    fn clone(&self) -> Self {
+        SendPtr(self.0)
+    }
+}
+impl<T> Copy for SendPtr<T> {}
 
 impl<T> Deref for SendPtr<T> {
     type Target = *mut T;

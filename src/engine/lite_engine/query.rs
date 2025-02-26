@@ -246,3 +246,17 @@ transaction_stream_wrapper!(pub fn get_by_index(
     index: &str,
     find: &bson::Value,
 ) -> impl Stream<Item = Result<bson::Document>>);
+
+#[allow(dead_code)]
+fn _type_check<'a>() {
+    use crate::utils::checker::*;
+
+    check_sync_send(dummy::<TransactionLiteEngine>().get_all(dummy()));
+    check_sync_send(dummy::<LiteEngine>().get_all(dummy()));
+
+    check_sync_send(dummy::<TransactionLiteEngine>().get_range_indexed(dummy(), dummy(), dummy(), dummy(), dummy()));
+    check_sync_send(dummy::<LiteEngine>().get_range_indexed(dummy(), dummy(), dummy(), dummy(), dummy()));
+
+    check_sync_send(dummy::<TransactionLiteEngine>().get_by_index(dummy(), dummy(), dummy()));
+    check_sync_send(dummy::<LiteEngine>().get_by_index(dummy(), dummy(), dummy()));
+}

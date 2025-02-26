@@ -371,7 +371,7 @@ impl<'snapshot> IndexService<'snapshot> {
 
                     // delete node from page (mark as dirty)
                     node.removing(|node| {
-                        unsafe { Pin::new_unchecked(&mut *node.page_ptr()) }
+                        unsafe { Pin::new_unchecked(&mut *node.page_ptr().0) }
                             .delete_index_node(node.position().index())
                     })
                 } else {
@@ -552,8 +552,8 @@ impl<'snapshot> PartialIndexNodeAccessorMut<'snapshot> {
         unsafe {
             Ok(Some(
                 self.inner
-                    .try_get_borrow_async::<_, IndexNodeMut<'snapshot>, Error>(
-                        address,
+                    .try_get_borrow_async::<_, IndexNodeMut<'snapshot>, Error, _>(
+                        &address,
                         async |snapshot, address| {
                             snapshot
                                 .get_page(address.page_id())

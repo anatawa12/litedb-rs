@@ -730,7 +730,4 @@ pub(crate) mod checker {
         unimplemented!()
     }
     pub(crate) fn check_sync_send<'a, T: Send + Sync + 'a>(_: T) {}
-    pub(crate) fn check_sync_send_value<'a, T: Send + Sync + 'a>(v: T) -> T {
-        v
-    }
 }

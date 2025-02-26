@@ -243,8 +243,8 @@ impl<'snapshot> PartialDataBlockAccessorMut<'snapshot> {
         unsafe {
             Ok(Some(
                 self.inner
-                    .try_get_borrow_async::<_, _, Error>(
-                        address,
+                    .try_get_borrow_async::<_, _, Error, _>(
+                        &address,
                         async |snapshot: &mut SnapshotDataPages, address| {
                             Ok(snapshot
                                 .get_page(address.page_id())
@@ -263,7 +263,7 @@ impl<'snapshot> PartialDataBlockAccessorMut<'snapshot> {
         unsafe {
             self.inner
                 .try_delete_borrow_async(
-                    address,
+                    &address,
                     async |snapshot: &mut SnapshotDataPages, address| {
                         let block = snapshot.get_page(address.page_id()).await?.get_mut();
 
