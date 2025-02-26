@@ -91,7 +91,7 @@ impl TransactionLiteEngine<'_> {
 
             let snapshot = self
                 .transaction
-                .create_snapshot(LockMode::Read, collection, false)
+                .create_snapshot(LockMode::Read, collection, false, self.header)
                 .await?;
             if snapshot.collection_page().is_none() {
                 return;
@@ -102,11 +102,11 @@ impl TransactionLiteEngine<'_> {
             let mut collection_page = parts.collection_page.partial_borrow();
             let mut indexer = IndexService::new(
                 parts.index_pages,
-                self.header.borrow().pragmas().collation(),
+                self.header.pragmas().collation(),
                 self.disk.max_items_count(),
             );
             let mut data = DataService::new(parts.data_pages, self.disk.max_items_count());
-            let collation = self.header.borrow().pragmas().collation();
+            let collation = self.header.pragmas().collation();
 
             async fn read_data(
                 data: &mut DataService<'_>,

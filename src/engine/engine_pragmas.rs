@@ -45,9 +45,8 @@ impl Default for EnginePragmas {
 
 #[allow(dead_code)]
 impl EnginePragmas {
-    pub fn read(buffer: &PageBuffer) -> crate::Result<Self> {
-        let pragmas = EnginePragmas::default();
-        let mut inner = pragmas.inner.borrow_mut();
+    pub fn read(&self, buffer: &PageBuffer) -> crate::Result<()> {
+        let mut inner = self.inner.borrow_mut();
 
         inner.user_version = buffer.read_i32(P_USER_VERSION);
         inner.collation = Collation::new(
@@ -66,7 +65,7 @@ impl EnginePragmas {
         inner.dirty = false;
         drop(inner);
 
-        Ok(pragmas)
+        Ok(())
     }
 
     pub(crate) fn update_buffer(&self, buffer: &mut PageBuffer) {

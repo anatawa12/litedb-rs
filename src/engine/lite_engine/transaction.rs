@@ -21,12 +21,12 @@ impl LiteEngine {
             Ok(result) => {
                 // commit
 
-                transaction.commit().await?;
+                transaction.commit(&self.header).await?;
 
                 #[allow(clippy::collapsible_if)]
-                if self.header.borrow().pragmas().checkpoint() > 0 {
+                if self.header.pragmas().checkpoint() > 0 {
                     if self.disk.get_file_length(FileOrigin::Log)
-                        > self.header.borrow().pragmas().checkpoint() as i64
+                        > self.header.pragmas().checkpoint() as i64
                             * crate::engine::PAGE_SIZE as i64
                     {
                         self.wal_index
@@ -40,7 +40,7 @@ impl LiteEngine {
                 // Rollback
                 // TODO: check if the error is io error
 
-                transaction.rollback().await?;
+                transaction.rollback(&self.header).await?;
 
                 Err(err)
             }

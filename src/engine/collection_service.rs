@@ -35,7 +35,7 @@ impl<'snapshot> CollectionService<'snapshot> {
         name: &str,
         add_if_not_exists: bool,
     ) -> Result<(bool, Option<Pin<&mut CollectionPage>>)> {
-        let page_id = self.snapshot.header().borrow().get_collection_page_id(name);
+        let page_id = self.snapshot.header().get_collection_page_id(name);
 
         if page_id != u32::MAX {
             let page = self
@@ -52,7 +52,7 @@ impl<'snapshot> CollectionService<'snapshot> {
     }
 
     pub async fn add(&mut self, name: &str) -> Result<Pin<&mut CollectionPage>> {
-        Self::check_name(name, &self.snapshot.header().borrow())?;
+        Self::check_name(name, self.snapshot.header())?;
 
         let page = self.snapshot.pages().new_page::<CollectionPage>().await?;
         let page_id = page.page_id();
@@ -62,7 +62,7 @@ impl<'snapshot> CollectionService<'snapshot> {
             move |h| h.insert_collection(&name, page_id)
         });
 
-        let collation = self.snapshot.header().borrow().pragmas().collation();
+        let collation = self.snapshot.header().pragmas().collation();
         let max_items_count = self.snapshot.disk().max_items_count();
         let mut parts = self.snapshot.as_parts();
         let mut indexer = IndexService::new(parts.index_pages, collation, max_items_count);

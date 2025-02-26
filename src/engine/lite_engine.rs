@@ -7,7 +7,7 @@ use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{FileOrigin, StreamFactory};
 #[cfg(feature = "sequential-index")]
 use crate::utils::CaseInsensitiveString;
-use crate::utils::{Collation, Shared};
+use crate::utils::Collation;
 use crate::{Error, Result};
 #[cfg(feature = "sequential-index")]
 use async_lock::Mutex;
@@ -70,7 +70,7 @@ pub struct LiteEngine {
     locker: Rc<LockService>,
     disk: Rc<DiskService>,
     wal_index: Rc<WalIndexService>,
-    header: Shared<HeaderPage>,
+    header: Rc<HeaderPage>,
     monitor: Rc<TransactionMonitor>,
     // state,
     // settings,
@@ -81,7 +81,7 @@ pub struct LiteEngine {
 
 pub struct TransactionLiteEngine<'a> {
     disk: &'a Rc<DiskService>,
-    header: &'a Shared<HeaderPage>,
+    header: &'a Rc<HeaderPage>,
     #[cfg(feature = "sequential-index")]
     sequences: &'a Mutex<HashMap<CaseInsensitiveString, i64>>,
     transaction: &'a mut TransactionService,
@@ -111,7 +111,7 @@ impl LiteEngine {
 
         let mut header = HeaderPage::load(header_buffer)?;
 
-        if header.buffer().buffer()[HeaderPage::P_INVALID_DATAFILE_STATE] != 0
+        if header.as_mut().buffer().buffer()[HeaderPage::P_INVALID_DATAFILE_STATE] != 0
             && settings.auto_build
         {
             todo!("rebuild when invalid");
@@ -132,16 +132,12 @@ impl LiteEngine {
             wal_index.restore_index(&mut header, &disk).await?;
         }
 
-        let header = Shared::new(header);
+        let header = Rc::new(header);
         let locker = Rc::new(locker);
         let disk = Rc::new(disk);
         let wal_index = Rc::new(wal_index);
-        let monitor = TransactionMonitor::new(
-            Shared::clone(&header),
-            Rc::clone(&locker),
-            Rc::clone(&disk),
-            Rc::clone(&wal_index),
-        );
+        let monitor =
+            TransactionMonitor::new(Rc::clone(&locker), Rc::clone(&disk), Rc::clone(&wal_index));
         let monitor = Rc::new(monitor);
 
         // TODO: consider not using RefCell<HeaderPage>
@@ -167,7 +163,7 @@ impl LiteEngine {
 
     pub async fn dispose(self) -> Result<()> {
         drop(self.monitor);
-        if self.header.borrow().pragmas().checkpoint() > 0 {
+        if self.header.pragmas().checkpoint() > 0 {
             self.wal_index
                 .try_checkpoint(&self.disk, &self.locker)
                 .await?;

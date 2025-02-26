@@ -130,14 +130,14 @@ impl WalIndexService {
 
                 // when a header is modified in transaction, must always be the last page inside log file (per transaction)
                 if page_type == PageType::Header as u8 {
-                    let header_buffer = header.buffer_mut();
+                    let header_buffer = header.as_mut().buffer_mut();
 
                     *header_buffer.buffer_mut() = *buffer.buffer();
 
                     // reload header
                     header.reload_fully()?;
-                    header.set_transaction_id(u32::MAX);
-                    header.set_confirmed(false);
+                    header.as_mut().set_transaction_id(u32::MAX);
+                    header.as_mut().set_confirmed(false);
                 }
             }
 

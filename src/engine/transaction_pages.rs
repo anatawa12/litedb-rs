@@ -1,4 +1,4 @@
-use crate::engine::HeaderPage;
+use crate::engine::HeaderPageLocked;
 use crate::engine::page_position::PagePosition;
 use std::collections::HashMap;
 
@@ -12,7 +12,7 @@ pub(crate) struct TransactionPages {
     deleted_pages: usize,
 
     #[allow(clippy::type_complexity)]
-    on_commit: Vec<Box<dyn Fn(&mut HeaderPage)>>,
+    on_commit: Vec<Box<dyn Fn(&mut HeaderPageLocked)>>,
 }
 
 impl TransactionPages {
@@ -32,11 +32,11 @@ impl TransactionPages {
         !self.new_pages.is_empty() || self.deleted_pages > 0 || !self.on_commit.is_empty()
     }
 
-    pub fn on_commit(&mut self, f: impl Fn(&mut HeaderPage) + 'static) {
+    pub fn on_commit(&mut self, f: impl Fn(&mut HeaderPageLocked) + 'static) {
         self.on_commit.push(Box::new(f));
     }
 
-    pub fn call_on_commit(&mut self, page: &mut HeaderPage) {
+    pub fn call_on_commit(&mut self, page: &mut HeaderPageLocked) {
         for on_commit in &self.on_commit {
             on_commit(page);
         }

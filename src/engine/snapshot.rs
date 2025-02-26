@@ -44,7 +44,11 @@ pub(crate) struct Snapshot {
 
 // for lifetime reasons, we split page collection to one struct
 pub(crate) struct SnapshotPages {
-    header: Shared<HeaderPage>,
+    header: Rc<HeaderPage>,
+    data: SnapshotPagesData,
+}
+
+pub(crate) struct SnapshotPagesData {
     disk: Rc<DiskService>,
     wal_index: Rc<WalIndexService>,
     trans_pages: Shared<TransactionPages>,
@@ -71,7 +75,7 @@ impl Snapshot {
     pub async fn new(
         mode: LockMode,
         collection_name: &str,
-        header: Shared<HeaderPage>,
+        header: Rc<HeaderPage>,
         transaction_id: u32,
         trans_pages: Shared<TransactionPages>,
         locker: Rc<LockService>,
@@ -95,13 +99,15 @@ impl Snapshot {
             collection_page: None,
             page_collection: SnapshotPages {
                 header,
-                disk,
-                trans_pages,
-                wal_index,
-                read_version,
-                transaction_id,
-                collection_page_id: None,
-                local_pages: HashMap::new(),
+                data: SnapshotPagesData {
+                    disk,
+                    trans_pages,
+                    wal_index,
+                    read_version,
+                    transaction_id,
+                    collection_page_id: None,
+                    local_pages: HashMap::new(),
+                },
             },
         };
 
@@ -114,6 +120,7 @@ impl Snapshot {
             let collection_page_id = collection_page.page_id();
             let collection_page = snapshot
                 .page_collection
+                .data
                 .local_pages
                 .remove(&collection_page_id)
                 .unwrap()
@@ -126,22 +133,22 @@ impl Snapshot {
         };
 
         snapshot.collection_page = collection_page;
-        snapshot.page_collection.collection_page_id =
+        snapshot.page_collection.data.collection_page_id =
             snapshot.collection_page.as_ref().map(|x| x.page_id());
 
         Ok(snapshot)
     }
 
-    pub fn header(&mut self) -> &Shared<HeaderPage> {
+    pub fn header(&mut self) -> &Rc<HeaderPage> {
         &self.page_collection.header
     }
 
     pub fn trans_pages(&self) -> &Shared<TransactionPages> {
-        &self.page_collection.trans_pages
+        &self.page_collection.data.trans_pages
     }
 
     pub fn disk(&self) -> &Rc<DiskService> {
-        &self.page_collection.disk
+        &self.page_collection.data.disk
     }
 
     pub fn mode(&self) -> LockMode {
@@ -170,12 +177,16 @@ impl Snapshot {
 
     #[allow(dead_code)]
     pub fn local_pages(&self) -> impl Iterator<Item = Pin<&dyn Page>> {
-        self.page_collection.local_pages.values().map(Pin::as_ref)
+        self.page_collection
+            .data
+            .local_pages
+            .values()
+            .map(Pin::as_ref)
     }
 
     #[allow(dead_code)] // used in $snapshots
     pub fn read_version(&self) -> i32 {
-        self.page_collection.read_version
+        self.page_collection.data.read_version
     }
 
     #[allow(dead_code)]
@@ -189,6 +200,7 @@ impl Snapshot {
         } else {
             let pages = self
                 .page_collection
+                .data
                 .local_pages
                 .values()
                 .filter(move |p| p.as_ref().get_ref().as_ref().is_dirty() == dirty)
@@ -216,6 +228,7 @@ impl Snapshot {
         } else {
             let page_ids = self
                 .page_collection
+                .data
                 .local_pages
                 .iter()
                 .filter(|(_, p)| p.as_ref().get_ref().as_ref().is_dirty() == dirty)
@@ -223,7 +236,7 @@ impl Snapshot {
                 .collect::<Vec<_>>();
             let pages = page_ids
                 .into_iter()
-                .map(|k| self.page_collection.local_pages.remove(&k).unwrap());
+                .map(|k| self.page_collection.data.local_pages.remove(&k).unwrap());
             let collection_page = self
                 .collection_page
                 .take_if(|p| with_collection_page && p.is_dirty() == dirty)
@@ -247,6 +260,7 @@ impl Snapshot {
         } else {
             let pages = self
                 .page_collection
+                .data
                 .local_pages
                 .values_mut()
                 .filter(move |p| p.as_ref().get_ref().as_ref().is_dirty() == dirty)
@@ -265,7 +279,7 @@ impl Snapshot {
     }
 
     pub fn clear(&mut self) {
-        self.page_collection.local_pages.clear();
+        self.page_collection.data.local_pages.clear();
     }
 }
 
@@ -276,19 +290,21 @@ impl SnapshotPages {
         page_id: u32,
         use_latest_version: bool, /* = false*/
     ) -> Result<Pin<&mut T>> {
+        assert!(page_id != u32::MAX && page_id <= self.header.last_page_id());
         Ok(self
+            .data
             .get_page_with_additional_info::<T>(page_id, use_latest_version)
             .await?
             .page)
     }
+}
 
+impl SnapshotPagesData {
     pub async fn get_page_with_additional_info<T: Page>(
         &mut self,
         page_id: u32,
         use_latest_version: bool,
     ) -> Result<PageWithAdditionalInfo<Pin<&mut T>>> {
-        assert!(page_id != u32::MAX && page_id <= self.header.borrow().last_page_id());
-
         // check for header page (return header single instance)
         //TODO(upstream): remove this
         if page_id == 0 {
@@ -474,67 +490,68 @@ impl SnapshotIndexPages<'_> {
 }
 
 impl SnapshotPages {
-    #[allow(clippy::await_holding_refcell_ref)]
     pub async fn new_page<T: Page>(&mut self) -> Result<Pin<&mut T>> {
         let page_id;
         let buffer;
 
-        // no locks
+        {
+            let mut header = self.header.lock().await;
 
-        let free_empty_page_list = self.header.borrow().free_empty_page_list();
-        if free_empty_page_list != u32::MAX {
-            let free = self
-                .get_page::<BasePage>(free_empty_page_list, true)
-                .await?;
-            page_id = free.page_id();
-            let free = self.local_pages.remove(&page_id).unwrap();
-            let mut free = match free.downcast_pin::<BasePage>() {
-                Ok(page) => page,
-                Err(_) => unreachable!("the cast should not fail"),
-            };
-            //
+            let free_empty_page_list = header.free_empty_page_list();
+            if free_empty_page_list != u32::MAX {
+                let free = self
+                    .data
+                    .get_page_with_additional_info::<BasePage>(free_empty_page_list, true)
+                    .await?
+                    .page;
+                page_id = free.page_id();
+                let free = self.data.local_pages.remove(&page_id).unwrap();
+                let mut free = match free.downcast_pin::<BasePage>() {
+                    Ok(page) => page,
+                    Err(_) => unreachable!("the cast should not fail"),
+                };
+                //
 
-            assert_eq!(
-                free.page_type(),
-                PageType::Empty,
-                "empty page must be defined as empty type ({page_id})"
-            );
+                assert_eq!(
+                    free.page_type(),
+                    PageType::Empty,
+                    "empty page must be defined as empty type ({page_id})"
+                );
 
-            self.header
-                .borrow_mut()
-                .set_free_empty_page_list(free.next_page_id());
+                header.set_free_empty_page_list(free.next_page_id());
 
-            free.set_next_page_id(u32::MAX);
+                free.set_next_page_id(u32::MAX);
 
-            //page_id = free.page_id(); //assigned above
-            buffer = Pin::into_inner(free).into_buffer();
-        } else {
-            let mut header = self.header.borrow_mut();
-            let new_length = (header.last_page_id() as usize + 1) * PAGE_SIZE;
-            if new_length > header.pragmas().limit_size() as usize {
-                return Err(Error::size_limit_reached());
+                //page_id = free.page_id(); //assigned above
+                buffer = Pin::into_inner(free).into_buffer();
+            } else {
+                let new_length = (header.last_page_id() as usize + 1) * PAGE_SIZE;
+                if new_length > header.pragmas().limit_size() as usize {
+                    return Err(Error::size_limit_reached());
+                }
+
+                let save_point = header.save_point();
+
+                page_id = save_point.header.last_page_id() + 1;
+                save_point.header.set_last_page_id(page_id);
+
+                buffer = self.data.disk.get_reader().new_page();
+                forget(save_point);
             }
 
-            let save_point = header.save_point();
-
-            page_id = save_point.header.last_page_id() + 1;
-            save_point.header.set_last_page_id(page_id);
-
-            buffer = self.disk.get_reader().new_page();
-            forget(save_point);
+            self.data.trans_pages.borrow_mut().add_new_page(page_id);
         }
-
-        self.trans_pages.borrow_mut().add_new_page(page_id);
 
         let mut page = T::new(buffer, page_id);
         page.as_mut()
-            .set_col_id(self.collection_page_id.unwrap_or(page_id));
+            .set_col_id(self.data.collection_page_id.unwrap_or(page_id));
         page.as_mut().set_dirty();
 
-        self.trans_pages.borrow_mut().transaction_size += 1;
+        self.data.trans_pages.borrow_mut().transaction_size += 1;
 
         if page.as_ref().page_type() != PageType::Collection {
             let page = self
+                .data
                 .local_pages
                 .entry(page_id)
                 .insert_entry(Box::pin(page))
@@ -747,37 +764,40 @@ impl SnapshotPages {
         // mark page as empty and dirty
         page.as_mut().mark_as_empty();
 
-        if self.trans_pages.borrow().first_deleted_page() == u32::MAX {
+        if self.data.trans_pages.borrow().first_deleted_page() == u32::MAX {
             assert_eq!(
-                self.trans_pages.borrow().deleted_pages(),
+                self.data.trans_pages.borrow().deleted_pages(),
                 0,
                 "if has no firstDeletedPageID must has deleted pages"
             );
 
             // set first and last deleted page as current deleted page
-            self.trans_pages
+            self.data
+                .trans_pages
                 .borrow_mut()
                 .set_first_deleted_page(page.as_ref().page_id());
-            self.trans_pages
+            self.data
+                .trans_pages
                 .borrow_mut()
                 .set_last_deleted_page(page.as_ref().page_id());
         } else {
             assert!(
-                self.trans_pages.borrow().deleted_pages() > 0,
+                self.data.trans_pages.borrow().deleted_pages() > 0,
                 "must have at least 1 deleted page"
             );
 
             // set next link from current deleted page to first deleted page
             page.as_mut()
-                .set_next_page_id(self.trans_pages.borrow().first_deleted_page());
+                .set_next_page_id(self.data.trans_pages.borrow().first_deleted_page());
 
             // and then, set this current deleted page as first page making a linked list
-            self.trans_pages
+            self.data
+                .trans_pages
                 .borrow_mut()
                 .set_first_deleted_page(page.as_ref().page_id());
         }
 
-        self.trans_pages.borrow_mut().inc_deleted_pages();
+        self.data.trans_pages.borrow_mut().inc_deleted_pages();
     }
 }
 
@@ -792,7 +812,7 @@ impl Snapshot {
 
         let pages = &mut self.page_collection;
         let collection_page = self.collection_page.as_mut().unwrap();
-        let trans_pages_shared = pages.trans_pages.clone();
+        let trans_pages_shared = pages.data.trans_pages.clone();
         {
             let mut trans_pages = trans_pages_shared.borrow_mut();
             trans_pages.set_first_deleted_page(collection_page.page_id());

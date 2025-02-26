@@ -10,7 +10,7 @@ impl TransactionLiteEngine<'_> {
     pub async fn update(&mut self, collection: &str, docs: Vec<bson::Document>) -> Result<usize> {
         let snapshot = self
             .transaction
-            .create_snapshot(LockMode::Write, collection, false)
+            .create_snapshot(LockMode::Write, collection, false, self.header)
             .await?;
         if snapshot.collection_page().is_none() {
             return Ok(0);
@@ -19,7 +19,7 @@ impl TransactionLiteEngine<'_> {
         let mut parts = snapshot.as_parts();
         let mut indexer = IndexService::new(
             parts.index_pages,
-            self.header.borrow().pragmas().collation(),
+            self.header.pragmas().collation(),
             self.disk.max_items_count(),
         );
         let mut data = DataService::new(parts.data_pages, self.disk.max_items_count());
@@ -27,7 +27,7 @@ impl TransactionLiteEngine<'_> {
         debug_log!(COMMAND: "update `{collection}`");
 
         for doc in docs {
-            let collation = self.header.borrow().pragmas().collation();
+            let collation = self.header.pragmas().collation();
             if Self::update_document(
                 collation,
                 &mut parts.collection_page,

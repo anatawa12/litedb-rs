@@ -42,7 +42,7 @@ impl TransactionLiteEngine<'_> {
 
         let snapshot = self
             .transaction
-            .create_snapshot(LockMode::Write, collection, true)
+            .create_snapshot(LockMode::Write, collection, true, self.header)
             .await?;
 
         let mut parts = snapshot.as_parts();
@@ -50,7 +50,7 @@ impl TransactionLiteEngine<'_> {
         let mut collection_page = parts.collection_page.partial_borrow();
         let mut indexer = IndexService::new(
             parts.index_pages,
-            self.header.borrow().pragmas().collation(),
+            self.header.pragmas().collation(),
             self.disk.max_items_count(),
         );
         let mut data = DataService::new(parts.data_pages, self.disk.max_items_count());
@@ -66,7 +66,7 @@ impl TransactionLiteEngine<'_> {
             let mut index = indexer
                 .create_index(name, expression.clone(), unique, &mut collection_page)
                 .await?;
-            let exec_context = ExecutionScope::new(self.header.borrow().pragmas().collation());
+            let exec_context = ExecutionScope::new(self.header.pragmas().collation());
 
             let pk_index = collection_page.pk_index();
             for mut pk_node in indexer.find_all(&pk_index, Order::Ascending).await? {
@@ -111,7 +111,7 @@ impl TransactionLiteEngine<'_> {
 
         let snapshot = self
             .transaction
-            .create_snapshot(LockMode::Write, collection, true)
+            .create_snapshot(LockMode::Write, collection, true, self.header)
             .await?;
 
         if snapshot.collection_page().is_none() {
@@ -121,7 +121,7 @@ impl TransactionLiteEngine<'_> {
         let mut parts = snapshot.as_parts();
         let mut indexer = IndexService::new(
             parts.index_pages,
-            self.header.borrow().pragmas().collation(),
+            self.header.pragmas().collation(),
             self.disk.max_items_count(),
         );
 

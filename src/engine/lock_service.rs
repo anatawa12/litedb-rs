@@ -33,7 +33,6 @@ impl LockService {
     }
 
     pub async fn enter_lock(&self, collection: &str) -> CollectionLockScope {
-        // no lock
         let lock = self
             .collections
             .lock()

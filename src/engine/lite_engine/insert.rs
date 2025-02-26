@@ -25,13 +25,13 @@ impl TransactionLiteEngine<'_> {
     ) -> Result<usize> {
         let snapshot = self
             .transaction
-            .create_snapshot(LockMode::Write, collection, true)
+            .create_snapshot(LockMode::Write, collection, true, self.header)
             .await?;
         let mut count = 0;
         let mut parts = snapshot.as_parts();
         let mut indexer = IndexService::new(
             parts.index_pages,
-            self.header.borrow().pragmas().collation(),
+            self.header.pragmas().collation(),
             self.disk.max_items_count(),
         );
         let mut data = DataService::new(parts.data_pages, self.disk.max_items_count());
@@ -39,7 +39,7 @@ impl TransactionLiteEngine<'_> {
         debug_log!(COMMAND: "insert `{collection}`");
 
         for doc in docs {
-            let collation = self.header.borrow().pragmas().collation();
+            let collation = self.header.pragmas().collation();
             Self::insert_document(
                 collation,
                 #[cfg(feature = "sequential-index")]

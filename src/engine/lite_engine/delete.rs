@@ -9,7 +9,7 @@ impl TransactionLiteEngine<'_> {
     pub async fn delete(&mut self, collection: &str, ids: &[bson::Value]) -> Result<usize> {
         let snapshot = self
             .transaction
-            .create_snapshot(LockMode::Write, collection, false)
+            .create_snapshot(LockMode::Write, collection, false, self.header)
             .await?;
         if snapshot.collection_page().is_none() {
             return Ok(0);
@@ -21,7 +21,7 @@ impl TransactionLiteEngine<'_> {
 
         let mut indexer = IndexService::new(
             parts.index_pages,
-            self.header.borrow().pragmas().collation(),
+            self.header.pragmas().collation(),
             self.disk.max_items_count(),
         );
         let mut data = DataService::new(parts.data_pages, self.disk.max_items_count());

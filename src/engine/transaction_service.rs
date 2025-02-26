@@ -6,7 +6,7 @@ use crate::engine::snapshot::Snapshot;
 use crate::engine::transaction_monitor::TransactionMonitorShared;
 use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::wal_index_service::WalIndexService;
-use crate::engine::{BasePage, PageType};
+use crate::engine::{BasePage, HeaderPageLocked, PageType};
 use crate::utils::Shared;
 use crate::{Result, bson};
 use std::collections::HashMap;
@@ -19,7 +19,6 @@ use std::thread::ThreadId;
 
 into_non_drop! {
 pub(crate) struct TransactionService {
-    header: Shared<HeaderPage>,
     locker: Rc<LockService>,
     disk: Rc<DiskService>,
     // reader will be created each time
@@ -42,7 +41,6 @@ pub(crate) struct TransactionService {
 
 impl TransactionService {
     pub fn new(
-        header: Shared<HeaderPage>,
         locker: Rc<LockService>,
         disk: Rc<DiskService>,
         // reader will be created each time
@@ -54,7 +52,6 @@ impl TransactionService {
         Self {
             transaction_id: wal_index.next_transaction_id(),
 
-            header,
             locker,
             disk,
             wal_index,
@@ -108,6 +105,7 @@ impl TransactionService {
         mode: LockMode,
         collection: &str,
         add_if_not_exists: bool,
+        header: &Rc<HeaderPage>,
     ) -> Result<&'a mut Snapshot> {
         //debug_assert_eq!(self.state, TransactionState::Active);
 
@@ -120,7 +118,7 @@ impl TransactionService {
                     let new = Snapshot::new(
                         mode,
                         collection,
-                        Shared::clone(&self.header),
+                        Rc::clone(header),
                         self.transaction_id,
                         self.trans_pages.clone(),
                         Rc::clone(&self.locker),
@@ -139,7 +137,7 @@ impl TransactionService {
                 let new = Snapshot::new(
                     mode,
                     collection,
-                    Shared::clone(&self.header),
+                    Rc::clone(header),
                     self.transaction_id,
                     self.trans_pages.clone(),
                     Rc::clone(&self.locker),
@@ -171,7 +169,7 @@ impl TransactionService {
             debug_log!(TRANSACTION: "safepoint flushing transaction pages: {transaction_size}");
 
             if self.mode == LockMode::Write {
-                self.persist_dirty_page(false).await?;
+                self.persist_dirty_page(None).await?;
             }
 
             for snapshot in self.snapshots.values_mut() {
@@ -184,16 +182,16 @@ impl TransactionService {
         Ok(())
     }
 
-    async fn persist_dirty_page(&mut self, commit: bool) -> Result<usize> {
+    // RustChange: pass header if commit, none otherwice
+    async fn persist_dirty_page(
+        &mut self,
+        mut header_if_commit: Option<&mut HeaderPageLocked<'_>>,
+    ) -> Result<usize> {
         let mut buffers = vec![];
+        let commit = header_if_commit.is_some();
 
         // build buffers
         {
-            let mut header_if_commit = if commit {
-                Some(self.header.borrow_mut())
-            } else {
-                None
-            };
             let pages = self
                 .snapshots
                 .values_mut()
@@ -213,7 +211,7 @@ impl TransactionService {
                 }
 
                 //if self.trans_pages.borrow().last_deleted_page() == page_mut.page_id() && commit {
-                if let Some(ref mut header) = header_if_commit {
+                if let Some(header) = &mut header_if_commit {
                     if self.trans_pages.borrow().last_deleted_page() == page_mut.page_id() {
                         debug_assert!(
                             self.trans_pages.borrow().header_changed(),
@@ -239,10 +237,10 @@ impl TransactionService {
             }
 
             //if commit && self.trans_pages.borrow().header_changed() {
-            if let Some(ref mut header) = header_if_commit {
+            if let Some(header) = &mut header_if_commit {
                 if self.trans_pages.borrow().header_changed() {
-                    header.set_transaction_id(self.transaction_id);
-                    header.set_confirmed(true);
+                    header.base_page().set_transaction_id(self.transaction_id);
+                    header.base_page().set_confirmed(true);
 
                     self.trans_pages.borrow_mut().call_on_commit(header);
 
@@ -284,13 +282,13 @@ impl TransactionService {
         Ok(count)
     }
 
-    pub async fn commit(mut self) -> Result<()> {
+    pub async fn commit(mut self, header: &HeaderPage) -> Result<()> {
         //debug_assert_eq!(self.state, TransactionState::Active);
         debug_log!(TRANSACTION: "commit transaction ({} pages)", self.trans_pages.borrow().transaction_size);
 
         if self.mode == LockMode::Write || self.trans_pages.borrow().header_changed() {
-            // lock on header
-            let count = self.persist_dirty_page(true).await?;
+            let mut header = header.lock().await;
+            let count = self.persist_dirty_page(Some(&mut header)).await?;
             if count > 0 {
                 let dirty_pages = self
                     .trans_pages
@@ -317,14 +315,14 @@ impl TransactionService {
         Ok(())
     }
 
-    pub async fn rollback(mut self) -> Result<()> {
+    pub async fn rollback(mut self, header: &HeaderPage) -> Result<()> {
         //debug_assert_eq!(self.state, TransactionState::Active);
 
         debug_log!(TRANSACTION: "rollback transaction ({} pages with {} returns", self.trans_pages.borrow().transaction_size, self.trans_pages.borrow().new_pages().len());
 
         // if transaction contains new pages, must return to database in another transaction
         if !self.trans_pages.borrow().new_pages().is_empty() {
-            self.return_new_pages().await?;
+            self.return_new_pages(header).await?;
         }
 
         let destruct = self.into_destruct();
@@ -358,13 +356,11 @@ impl TransactionService {
         Ok(())
     }
 
-    #[allow(clippy::await_holding_refcell_ref)]
-    async fn return_new_pages(&mut self) -> Result<()> {
+    async fn return_new_pages(&mut self, header: &HeaderPage) -> Result<()> {
         let transaction_id = self.wal_index.next_transaction_id();
 
         // lock on header
-        #[allow(clippy::await_holding_refcell_ref)]
-        let mut header = self.header.borrow_mut();
+        let mut header = header.lock().await;
         let r = header.save_point();
 
         let mut buffers = Vec::new();
@@ -386,10 +382,10 @@ impl TransactionService {
                 buffers.push((page_id, page.into_buffer()));
             }
 
-            r.header.set_transaction_id(transaction_id);
+            r.header.base_page().set_transaction_id(transaction_id);
             r.header
                 .set_free_empty_page_list(self.trans_pages.borrow().new_pages()[0]);
-            r.header.set_confirmed(true);
+            r.header.base_page().set_confirmed(true);
 
             let buf = r.header.update_buffer();
             let mut clone = self.disk.new_page();

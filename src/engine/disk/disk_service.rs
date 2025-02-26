@@ -73,7 +73,7 @@ impl DiskService {
 
         header.update_buffer();
 
-        stream.write_all(header.buffer().buffer()).await?;
+        stream.write_all(header.as_mut().buffer().buffer()).await?;
 
         // initial size
 

@@ -2,8 +2,7 @@ use crate::engine::disk::DiskService;
 use crate::engine::lock_service::LockService;
 use crate::engine::transaction_service::TransactionService;
 use crate::engine::wal_index_service::WalIndexService;
-use crate::engine::{HeaderPage, MAX_OPEN_TRANSACTIONS, MAX_TRANSACTION_SIZE};
-use crate::utils::Shared;
+use crate::engine::{MAX_OPEN_TRANSACTIONS, MAX_TRANSACTION_SIZE};
 use crate::{Error, Result};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -16,7 +15,6 @@ pub(crate) struct TransactionMonitorShared {
 }
 
 pub(crate) struct TransactionMonitor {
-    header: Shared<HeaderPage>,
     locker: Rc<LockService>,
     disk: Rc<DiskService>,
     // reader will be created each time
@@ -36,14 +34,12 @@ struct InTransactionsLock {
 
 impl TransactionMonitor {
     pub fn new(
-        header: Shared<HeaderPage>,
         locker: Rc<LockService>,
         disk: Rc<DiskService>,
         // reader will be created each time
         wal_index: Rc<WalIndexService>,
     ) -> Self {
         Self {
-            header,
             locker,
             disk,
             wal_index,
@@ -81,7 +77,6 @@ impl TransactionMonitor {
                 let max_transaction_size_rc = Rc::new(AtomicU32::new(initial_size));
 
                 transaction = TransactionService::new(
-                    Shared::clone(&self.header),
                     Rc::clone(&self.locker),
                     Rc::clone(&self.disk),
                     Rc::clone(&self.wal_index),

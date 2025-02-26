@@ -7,11 +7,7 @@ use crate::utils::CaseInsensitiveStr;
 
 impl LiteEngine {
     pub fn get_collection_names(&self) -> Vec<String> {
-        self.header
-            .borrow()
-            .collections()
-            .map(|x| x.0.to_string())
-            .collect()
+        self.header.collection_names()
     }
 }
 
@@ -20,7 +16,7 @@ impl TransactionLiteEngine<'_> {
     async fn drop_collection(&mut self, name: &str) -> Result<bool> {
         let snapshot = self
             .transaction
-            .create_snapshot(LockMode::Write, name, false)
+            .create_snapshot(LockMode::Write, name, false, self.header)
             .await?;
         if snapshot.collection_page().is_none() {
             return Ok(false);
@@ -46,15 +42,15 @@ impl TransactionLiteEngine<'_> {
             return Ok(true); // Original: errors, this: OK
         }
 
-        CollectionService::check_name(new_name, &self.header.borrow())?;
+        CollectionService::check_name(new_name, self.header)?;
 
         let _new_snapshot = self
             .transaction
-            .create_snapshot(LockMode::Write, new_name, false)
+            .create_snapshot(LockMode::Write, new_name, false, self.header)
             .await?;
         let current_snapshot = self
             .transaction
-            .create_snapshot(LockMode::Write, collection, false)
+            .create_snapshot(LockMode::Write, collection, false, self.header)
             .await?;
 
         // not exists
@@ -62,7 +58,7 @@ impl TransactionLiteEngine<'_> {
             return Ok(false);
         }
 
-        if self.header.borrow().get_collection_page_id(new_name) != u32::MAX {
+        if self.header.get_collection_page_id(new_name) != u32::MAX {
             return Err(Error::already_exists_collection_name(new_name));
         }
 
