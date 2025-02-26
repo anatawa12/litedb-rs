@@ -125,7 +125,6 @@ impl DiskService {
         let mut stream = self.log_pool.writeable().await?;
         let _log_write_lock = self.log_lock.lock().await;
 
-        // lock on stream
         for (page_id, mut page) in pages {
             let new_length =
                 self.log_length.fetch_add(PAGE_SIZE as i64, Relaxed) + PAGE_SIZE as i64;

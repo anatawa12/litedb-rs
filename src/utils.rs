@@ -40,6 +40,11 @@ impl Default for Collation {
     }
 }
 
+const _: () = {
+    // static aserts
+    assert!(size_of::<Collation>() == size_of::<u64>());
+};
+
 impl Collation {
     pub fn new(lcid: i32, sort_options: CompareOptions) -> Self {
         Collation { lcid, sort_options }
@@ -55,6 +60,14 @@ impl Collation {
 
     //    pub(crate) fn sql_like(&self, left: &str, right: &str) -> bool {
     //    }
+
+    pub(crate) fn to_u64(self) -> u64 {
+        unsafe { std::mem::transmute::<Self, u64>(self) }
+    }
+
+    pub(crate) fn from_u64(from: u64) -> Self {
+        unsafe { std::mem::transmute::<u64, Self>(from) }
+    }
 }
 
 #[repr(transparent)]

@@ -1,5 +1,7 @@
-use crate::engine::PageBuffer;
-use crate::utils::{Collation, CompareOptions, Shared};
+use crate::engine::{DirtyFlag, PageBuffer};
+use crate::utils::{Collation, CompareOptions};
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64};
 use std::time::Duration;
 
 const P_USER_VERSION: usize = 76; // 76-79 (4 bytes)
@@ -12,33 +14,26 @@ const P_CHECKPOINT: usize = 97; // 97-100 (4 bytes)
 const P_LIMIT_SIZE: usize = 101; // 101-108 (8 bytes)
 
 /// Clone this class will share the same inner object
-#[derive(Clone)]
 pub(crate) struct EnginePragmas {
-    inner: Shared<EnginePragmasInner>,
-}
-
-struct EnginePragmasInner {
-    user_version: i32,
-    collation: Collation,
-    timeout: Duration,
-    limit_size: i64,
-    utc_date: bool,
-    checkpoint: i32,
-    dirty: bool,
+    user_version: AtomicI32,
+    collation: AtomicU64,
+    timeout_seconds: AtomicI32,
+    limit_size: AtomicI64,
+    utc_date: AtomicBool,
+    checkpoint: AtomicI32,
+    dirty: DirtyFlag,
 }
 
 impl Default for EnginePragmas {
     fn default() -> Self {
         EnginePragmas {
-            inner: Shared::new(EnginePragmasInner {
-                user_version: 0,
-                collation: Collation::default(),
-                timeout: Duration::from_secs(60),
-                limit_size: i64::MAX,
-                utc_date: false,
-                checkpoint: 1000,
-                dirty: false,
-            }),
+            user_version: 0.into(),
+            collation: Collation::default().to_u64().into(),
+            timeout_seconds: 60.into(),
+            limit_size: i64::MAX.into(),
+            utc_date: false.into(),
+            checkpoint: 1000.into(),
+            dirty: DirtyFlag::new(),
         }
     }
 }
@@ -46,96 +41,98 @@ impl Default for EnginePragmas {
 #[allow(dead_code)]
 impl EnginePragmas {
     pub fn read(&self, buffer: &PageBuffer) -> crate::Result<()> {
-        let mut inner = self.inner.borrow_mut();
-
-        inner.user_version = buffer.read_i32(P_USER_VERSION);
-        inner.collation = Collation::new(
-            buffer.read_i32(P_COLLATION_LCID),
-            CompareOptions(buffer.read_i32(P_COLLATION_SORT)),
+        self.user_version
+            .store(buffer.read_i32(P_USER_VERSION), Relaxed);
+        self.collation.store(
+            Collation::new(
+                buffer.read_i32(P_COLLATION_LCID),
+                CompareOptions(buffer.read_i32(P_COLLATION_SORT)),
+            )
+            .to_u64(),
+            Relaxed,
         );
-        inner.timeout = Duration::from_secs(buffer.read_i32(P_TIMEOUT) as u64);
+        self.timeout_seconds
+            .store(buffer.read_i32(P_TIMEOUT), Relaxed);
         let limit_size = buffer.read_i64(P_LIMIT_SIZE);
-        inner.limit_size = if limit_size == 0 {
-            i64::MAX
-        } else {
-            limit_size
-        };
-        inner.utc_date = buffer.read_bool(P_UTC_DATE);
-        inner.checkpoint = buffer.read_i32(P_CHECKPOINT);
-        inner.dirty = false;
-        drop(inner);
+        self.limit_size.store(
+            if limit_size == 0 {
+                i64::MAX
+            } else {
+                limit_size
+            },
+            Relaxed,
+        );
+        self.utc_date.store(buffer.read_bool(P_UTC_DATE), Relaxed);
+        self.checkpoint
+            .store(buffer.read_i32(P_CHECKPOINT), Relaxed);
+        self.dirty.reset();
 
         Ok(())
     }
 
     pub(crate) fn update_buffer(&self, buffer: &mut PageBuffer) {
-        let inner = self.inner.borrow();
-        buffer.write_i32(P_USER_VERSION, inner.user_version);
-        buffer.write_i32(P_COLLATION_LCID, inner.collation.lcid);
-        buffer.write_i32(P_COLLATION_SORT, inner.collation.sort_options.0);
-        buffer.write_i32(P_TIMEOUT, inner.timeout.as_secs() as i32);
-        buffer.write_i64(P_LIMIT_SIZE, inner.limit_size);
-        buffer.write_byte(P_UTC_DATE, inner.utc_date as u8);
-        buffer.write_i32(P_CHECKPOINT, inner.checkpoint);
+        buffer.write_i32(P_USER_VERSION, self.user_version.load(Relaxed));
+        let collation = Collation::from_u64(self.collation.load(Relaxed));
+        buffer.write_i32(P_COLLATION_LCID, collation.lcid);
+        buffer.write_i32(P_COLLATION_SORT, collation.sort_options.0);
+        buffer.write_i32(P_TIMEOUT, self.timeout_seconds.load(Relaxed));
+        buffer.write_i64(P_LIMIT_SIZE, self.limit_size.load(Relaxed));
+        buffer.write_bool(P_UTC_DATE, self.utc_date.load(Relaxed));
+        buffer.write_i32(P_CHECKPOINT, self.checkpoint.load(Relaxed));
     }
 
     pub fn user_version(&self) -> i32 {
-        self.inner.borrow().user_version
+        self.user_version.load(Relaxed)
     }
 
     pub fn collation(&self) -> Collation {
-        self.inner.borrow().collation
+        Collation::from_u64(self.collation.load(Relaxed))
     }
 
     pub fn timeout(&self) -> Duration {
-        self.inner.borrow().timeout
+        Duration::from_secs(self.timeout_seconds.load(Relaxed) as u64)
     }
 
     pub fn limit_size(&self) -> i64 {
-        self.inner.borrow().limit_size
+        self.limit_size.load(Relaxed)
     }
 
     pub fn utc_date(&self) -> bool {
-        self.inner.borrow().utc_date
+        self.utc_date.load(Relaxed)
     }
 
     pub fn checkpoint(&self) -> i32 {
-        self.inner.borrow().checkpoint
+        self.checkpoint.load(Relaxed)
     }
 
     pub fn set_user_version(&self, user_version: i32) {
-        let mut inner = self.inner.borrow_mut();
-        inner.user_version = user_version;
-        inner.dirty = true;
+        self.user_version.store(user_version, Relaxed);
+        self.dirty.set();
     }
 
     pub fn set_collation(&self, collation: Collation) {
-        let mut inner = self.inner.borrow_mut();
-        inner.collation = collation;
-        inner.dirty = true;
+        self.collation.store(collation.to_u64(), Relaxed);
+        self.dirty.set();
     }
 
     pub fn set_timeout(&self, timeout: Duration) {
-        let mut inner = self.inner.borrow_mut();
-        inner.timeout = timeout;
-        inner.dirty = true;
+        self.timeout_seconds
+            .store(timeout.as_secs() as i32, Relaxed);
+        self.dirty.set()
     }
 
     pub fn set_limit_size(&self, limit_size: i64) {
-        let mut inner = self.inner.borrow_mut();
-        inner.limit_size = limit_size;
-        inner.dirty = true;
+        self.limit_size.store(limit_size, Relaxed);
+        self.dirty.set();
     }
 
     pub fn set_utc_date(&self, utc_date: bool) {
-        let mut inner = self.inner.borrow_mut();
-        inner.utc_date = utc_date;
-        inner.dirty = true;
+        self.utc_date.store(utc_date, Relaxed);
+        self.dirty.set();
     }
 
     pub fn set_checkpoint(&self, checkpoint: i32) {
-        let mut inner = self.inner.borrow_mut();
-        inner.checkpoint = checkpoint;
-        inner.dirty = true;
+        self.checkpoint.store(checkpoint, Relaxed);
+        self.dirty.set();
     }
 }

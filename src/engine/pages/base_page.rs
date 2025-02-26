@@ -64,7 +64,6 @@ impl DirtyFlag {
         self.0.load(Relaxed)
     }
 
-    #[allow(dead_code)]
     pub fn reset(&self) {
         self.0.store(false, Relaxed);
     }
