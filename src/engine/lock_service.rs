@@ -1,19 +1,18 @@
 use crate::engine::engine_pragmas::EnginePragmas;
 use async_lock::{Mutex, MutexGuardArc, RwLock, RwLockReadGuardArc, RwLockWriteGuardArc};
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::Arc;
 
 // this class should have interior mutability
 pub(crate) struct LockService {
     #[allow(dead_code)] // basically indexes variant is used
-    pragma: Rc<EnginePragmas>,
+    pragma: Arc<EnginePragmas>,
     transaction: Arc<RwLock<()>>,
     collections: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl LockService {
-    pub fn new(pragma: Rc<EnginePragmas>) -> Self {
+    pub fn new(pragma: Arc<EnginePragmas>) -> Self {
         LockService {
             pragma,
             transaction: Arc::new(RwLock::new(())),

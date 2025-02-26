@@ -8,10 +8,9 @@ use crate::engine::{DirtyFlag, PageBuffer};
 use crate::{Error, Result};
 use async_lock::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 use std::ops::Deref;
-use std::rc::Rc;
-use std::sync::Mutex as StdMutex;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicU32, AtomicU64};
+use std::sync::{Arc, Mutex as StdMutex};
 
 const HEADER_INFO: &[u8] = b"** This is a LiteDB file **";
 const FILE_VERSION: u8 = 8;
@@ -35,7 +34,7 @@ pub(crate) struct HeaderPage {
 
 struct HeaderPageInner {
     creation_time: AtomicU64,
-    pragmas: Rc<EnginePragmas>,
+    pragmas: Arc<EnginePragmas>,
     // RustChange: we use mutex for safety, upstream may have concurrent issue
     collections: StdMutex<bson::Document>,
     last_page_id: AtomicU32,
@@ -60,7 +59,7 @@ impl HeaderPage {
                 creation_time: bson::DateTime::now().ticks().into(),
                 free_empty_page_list: 0.into(),
                 last_page_id: 0.into(),
-                pragmas: Rc::new(EnginePragmas::default()),
+                pragmas: Arc::new(EnginePragmas::default()),
                 collections: StdMutex::new(bson::Document::new()),
 
                 collections_changed: DirtyFlag::new(),
@@ -86,7 +85,7 @@ impl HeaderPage {
                 creation_time: bson::DateTime::now().ticks().into(),
                 free_empty_page_list: 0.into(),
                 last_page_id: 0.into(),
-                pragmas: Rc::new(EnginePragmas::default()),
+                pragmas: Arc::new(EnginePragmas::default()),
                 collections: StdMutex::new(bson::Document::new()),
 
                 collections_changed: DirtyFlag::new(),
@@ -164,7 +163,7 @@ impl HeaderPageInner {
 }
 
 impl HeaderPage {
-    pub fn pragmas(&self) -> &Rc<EnginePragmas> {
+    pub fn pragmas(&self) -> &Arc<EnginePragmas> {
         &self.inner.pragmas
     }
 

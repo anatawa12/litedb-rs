@@ -1,16 +1,17 @@
 use crate::Result;
 use crate::engine::disk::DiskService;
-use crate::engine::lock_service::LockService;
+use crate::engine::lock_service::{ExclusiveScope, LockService};
 use crate::engine::page_position::PagePosition;
 use crate::engine::pages::{BasePage, HeaderPage, PageType};
 use crate::engine::{FileOrigin, PAGE_SIZE};
 use async_lock::RwLock;
 use futures::prelude::*;
-use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::collections::{HashMap, HashSet};
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::pin::pin;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 pub(crate) struct WalIndexService {
     last_transaction_id: AtomicU32,
@@ -18,7 +19,7 @@ pub(crate) struct WalIndexService {
     // This variable is loked by either
     // - Transaction (Read) Lock and RwLock above (Write)
     // - Transaction Exclusive (Wrote) Lock
-    confirm_transactions: RefCell<HashSet<u32>>,
+    confirm_transactions: TransactionsCell,
 }
 
 struct InLock {
@@ -34,7 +35,7 @@ impl WalIndexService {
                 current_read_version: 0,
                 index: HashMap::new(),
             }),
-            confirm_transactions: RefCell::new(HashSet::new()),
+            confirm_transactions: TransactionsCell::new(),
         }
     }
 
@@ -50,7 +51,7 @@ impl WalIndexService {
 
     pub async fn clear(&self, disk: &DiskService) -> Result<()> {
         let mut in_lock = self.lock.write().await;
-        self.confirm_transactions.borrow_mut().clear();
+        self.confirm_transactions.get_mut(&mut in_lock).clear();
         in_lock.index.clear();
 
         in_lock.current_read_version = 0;
@@ -98,7 +99,7 @@ impl WalIndexService {
         }
 
         self.confirm_transactions
-            .borrow_mut()
+            .get_mut(in_lock)
             .insert(transaction_id);
     }
 
@@ -150,34 +151,34 @@ impl WalIndexService {
     }
 
     pub async fn checkpoint(&self, disk: &DiskService, locker: &LockService) -> Result<()> {
-        if disk.get_file_length(FileOrigin::Log) == 0
-            || self.confirm_transactions.borrow().is_empty()
-        {
+        if disk.get_file_length(FileOrigin::Log) == 0 || self.confirm_transactions.is_empty() {
             return Ok(());
         }
 
-        let _scope = locker.enter_exclusive().await;
+        let scope = locker.enter_exclusive().await;
 
-        self.checkpoint_internal(disk).await?;
+        self.checkpoint_internal(disk, &scope).await?;
 
         Ok(())
     }
 
     pub async fn try_checkpoint(&self, disk: &DiskService, locker: &LockService) -> Result<usize> {
-        if disk.get_file_length(FileOrigin::Log) == 0
-            || self.confirm_transactions.borrow().is_empty()
-        {
+        if disk.get_file_length(FileOrigin::Log) == 0 || self.confirm_transactions.is_empty() {
             return Ok(0);
         }
 
-        let Some(_scope) = locker.try_enter_exclusive().await else {
+        let Some(scope) = locker.try_enter_exclusive().await else {
             return Ok(0);
         };
 
-        self.checkpoint_internal(disk).await
+        self.checkpoint_internal(disk, &scope).await
     }
 
-    async fn checkpoint_internal(&self, disk: &DiskService) -> Result<usize> {
+    async fn checkpoint_internal(
+        &self,
+        disk: &DiskService,
+        scope: &ExclusiveScope,
+    ) -> Result<usize> {
         debug_log!(WAL: "Checkpointing WAL");
 
         let mut buffers = Vec::new();
@@ -191,7 +192,11 @@ impl WalIndexService {
 
                 let transaction_id = buffer.read_u32(BasePage::P_TRANSACTION_ID);
 
-                if self.confirm_transactions.borrow().contains(&transaction_id) {
+                if self
+                    .confirm_transactions
+                    .get(scope)
+                    .contains(&transaction_id)
+                {
                     let page_id = buffer.read_u32(BasePage::P_PAGE_ID);
 
                     buffer.write_u32(BasePage::P_TRANSACTION_ID, u32::MAX);
@@ -208,5 +213,65 @@ impl WalIndexService {
         self.clear(disk).await?;
 
         Ok(buffers.len())
+    }
+}
+
+struct TransactionsCell {
+    // This variable is locked by either
+    // - Transaction (Read) Lock and RwLock above (Write)
+    // - Transaction Exclusive (Wrote) Lock
+    inner: UnsafeCell<HashSet<u32>>,
+    is_empty: AtomicBool,
+}
+
+unsafe impl Send for TransactionsCell {}
+unsafe impl Sync for TransactionsCell {}
+
+impl TransactionsCell {
+    fn new() -> TransactionsCell {
+        TransactionsCell {
+            inner: UnsafeCell::new(HashSet::new()),
+            is_empty: AtomicBool::new(false),
+        }
+    }
+
+    fn get_mut<'a>(&'a self, _: &'a mut InLock) -> impl DerefMut<Target = HashSet<u32>> + 'a {
+        struct Transactions<'a> {
+            inner: &'a mut HashSet<u32>,
+            is_empty: &'a AtomicBool,
+        }
+
+        impl Drop for Transactions<'_> {
+            fn drop(&mut self) {
+                self.is_empty.store(self.inner.is_empty(), Relaxed);
+            }
+        }
+
+        impl Deref for Transactions<'_> {
+            type Target = HashSet<u32>;
+
+            fn deref(&self) -> &Self::Target {
+                self.inner
+            }
+        }
+
+        impl DerefMut for Transactions<'_> {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                self.inner
+            }
+        }
+
+        Transactions {
+            inner: unsafe { &mut *self.inner.get() },
+            is_empty: &self.is_empty,
+        }
+    }
+
+    fn get<'a>(&'a self, _: &'a ExclusiveScope) -> &'a HashSet<u32> {
+        unsafe { &*self.inner.get() }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty.load(Relaxed)
     }
 }

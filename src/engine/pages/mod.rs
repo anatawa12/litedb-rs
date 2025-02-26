@@ -14,7 +14,7 @@ pub(crate) use index_page::*;
 use std::any::{Any, TypeId};
 use std::pin::Pin;
 
-pub(crate) trait Page: AsRef<BasePage> + AsMut<BasePage> + Any {
+pub(crate) trait Page: AsRef<BasePage> + AsMut<BasePage> + Any + Send + Sync {
     fn load(buffer: Box<PageBuffer>) -> Result<Self>
     where
         Self: Sized;

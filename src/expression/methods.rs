@@ -164,8 +164,12 @@ trait CreateExpression<T> {
     fn create(self, _: T) -> Self::Expression;
 }
 
-impl<T: for<'ctx> Fn(&ExecutionContext<'ctx>) -> crate::Result<&'ctx bson::Value> + 'static>
-    CreateExpression<T> for CreateExpr<crate::Result<&'_ bson::Value>>
+impl<
+    T: for<'ctx> Fn(&ExecutionContext<'ctx>) -> crate::Result<&'ctx bson::Value>
+        + Send
+        + Sync
+        + 'static,
+> CreateExpression<T> for CreateExpr<crate::Result<&'_ bson::Value>>
 {
     type Expression = ScalarExpr;
 
@@ -175,8 +179,12 @@ impl<T: for<'ctx> Fn(&ExecutionContext<'ctx>) -> crate::Result<&'ctx bson::Value
     }
 }
 
-impl<T: for<'ctx> Fn(&ExecutionContext<'ctx>) -> crate::Result<ValueIterator<'ctx, 'ctx>> + 'static>
-    CreateExpression<T> for CreateExpr<ValueIterator<'_, '_>>
+impl<
+    T: for<'ctx> Fn(&ExecutionContext<'ctx>) -> crate::Result<ValueIterator<'ctx, 'ctx>>
+        + Send
+        + Sync
+        + 'static,
+> CreateExpression<T> for CreateExpr<ValueIterator<'_, '_>>
 {
     type Expression = SequenceExpr;
 

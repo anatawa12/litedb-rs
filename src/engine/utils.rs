@@ -227,3 +227,16 @@ mod borrow_status {
         }
     }
 }
+
+pub struct SendPtr<T: ?Sized>(pub *mut T);
+
+unsafe impl<'a, T: 'a + ?Sized> Send for SendPtr<T> where &'a T: Send {}
+unsafe impl<'a, T: 'a + ?Sized> Sync for SendPtr<T> where &'a T: Sync {}
+
+impl<T> Deref for SendPtr<T> {
+    type Target = *mut T;
+
+    fn deref(&self) -> &*mut T {
+        &self.0
+    }
+}

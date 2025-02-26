@@ -15,8 +15,7 @@ use futures::StreamExt;
 #[cfg(feature = "sequential-index")]
 use std::collections::HashMap;
 use std::pin::pin;
-use std::rc::Rc;
-
+use std::sync::Arc;
 // common imports for child modules
 use crate::bson;
 
@@ -67,11 +66,11 @@ pub struct LiteSettings {
 }
 
 pub struct LiteEngine {
-    locker: Rc<LockService>,
-    disk: Rc<DiskService>,
-    wal_index: Rc<WalIndexService>,
-    header: Rc<HeaderPage>,
-    monitor: Rc<TransactionMonitor>,
+    locker: Arc<LockService>,
+    disk: Arc<DiskService>,
+    wal_index: Arc<WalIndexService>,
+    header: Arc<HeaderPage>,
+    monitor: Arc<TransactionMonitor>,
     // state,
     // settings,
     // system_collections, // we use match
@@ -80,8 +79,8 @@ pub struct LiteEngine {
 }
 
 pub struct TransactionLiteEngine<'a> {
-    disk: &'a Rc<DiskService>,
-    header: &'a Rc<HeaderPage>,
+    disk: &'a Arc<DiskService>,
+    header: &'a Arc<HeaderPage>,
     #[cfg(feature = "sequential-index")]
     sequences: &'a Mutex<HashMap<CaseInsensitiveString, i64>>,
     transaction: &'a mut TransactionService,
@@ -132,13 +131,16 @@ impl LiteEngine {
             wal_index.restore_index(&mut header, &disk).await?;
         }
 
-        let header = Rc::new(header);
-        let locker = Rc::new(locker);
-        let disk = Rc::new(disk);
-        let wal_index = Rc::new(wal_index);
-        let monitor =
-            TransactionMonitor::new(Rc::clone(&locker), Rc::clone(&disk), Rc::clone(&wal_index));
-        let monitor = Rc::new(monitor);
+        let header = Arc::new(header);
+        let locker = Arc::new(locker);
+        let disk = Arc::new(disk);
+        let wal_index = Arc::new(wal_index);
+        let monitor = TransactionMonitor::new(
+            Arc::clone(&locker),
+            Arc::clone(&disk),
+            Arc::clone(&wal_index),
+        );
+        let monitor = Arc::new(monitor);
 
         // TODO: consider not using RefCell<HeaderPage>
 
@@ -168,11 +170,21 @@ impl LiteEngine {
                 .try_checkpoint(&self.disk, &self.locker)
                 .await?;
         }
-        if let Some(disk) = Rc::into_inner(self.disk) {
+        if let Some(disk) = Arc::into_inner(self.disk) {
             disk.dispose().await;
         }
         // sort_disk
         drop(self.locker);
         Ok(())
     }
+}
+
+#[allow(dead_code)]
+fn _type_check() {
+    use crate::utils::checker::*;
+    check_sync_send(dummy::<LiteEngine>());
+
+    check_sync_send(LiteEngine::new(dummy()));
+    check_sync_send(dummy::<LiteEngine>().checkpoint());
+    check_sync_send(dummy::<LiteEngine>().dispose());
 }

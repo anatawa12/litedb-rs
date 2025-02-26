@@ -5,45 +5,44 @@ use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{MAX_OPEN_TRANSACTIONS, MAX_TRANSACTION_SIZE};
 use crate::{Error, Result};
 use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::Mutex as StdMutex;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::{Arc, Mutex as StdMutex};
 
 pub(crate) struct TransactionMonitorShared {
-    inner: Rc<StdMutex<InTransactionsLock>>,
+    inner: Arc<StdMutex<InTransactionsLock>>,
 }
 
 pub(crate) struct TransactionMonitor {
-    locker: Rc<LockService>,
-    disk: Rc<DiskService>,
+    locker: Arc<LockService>,
+    disk: Arc<DiskService>,
     // reader will be created each time
-    wal_index: Rc<WalIndexService>,
+    wal_index: Arc<WalIndexService>,
 
     // each operation(s) in this mutex is small so using StdMutex instead of async one
-    transactions: Rc<StdMutex<InTransactionsLock>>,
+    transactions: Arc<StdMutex<InTransactionsLock>>,
     // RustChange: No ThreadLocal Slot because API in rust won't need that I feel
     //slot: Option<Shared<TransactionService>>, // thread local
 }
 
 struct InTransactionsLock {
-    transaction_max_transaction_sizes: HashMap<u32, Rc<AtomicU32>>,
+    transaction_max_transaction_sizes: HashMap<u32, Arc<AtomicU32>>,
     pub free_pages: u32,
     pub initial_size: u32,
 }
 
 impl TransactionMonitor {
     pub fn new(
-        locker: Rc<LockService>,
-        disk: Rc<DiskService>,
+        locker: Arc<LockService>,
+        disk: Arc<DiskService>,
         // reader will be created each time
-        wal_index: Rc<WalIndexService>,
+        wal_index: Arc<WalIndexService>,
     ) -> Self {
         Self {
             locker,
             disk,
             wal_index,
-            transactions: Rc::new(StdMutex::new(InTransactionsLock {
+            transactions: Arc::new(StdMutex::new(InTransactionsLock {
                 transaction_max_transaction_sizes: HashMap::new(),
                 free_pages: MAX_TRANSACTION_SIZE,
                 initial_size: MAX_TRANSACTION_SIZE / MAX_OPEN_TRANSACTIONS as u32,
@@ -74,12 +73,12 @@ impl TransactionMonitor {
                 //    .transactions
                 //    .values()
                 //    .any(|x| x.borrow().thread_id() == std::thread::current().id());
-                let max_transaction_size_rc = Rc::new(AtomicU32::new(initial_size));
+                let max_transaction_size_rc = Arc::new(AtomicU32::new(initial_size));
 
                 transaction = TransactionService::new(
-                    Rc::clone(&self.locker),
-                    Rc::clone(&self.disk),
-                    Rc::clone(&self.wal_index),
+                    Arc::clone(&self.locker),
+                    Arc::clone(&self.disk),
+                    Arc::clone(&self.wal_index),
                     max_transaction_size_rc.clone(),
                     TransactionMonitorShared {
                         inner: self.transactions.clone(),

@@ -5,6 +5,7 @@ use crate::engine::lock_service::{CollectionLockScope, LockService};
 use crate::engine::pages::HeaderPage;
 use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::transaction_service::LockMode;
+use crate::engine::utils::SendPtr;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{
     BasePage, CollectionIndexesMut, CollectionPage, DataPage, DirtyFlag, FileOrigin,
@@ -16,14 +17,14 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::mem::forget;
 use std::pin::Pin;
-use std::rc::Rc;
+use std::sync::Arc;
 
 macro_rules! inner {
     ($this: expr) => {
         // possibly inside of unsafe block
         #[allow(unused_unsafe)]
         unsafe {
-            &mut *$this.inner
+            &mut *$this.inner.0
         }
     };
 }
@@ -44,13 +45,13 @@ pub(crate) struct Snapshot {
 
 // for lifetime reasons, we split page collection to one struct
 pub(crate) struct SnapshotPages {
-    header: Rc<HeaderPage>,
+    header: Arc<HeaderPage>,
     data: SnapshotPagesData,
 }
 
 pub(crate) struct SnapshotPagesData {
-    disk: Rc<DiskService>,
-    wal_index: Rc<WalIndexService>,
+    disk: Arc<DiskService>,
+    wal_index: Arc<WalIndexService>,
     trans_pages: Shared<TransactionPages>,
     read_version: i32,
     transaction_id: u32,
@@ -59,14 +60,14 @@ pub(crate) struct SnapshotPagesData {
 }
 
 pub(crate) struct SnapshotDataPages<'a> {
-    inner: *mut SnapshotPages,
+    inner: SendPtr<SnapshotPages>,
     dirty: &'a DirtyFlag,
     free_data_page_list: &'a mut FreeDataPageList,
     _phantom: PhantomData<&'a SnapshotPages>,
 }
 
 pub(crate) struct SnapshotIndexPages<'a> {
-    inner: *mut SnapshotPages,
+    inner: SendPtr<SnapshotPages>,
     dirty: &'a DirtyFlag,
     _phantom: PhantomData<&'a SnapshotPages>,
 }
@@ -75,12 +76,12 @@ impl Snapshot {
     pub async fn new(
         mode: LockMode,
         collection_name: &str,
-        header: Rc<HeaderPage>,
+        header: Arc<HeaderPage>,
         transaction_id: u32,
         trans_pages: Shared<TransactionPages>,
-        locker: Rc<LockService>,
-        wal_index: Rc<WalIndexService>,
-        disk: Rc<DiskService>,
+        locker: Arc<LockService>,
+        wal_index: Arc<WalIndexService>,
+        disk: Arc<DiskService>,
         add_if_not_exists: bool,
     ) -> Result<Self> {
         let lock_scope = if mode == LockMode::Write {
@@ -139,7 +140,7 @@ impl Snapshot {
         Ok(snapshot)
     }
 
-    pub fn header(&mut self) -> &Rc<HeaderPage> {
+    pub fn header(&mut self) -> &Arc<HeaderPage> {
         &self.page_collection.header
     }
 
@@ -147,7 +148,7 @@ impl Snapshot {
         &self.page_collection.data.trans_pages
     }
 
-    pub fn disk(&self) -> &Rc<DiskService> {
+    pub fn disk(&self) -> &Arc<DiskService> {
         &self.page_collection.data.disk
     }
 
@@ -834,7 +835,7 @@ impl Snapshot {
 
             let dirty = DirtyFlag::new();
             let mut accessor = PartialIndexNodeAccessorMut::new(SnapshotIndexPages {
-                inner: pages as *mut _,
+                inner: SendPtr(pages as *mut _),
                 dirty: &dirty,
                 _phantom: PhantomData,
             });
@@ -906,13 +907,13 @@ impl Snapshot {
         let page_collection_pointer = &mut self.page_collection as *mut _;
         SnapshotParts {
             data_pages: SnapshotDataPages {
-                inner: page_collection_pointer,
+                inner: SendPtr(page_collection_pointer),
                 dirty: &collection_page.base.dirty,
                 free_data_page_list: &mut collection_page.free_data_page_list,
                 _phantom: PhantomData,
             },
             index_pages: SnapshotIndexPages {
-                inner: page_collection_pointer,
+                inner: SendPtr(page_collection_pointer),
                 dirty: &collection_page.base.dirty,
                 _phantom: PhantomData,
             },

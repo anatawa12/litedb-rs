@@ -40,9 +40,9 @@ pub(crate) type PageBufferArray = [u8; PAGE_SIZE];
 // public uses
 pub use lite_engine::*;
 
-pub trait FileStream: AsyncRead + AsyncWrite + AsyncSeek + Unpin + Send {
+pub trait FileStream: AsyncRead + AsyncWrite + AsyncSeek + Unpin + Send + Sync {
     // Should we use poll method instead?
-    fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output = Result<()>> + '_>>;
+    fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + '_>>;
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -51,8 +51,8 @@ pub trait StreamFactory: Send + Sync {
     fn get_stream(
         &self,
         writable: bool,
-    ) -> Pin<Box<dyn Future<Output = Result<Box<dyn FileStream>>> + '_>>;
-    fn exists(&self) -> Pin<Box<dyn Future<Output = bool> + '_>>;
-    fn len(&self) -> Pin<Box<dyn Future<Output = Result<u64>> + '_>>;
-    fn delete(&self) -> Pin<Box<dyn Future<Output = Result<()>> + '_>>;
+    ) -> Pin<Box<dyn Future<Output = Result<Box<dyn FileStream>>> + Send + Sync + '_>>;
+    fn exists(&self) -> Pin<Box<dyn Future<Output = bool> + Send + Sync + '_>>;
+    fn len(&self) -> Pin<Box<dyn Future<Output = Result<u64>> + Send + Sync + '_>>;
+    fn delete(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + '_>>;
 }

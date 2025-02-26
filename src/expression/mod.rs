@@ -6,8 +6,7 @@ use itertools::Itertools as _;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::{Debug, Display, Formatter};
-use std::rc::Rc;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use typed_arena::Arena;
 
 mod functions;
@@ -130,9 +129,14 @@ impl Clone for ValueIterator<'_, '_> {
     }
 }
 
-type ScalarExpr = Rc<dyn for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<&'ctx bson::Value>>;
-type SequenceExpr =
-    Rc<dyn for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<ValueIterator<'ctx, 'ctx>>>;
+type ScalarExpr = Arc<
+    dyn for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<&'ctx bson::Value> + Send + Sync,
+>;
+type SequenceExpr = Arc<
+    dyn for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<ValueIterator<'ctx, 'ctx>>
+        + Send
+        + Sync,
+>;
 
 #[derive(Clone)]
 pub enum Expression {
@@ -142,7 +146,10 @@ pub enum Expression {
 
 impl Expression {
     pub fn scalar(
-        scalar: impl for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<&'ctx bson::Value> + 'static,
+        scalar: impl for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<&'ctx bson::Value>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         Self::Scalar(scalar_expr(scalar))
     }
@@ -214,16 +221,21 @@ impl From<SequenceExpr> for Expression {
 }
 
 fn scalar_expr(
-    scalar: impl for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<&'ctx bson::Value> + 'static,
+    scalar: impl for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<&'ctx bson::Value>
+    + Send
+    + Sync
+    + 'static,
 ) -> ScalarExpr {
-    Rc::new(scalar)
+    Arc::new(scalar)
 }
 
 fn sequence_expr(
     sequence: impl for<'ctx> Fn(&ExecutionContext<'ctx>) -> super::Result<ValueIterator<'ctx, 'ctx>>
+    + Send
+    + Sync
     + 'static,
 ) -> SequenceExpr {
-    Rc::new(sequence)
+    Arc::new(sequence)
 }
 
 #[derive(Clone)]

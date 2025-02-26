@@ -12,20 +12,20 @@ use crate::{Result, bson};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::mem::forget;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering::Relaxed;
 use std::thread::ThreadId;
 
 into_non_drop! {
 pub(crate) struct TransactionService {
-    locker: Rc<LockService>,
-    disk: Rc<DiskService>,
+    locker: Arc<LockService>,
+    disk: Arc<DiskService>,
     // reader will be created each time
-    wal_index: Rc<WalIndexService>,
-    monitor: TransactionMonitorShared, // TransactionService will be owned by TransactionMonitor so Rc here
+    wal_index: Arc<WalIndexService>,
+    monitor: TransactionMonitorShared, // TransactionService will be owned by TransactionMonitor so Arc here
     snapshots: HashMap<String, Snapshot>,
-    trans_pages: Shared<TransactionPages>, // Fn TransactionPages will be shared with SnapShot so Rc
+    trans_pages: Shared<TransactionPages>, // Fn TransactionPages will be shared with SnapShot so Arc
 
     transaction_id: u32,
     start_time: bson::DateTime,
@@ -34,18 +34,18 @@ pub(crate) struct TransactionService {
     mode: LockMode,
 
     thread_id: ThreadId,
-    max_transaction_size: Rc<AtomicU32>,
+    max_transaction_size: Arc<AtomicU32>,
     trans_lock_scope: Option<TransactionScope>,
 }
 }
 
 impl TransactionService {
     pub fn new(
-        locker: Rc<LockService>,
-        disk: Rc<DiskService>,
+        locker: Arc<LockService>,
+        disk: Arc<DiskService>,
         // reader will be created each time
-        wal_index: Rc<WalIndexService>,
-        max_transaction_size: Rc<AtomicU32>,
+        wal_index: Arc<WalIndexService>,
+        max_transaction_size: Arc<AtomicU32>,
         monitor: TransactionMonitorShared,
         query_only: bool,
     ) -> Self {
@@ -105,7 +105,7 @@ impl TransactionService {
         mode: LockMode,
         collection: &str,
         add_if_not_exists: bool,
-        header: &Rc<HeaderPage>,
+        header: &Arc<HeaderPage>,
     ) -> Result<&'a mut Snapshot> {
         //debug_assert_eq!(self.state, TransactionState::Active);
 
@@ -118,12 +118,12 @@ impl TransactionService {
                     let new = Snapshot::new(
                         mode,
                         collection,
-                        Rc::clone(header),
+                        Arc::clone(header),
                         self.transaction_id,
                         self.trans_pages.clone(),
-                        Rc::clone(&self.locker),
-                        Rc::clone(&self.wal_index),
-                        Rc::clone(&self.disk),
+                        Arc::clone(&self.locker),
+                        Arc::clone(&self.wal_index),
+                        Arc::clone(&self.disk),
                         add_if_not_exists,
                     )
                     .await?;
@@ -137,12 +137,12 @@ impl TransactionService {
                 let new = Snapshot::new(
                     mode,
                     collection,
-                    Rc::clone(header),
+                    Arc::clone(header),
                     self.transaction_id,
                     self.trans_pages.clone(),
-                    Rc::clone(&self.locker),
-                    Rc::clone(&self.wal_index),
-                    Rc::clone(&self.disk),
+                    Arc::clone(&self.locker),
+                    Arc::clone(&self.wal_index),
+                    Arc::clone(&self.disk),
                     add_if_not_exists,
                 )
                 .await?;

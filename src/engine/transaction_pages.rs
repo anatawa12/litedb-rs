@@ -12,7 +12,7 @@ pub(crate) struct TransactionPages {
     deleted_pages: usize,
 
     #[allow(clippy::type_complexity)]
-    on_commit: Vec<Box<dyn Fn(&mut HeaderPageLocked)>>,
+    on_commit: Vec<Box<dyn Fn(&mut HeaderPageLocked) + Send + Sync>>,
 }
 
 impl TransactionPages {
@@ -32,7 +32,7 @@ impl TransactionPages {
         !self.new_pages.is_empty() || self.deleted_pages > 0 || !self.on_commit.is_empty()
     }
 
-    pub fn on_commit(&mut self, f: impl Fn(&mut HeaderPageLocked) + 'static) {
+    pub fn on_commit(&mut self, f: impl Fn(&mut HeaderPageLocked) + 'static + Send + Sync) {
         self.on_commit.push(Box::new(f));
     }
 

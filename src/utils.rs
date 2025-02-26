@@ -388,7 +388,7 @@ impl Neg for Order {
     }
 }
 
-/// The wrapper struct for Rc<RefCell<T>>
+/// The wrapper struct for Arc<RwLock<T>>
 ///
 /// We may extend to Arc<Mutex<T>> in the future
 pub(crate) struct Shared<T> {
@@ -723,4 +723,14 @@ fn is_letter_or_digit(c: char) -> bool {
             | GeneralCategory::OtherLetter
             | GeneralCategory::DecimalNumber
     )
+}
+
+pub(crate) mod checker {
+    pub(crate) fn dummy<T: Send>() -> T {
+        unimplemented!()
+    }
+    pub(crate) fn check_sync_send<'a, T: Send + Sync + 'a>(_: T) {}
+    pub(crate) fn check_sync_send_value<'a, T: Send + Sync + 'a>(v: T) -> T {
+        v
+    }
 }

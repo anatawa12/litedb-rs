@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::bson;
+use crate::engine::utils::SendPtr;
 use crate::engine::{IndexPage, PageAddress};
 use crate::utils::{BufferSlice, Order};
 use std::marker::PhantomData;
@@ -29,7 +30,7 @@ pub(crate) struct IndexNodeShared<S, D> {
 
 pub(crate) type IndexNode = IndexNodeShared<(), ()>;
 pub(crate) type IndexNodeMut<'a> =
-    IndexNodeShared<*mut BufferSlice, (*mut IndexPage, PhantomData<&'a BufferSlice>)>;
+    IndexNodeShared<SendPtr<BufferSlice>, (SendPtr<IndexPage>, PhantomData<&'a BufferSlice>)>;
 
 extend_lifetime!(IndexNodeMut);
 
@@ -215,8 +216,8 @@ impl<'a> IndexNodeMut<'a> {
             page_id,
             index,
             segment,
-            |s| s as *mut _,
-            (dirty_ptr, PhantomData),
+            |s| SendPtr(s as *mut _),
+            (SendPtr(dirty_ptr), PhantomData),
         )
     }
 
@@ -242,7 +243,7 @@ impl<'a> IndexNodeMut<'a> {
         segment.write_page_address(P_NEXT_NODE, next_node);
 
         let mut result = Self {
-            segment,
+            segment: SendPtr(segment),
             position,
             slot,
             levels,
@@ -251,7 +252,7 @@ impl<'a> IndexNodeMut<'a> {
             next_node,
             prev,
             next,
-            ptr: (dirty_ptr, PhantomData),
+            ptr: (SendPtr(dirty_ptr), PhantomData),
         };
 
         // write data
@@ -268,7 +269,7 @@ impl<'a> IndexNodeMut<'a> {
     }
 
     fn set_dirty(&mut self) {
-        unsafe { IndexPage::set_dirty_ptr(self.ptr.0) };
+        unsafe { IndexPage::set_dirty_ptr(self.ptr.0.0) };
     }
 
     pub fn set_next_node(&mut self, values: PageAddress) {
@@ -298,16 +299,16 @@ impl<'a> IndexNodeMut<'a> {
     }
 
     pub fn page_ptr(&self) -> *mut IndexPage {
-        self.ptr.0
+        self.ptr.0.0
     }
 
     pub fn segment(&mut self) -> &'a mut BufferSlice {
-        unsafe { &mut *self.segment }
+        unsafe { &mut *self.segment.0 }
     }
 
     #[allow(dead_code)]
     pub fn into_segment(self) -> &'a mut BufferSlice {
-        unsafe { &mut *self.segment }
+        unsafe { &mut *self.segment.0 }
     }
 
     #[allow(dead_code)]
