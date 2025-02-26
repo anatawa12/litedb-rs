@@ -404,7 +404,9 @@ impl SnapshotPages {
                 .await?;
             let data_page = T::load(buffer)?;
 
-            debug_assert!(data_page.as_ref().transaction_id() != 0 || !data_page.as_ref().is_confirmed());
+            debug_assert!(
+                data_page.as_ref().transaction_id() != 0 || !data_page.as_ref().is_confirmed()
+            );
 
             Ok(PageWithAdditionalInfo {
                 page: data_page,

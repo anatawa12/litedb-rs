@@ -110,7 +110,11 @@ impl Error {
     }
 
     #[cfg(feature = "sequential-index")]
-    pub(crate) fn bad_auto_id(auto_id: engine::BsonAutoId, collection_name: &str, last_id: Value) -> Self {
+    pub(crate) fn bad_auto_id(
+        auto_id: engine::BsonAutoId,
+        collection_name: &str,
+        last_id: Value,
+    ) -> Self {
         Error::err(format!(
             "It's not possible use AutoId={auto_id:?} because '{collection_name}' collection contains not only numbers in _id index ({last_id:?})."
         ))
@@ -168,5 +172,4 @@ impl Display for Error {
     }
 }
 
-impl std::error::Error for Error {
-}
+impl std::error::Error for Error {}

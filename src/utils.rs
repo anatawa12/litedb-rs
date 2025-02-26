@@ -1,7 +1,7 @@
 use crate::Error;
 use crate::bson;
 use crate::bson::TotalOrd;
-use crate::engine::{BufferReader, BufferWriter, IndexNode, PageAddress, MAX_INDEX_KEY_LENGTH};
+use crate::engine::{BufferReader, BufferWriter, IndexNode, MAX_INDEX_KEY_LENGTH, PageAddress};
 use bson::BsonType;
 use either::Either;
 use std::cell::{Ref, RefCell, RefMut};
@@ -522,7 +522,7 @@ impl<T: std::borrow::Borrow<bson::Value>> Ord for OrdBsonValue<T> {
     }
 }
 
-pub(crate) trait CSharpCharUtils : Sized {
+pub(crate) trait CSharpCharUtils: Sized {
     fn internal_to_char(self) -> char;
 
     fn to_lower_invariant(self) -> ToLowerInvariant {

@@ -1,4 +1,3 @@
-use crate::{bson, Result};
 use crate::engine::disk::DiskService;
 use crate::engine::lock_service::{LockService, TransactionScope};
 use crate::engine::page_position::PagePosition;
@@ -9,6 +8,7 @@ use crate::engine::transaction_pages::TransactionPages;
 use crate::engine::wal_index_service::WalIndexService;
 use crate::engine::{BasePage, PageType};
 use crate::utils::Shared;
+use crate::{Result, bson};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::mem::forget;

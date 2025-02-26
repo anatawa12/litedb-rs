@@ -25,12 +25,12 @@ mod transaction_service;
 pub(crate) mod utils;
 mod wal_index_service;
 
-pub(crate) use index_node::*;
 pub(crate) use super::Result;
 pub(crate) use buffer_reader::*;
 pub(crate) use buffer_writer::*;
 pub(crate) use constants::*;
 use futures::{AsyncRead, AsyncSeek, AsyncWrite};
+pub(crate) use index_node::*;
 pub(crate) use page_address::*;
 pub(crate) use page_buffer::*;
 pub(crate) use pages::*;

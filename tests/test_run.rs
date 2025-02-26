@@ -2,10 +2,10 @@ mod memory_stream;
 
 use crate::memory_stream::MemoryStreamFactory;
 use futures::prelude::*;
+use std::sync::{Arc, Mutex};
 use vrc_get_litedb::bson;
 use vrc_get_litedb::engine::{BsonAutoId, Order};
 use vrc_get_litedb::expression::BsonExpression;
-use std::sync::{Arc, Mutex};
 
 fn new_database_buffer() -> Arc<Mutex<Vec<u8>>> {
     let data = include_bytes!("vcc.liteDb");
@@ -23,7 +23,9 @@ async fn open_database(data: &Arc<Mutex<Vec<u8>>>) -> vrc_get_litedb::engine::Li
         collation: None,
     };
 
-    vrc_get_litedb::engine::LiteEngine::new(settings).await.unwrap()
+    vrc_get_litedb::engine::LiteEngine::new(settings)
+        .await
+        .unwrap()
 }
 
 #[tokio::test]

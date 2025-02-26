@@ -3,9 +3,9 @@ use crate::engine::index_service::IndexService;
 use crate::engine::pages::HeaderPage;
 use crate::engine::snapshot::Snapshot;
 use crate::expression::BsonExpression;
+use crate::utils::StrExtension;
 use crate::{Error, Result};
 use std::pin::Pin;
-use crate::utils::StrExtension;
 
 pub(crate) struct CollectionService<'snapshot> {
     snapshot: &'snapshot mut Snapshot,

@@ -1200,7 +1200,9 @@ fn try_parse_method_call(
         .flatten()
         .find(|m| m.name == token.value && m.arg_count == pars.len())
     else {
-        return Err(ParseError::bad_invocation(&token.value.to_ascii_uppercase()));
+        return Err(ParseError::bad_invocation(
+            &token.value.to_ascii_uppercase(),
+        ));
     };
 
     // test if method are decorated with "Variable" (immutable = false)
@@ -1797,7 +1799,11 @@ fn read_operant(tokenizer: &mut Tokenizer) -> Result<Option<String>> {
         }
 
         if token.value.starts_with(|x: char| x.is_ascii_alphabetic()) {
-            return Ok(Some(format!("{} {}", key, token.value.to_ascii_uppercase())));
+            return Ok(Some(format!(
+                "{} {}",
+                key,
+                token.value.to_ascii_uppercase()
+            )));
         } else {
             return Ok(Some(format!("{}{}", key, token.value)));
         }
