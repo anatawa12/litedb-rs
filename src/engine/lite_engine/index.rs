@@ -151,7 +151,12 @@ fn _type_check<'a>() {
     use crate::utils::checker::*;
 
     check_sync_send(dummy::<LiteEngine>().ensure_index(dummy(), dummy(), dummy(), dummy()));
-    check_sync_send(dummy::<TransactionLiteEngine>().ensure_index(dummy(), dummy(), dummy(), dummy()));
+    check_sync_send(dummy::<TransactionLiteEngine>().ensure_index(
+        dummy(),
+        dummy(),
+        dummy(),
+        dummy(),
+    ));
 
     check_sync_send(dummy::<LiteEngine>().drop_index(dummy(), dummy()));
     check_sync_send(dummy::<TransactionLiteEngine>().drop_index(dummy(), dummy()));

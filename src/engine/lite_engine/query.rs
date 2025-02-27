@@ -254,8 +254,20 @@ fn _type_check<'a>() {
     check_sync_send(dummy::<TransactionLiteEngine>().get_all(dummy()));
     check_sync_send(dummy::<LiteEngine>().get_all(dummy()));
 
-    check_sync_send(dummy::<TransactionLiteEngine>().get_range_indexed(dummy(), dummy(), dummy(), dummy(), dummy()));
-    check_sync_send(dummy::<LiteEngine>().get_range_indexed(dummy(), dummy(), dummy(), dummy(), dummy()));
+    check_sync_send(dummy::<TransactionLiteEngine>().get_range_indexed(
+        dummy(),
+        dummy(),
+        dummy(),
+        dummy(),
+        dummy(),
+    ));
+    check_sync_send(dummy::<LiteEngine>().get_range_indexed(
+        dummy(),
+        dummy(),
+        dummy(),
+        dummy(),
+        dummy(),
+    ));
 
     check_sync_send(dummy::<TransactionLiteEngine>().get_by_index(dummy(), dummy(), dummy()));
     check_sync_send(dummy::<LiteEngine>().get_by_index(dummy(), dummy(), dummy()));

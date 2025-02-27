@@ -109,7 +109,9 @@ pub enum BsonExpressionType {
 
 type ValueIterator<'a, 'b> = Box<dyn IEnumerable<'a, 'b> + 'b>;
 
-pub trait IEnumerable<'a, 'b>: Iterator<Item = super::Result<&'a bson::Value>> + Sync + Send {
+pub trait IEnumerable<'a, 'b>:
+    Iterator<Item = super::Result<&'a bson::Value>> + Sync + Send
+{
     fn box_clone(&self) -> ValueIterator<'a, 'b>;
 }
 
@@ -172,7 +174,8 @@ impl Expression {
     pub(crate) fn execute_ref<'a>(
         &self,
         ctx: ExecutionContext<'a>,
-    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + Sync + Send + use<'_, 'a> {
+    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + Sync + Send + use<'_, 'a>
+    {
         match self {
             Expression::Scalar(expr) => {
                 either::Either::Left(std::iter::once_with(move || expr(&ctx)))
@@ -418,7 +421,8 @@ impl ExecutionScope {
         &'a self,
         expression: &'b BsonExpression,
         root: &'a bson::Value,
-    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + Sync + Send + use<'a, 'b> {
+    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + Sync + Send + use<'a, 'b>
+    {
         let context = ExecutionContext::new(root, self.collation, &self.arena);
         expression.expression.execute_ref(context)
     }
@@ -427,7 +431,8 @@ impl ExecutionScope {
         &'a self,
         expression: &'b BsonExpression,
         root: &'a bson::Value,
-    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + Sync + Send + use<'a, 'b> {
+    ) -> impl Iterator<Item = super::Result<&'a bson::Value>> + Clone + Sync + Send + use<'a, 'b>
+    {
         let mut values = BTreeSet::new();
         self.execute(expression, root)
             .filter_ok(move |&x| values.insert(OrdBsonValue(x)))
