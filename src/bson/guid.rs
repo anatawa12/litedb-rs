@@ -20,8 +20,8 @@ impl Guid {
         Guid { bytes }
     }
 
-    pub fn to_bytes(&self) -> [u8; 16] {
-        self.bytes
+    pub fn as_bytes(&self) -> &[u8; 16] {
+        &self.bytes
     }
 }
 

@@ -349,7 +349,7 @@ impl BufferSlice {
             }
             bson::Value::Guid(uuid) => {
                 self.write_u8(offset, BsonType::Guid as u8);
-                self.write_bytes(offset + 1, &uuid.to_bytes());
+                self.write_bytes(offset + 1, uuid.as_bytes());
             }
         }
     }

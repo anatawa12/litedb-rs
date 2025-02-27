@@ -64,7 +64,7 @@ pub fn to_json(value: &Value) -> String {
                 write!(buf, r##"{{"$oid":"{:?}"}}"##, hex::encode(*v.as_bytes())).unwrap()
             }
             Value::Guid(v) => {
-                write!(buf, r##"{{"$guid":"{:?}"}}"##, hex::encode(v.to_bytes())).unwrap()
+                write!(buf, r##"{{"$guid":"{:?}"}}"##, hex::encode(v.as_bytes())).unwrap()
             }
             Value::DateTime(v) => write!(buf, r##"{{"$date":"{:?}Z"}}"##, v).unwrap(),
             Value::Int64(v) => write!(buf, r##"{{"$numberLong":"{}"}}"##, v).unwrap(),
