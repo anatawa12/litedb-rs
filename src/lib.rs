@@ -20,6 +20,8 @@ pub mod expression;
 mod utils;
 
 #[cfg(feature = "tokio-fs")]
+pub mod shared_mutex;
+#[cfg(feature = "tokio-fs")]
 mod tokio_fs;
 
 pub type Result<T> = std::result::Result<T, Error>;
