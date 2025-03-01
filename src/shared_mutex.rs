@@ -52,11 +52,13 @@ impl SharedMutex {
             })
         }
 
-        inner(name).await
+        inner(name.as_ref()).await
     }
 
     pub async fn lock(&self) -> io::Result<SharedMutexGuard> {
-        self.inner.lock().await
+        Ok(SharedMutexGuard {
+            inner: self.inner.lock().await?
+        })
     }
 }
 
@@ -73,6 +75,7 @@ mod windows {
     use std::ffi::OsStr;
     use std::io;
     use std::marker::PhantomData;
+    use std::ops::Deref;
     use windows::Win32::Foundation::*;
     use windows::Win32::System::SystemServices::MAXIMUM_ALLOWED;
     use windows::Win32::System::Threading::*;
@@ -124,7 +127,7 @@ mod windows {
             };
 
             Ok(Self {
-                handle: Owned(handle),
+                handle: unsafe { Owned::new(handle) },
             })
         }
 
@@ -133,7 +136,7 @@ mod windows {
             let (wait_sender, wait_receiver) = std::sync::mpsc::sync_channel::<()>(1);
             let (release_end_sender, release_end_receiver) = std::sync::mpsc::sync_channel::<()>(1);
 
-            let handle = self.handle.0;
+            let handle = *self.handle.deref();
 
             // create thread for mutex creation and free since
             // locking and release needs on single thread.
