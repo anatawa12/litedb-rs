@@ -67,6 +67,7 @@ fn _type_check() {
     use crate::utils::checker::*;
 
     check_sync_send(dummy::<SharedMutex>());
+    check_sync_send(dummy::<SharedMutexGuard>());
 }
 
 #[cfg(windows)]
@@ -103,7 +104,7 @@ mod windows {
     pub(super) struct MutexGuardImpl<'a> {
         wait_sender: std::sync::mpsc::SyncSender<()>,
         _phantom: PhantomData<&'a SharedMutexImpl>,
-        release_end_receiver: std::sync::mpsc::Receiver<()>,
+        release_end_receiver: SyncReceiver<()>,
     }
 
     impl SharedMutexImpl {
@@ -173,7 +174,7 @@ mod windows {
 
             Ok(MutexGuardImpl {
                 wait_sender,
-                release_end_receiver,
+                release_end_receiver: SyncReceiver(release_end_receiver),
                 _phantom: PhantomData,
             })
         }
@@ -185,4 +186,15 @@ mod windows {
             self.release_end_receiver.recv().ok();
         }
     }
+
+    /// The sync variant of receiver, by requiring `&mut self` it won't actually be synced.
+    struct SyncReceiver<T>(std::sync::mpsc::Receiver<T>);
+
+    impl<T> SyncReceiver<T> {
+        pub(crate) fn recv(&mut self) -> Result<T, std::sync::mpsc::RecvError> {
+            self.0.recv()
+        }
+    }
+
+    unsafe impl<T> Sync for SyncReceiver<T> {}
 }
