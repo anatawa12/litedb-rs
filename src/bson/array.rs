@@ -145,11 +145,26 @@ impl From<&[Value]> for Array {
     }
 }
 
+impl From<&Vec<Value>> for Array {
+    fn from(data: &Vec<Value>) -> Array {
+        Self::from(data.clone())
+    }
+}
+
 impl<'a, T> From<&'a [T]> for Array
 where
     Value: From<&'a T>,
 {
     fn from(data: &'a [T]) -> Array {
+        Self::from(data.iter().map(Into::into).collect::<Vec<Value>>())
+    }
+}
+
+impl<'a, T> From<&'a Vec<T>> for Array
+where
+    Value: From<&'a T>,
+{
+    fn from(data: &'a Vec<T>) -> Array {
         Self::from(data.iter().map(Into::into).collect::<Vec<Value>>())
     }
 }

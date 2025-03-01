@@ -315,7 +315,6 @@ impl<T: AsMut<[u8]>> BsonWriter for std::io::Cursor<T> {
 
 mod from_impls {
     use super::*;
-    use std::convert::Infallible;
 
     impl From<i32> for Value {
         fn from(v: i32) -> Value {
@@ -344,6 +343,12 @@ mod from_impls {
     impl From<String> for Value {
         fn from(v: String) -> Value {
             Value::String(v)
+        }
+    }
+
+    impl From<&String> for Value {
+        fn from(v: &String) -> Value {
+            Value::String(v.into())
         }
     }
 
@@ -413,9 +418,9 @@ mod from_impls {
         }
     }
 
-    impl From<Option<Infallible>> for Value {
-        fn from(_: Option<Infallible>) -> Value {
-            Value::Null
+    impl From<&Vec<Value>> for Value {
+        fn from(v: &Vec<Value>) -> Value {
+            Value::Array(v.into())
         }
     }
 
