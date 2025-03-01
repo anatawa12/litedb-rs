@@ -1,11 +1,9 @@
-/*!
- *! # LiteDB in Rust
- *! This is a reimplementation of [LiteDB] in Rust.
- *!
- *! This implementation (currently?) only supports single-threaded operation.
- *!
- *! [LiteDB]: https://www.litedb.org/
- */
+//! # LiteDB in Rust
+//! This is a reimplementation of [LiteDB] in Rust.
+//!
+//! This implementation (currently?) only supports single-threaded operation.
+//!
+//! [LiteDB]: <https://www.litedb.org/>
 
 #![allow(clippy::too_many_arguments)]
 
