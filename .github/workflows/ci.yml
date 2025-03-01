@@ -1,0 +1,40 @@
+name: CI (Build)
+
+on:
+  pull_request:
+  push:
+    branches: ["master"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust (stable)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Build
+        run: cargo build --verbose --all-features
+      - name: Run tests
+        run: cargo test --verbose --all-features
+
+      - name: Test release build with debug assertions
+        run: cargo test --release --all-features
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: true
+          CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS: true
+
+      - name: Test release build without debug assertions
+        run: cargo test --release --all-features -- --include-ignored
