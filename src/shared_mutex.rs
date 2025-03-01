@@ -88,6 +88,7 @@ mod windows {
     #[repr(transparent)]
     struct SendHandle(HANDLE);
     unsafe impl Send for SendHandle {}
+    unsafe impl Sync for SendHandle {}
 
     impl Free for SendHandle {
         unsafe fn free(&mut self) {
@@ -112,7 +113,7 @@ mod windows {
             let handle = match tokio::task::spawn_blocking(|| {
                 match unsafe { CreateMutexExW(None, &name, 0, ACCESS_RIGHTS) } {
                     Ok(handle) => Ok(SendHandle(handle)),
-                    Err(e) => Err(e.into()),
+                    Err(e) => Err(e),
                 }
             })
             .await
@@ -136,7 +137,7 @@ mod windows {
             let (wait_sender, wait_receiver) = std::sync::mpsc::sync_channel::<()>(1);
             let (release_end_sender, release_end_receiver) = std::sync::mpsc::sync_channel::<()>(1);
 
-            let handle = *self.handle.deref();
+            let handle: SendHandle = *self.handle.deref();
 
             // create thread for mutex creation and free since
             // locking and release needs on single thread.
