@@ -1,5 +1,4 @@
 use futures::prelude::*;
-use vrc_get_litedb::engine::{FileStream, StreamFactory};
 use std::cmp::max;
 use std::future::Future;
 use std::io;
@@ -8,6 +7,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::Poll::Ready;
 use std::task::{Context, Poll};
+use vrc_get_litedb::engine::{FileStream, StreamFactory};
 
 pub(crate) struct MemoryStream {
     buffer: Arc<Mutex<Vec<u8>>>,
@@ -36,7 +36,8 @@ impl StreamFactory for MemoryStreamFactory {
     fn get_stream(
         &self,
         writable: bool,
-    ) -> Pin<Box<dyn Future<Output = vrc_get_litedb::Result<Box<dyn FileStream>>> + Send + Sync + '_>> {
+    ) -> Pin<Box<dyn Future<Output = vrc_get_litedb::Result<Box<dyn FileStream>>> + Send + Sync + '_>>
+    {
         Box::pin(async move {
             let mut buffer = self.buffer.lock().await;
             if !writable && buffer.is_none() {
@@ -69,7 +70,9 @@ impl StreamFactory for MemoryStreamFactory {
         })
     }
 
-    fn delete(&self) -> Pin<Box<dyn Future<Output = vrc_get_litedb::Result<()>> + Send + Sync + '_>> {
+    fn delete(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = vrc_get_litedb::Result<()>> + Send + Sync + '_>> {
         Box::pin(async move {
             *self.buffer.lock().await = None;
             Ok(())
@@ -78,7 +81,10 @@ impl StreamFactory for MemoryStreamFactory {
 }
 
 impl FileStream for MemoryStream {
-    fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output = vrc_get_litedb::Result<()>> + Send + Sync + '_>> {
+    fn set_len(
+        &self,
+        len: u64,
+    ) -> Pin<Box<dyn Future<Output = vrc_get_litedb::Result<()>> + Send + Sync + '_>> {
         Box::pin(async move {
             self.buffer.lock().unwrap().resize(len as usize, 0);
             Ok(())
