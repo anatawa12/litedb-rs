@@ -20,7 +20,7 @@ pub struct SharedMutex {
 }
 
 pub struct SharedMutexGuard<'a> {
-    inner: MutexGuardImpl<'a>,
+    _inner: MutexGuardImpl<'a>,
 }
 
 impl SharedMutex {
@@ -57,7 +57,7 @@ impl SharedMutex {
 
     pub async fn lock(&self) -> io::Result<SharedMutexGuard> {
         Ok(SharedMutexGuard {
-            inner: self.inner.lock().await?,
+            _inner: self.inner.lock().await?,
         })
     }
 }
@@ -92,7 +92,7 @@ mod windows {
 
     impl Free for SendHandle {
         unsafe fn free(&mut self) {
-            self.0.free();
+            unsafe { self.0.free() };
         }
     }
 
@@ -110,7 +110,7 @@ mod windows {
         pub async fn new(name: &OsStr) -> io::Result<Self> {
             let name = windows::core::HSTRING::from(name);
 
-            let handle = match tokio::task::spawn_blocking(|| {
+            let handle = match tokio::task::spawn_blocking(move || {
                 match unsafe { CreateMutexExW(None, &name, 0, ACCESS_RIGHTS) } {
                     Ok(handle) => Ok(SendHandle(handle)),
                     Err(e) => Err(e),
@@ -133,23 +133,18 @@ mod windows {
         }
 
         pub async fn lock(&self) -> io::Result<MutexGuardImpl> {
-            let (lock_sender, mut result_receiver) = oneshot::channel::<io::Result<()>>();
+            let (lock_sender, result_receiver) = oneshot::channel::<io::Result<()>>();
             let (wait_sender, wait_receiver) = std::sync::mpsc::sync_channel::<()>(1);
-            let (release_end_sender, release_end_receiver) = std::sync::mpsc::sync_channel::<()>(1);
+            let (release_end_sender, release_end_receiver) = std::sync::mpsc::channel::<()>();
 
             let handle: SendHandle = *self.handle.deref();
 
             // create thread for mutex creation and free since
             // locking and release needs on single thread.
             std::thread::spawn(move || {
-                // https://github.com/dotnet/runtime/blob/2fef8277b701cfa6636d8ab55c14da6e001b9218/src/libraries/System.Private.CoreLib/src/System/Threading/EventWaitHandle.Windows.cs#L12
-                const ACCESS_RIGHTS: u32 =
-                    MAXIMUM_ALLOWED | PROCESS_SYNCHRONIZE.0 | MUTEX_MODIFY_STATE.0;
-
-                let handle = handle.0;
-
+                let handle = handle; // move entire SendHandle to avoid sending HANDLE
                 unsafe {
-                    let r = WaitForSingleObject(handle, INFINITE);
+                    let r = WaitForSingleObject(handle.0, INFINITE);
                     match r {
                         WAIT_FAILED => {
                             lock_sender.send(Err(io::Error::last_os_error())).unwrap();
@@ -168,7 +163,7 @@ mod windows {
                 wait_receiver.recv().unwrap();
 
                 unsafe {
-                    ReleaseMutex(handle).ok();
+                    ReleaseMutex(handle.0).ok();
                 }
 
                 release_end_sender.send(()).unwrap();
