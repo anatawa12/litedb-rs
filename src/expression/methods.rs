@@ -945,10 +945,10 @@ mod expression_methods {
             (Value::Document(source), Value::Document(extend)) => {
                 let mut new = bson::Document::new();
                 for (k, v) in source.iter() {
-                    new.insert(k.into(), v.clone());
+                    new.insert(k, v.clone());
                 }
                 for (k, v) in extend.iter() {
-                    new.insert(k.into(), v.clone());
+                    new.insert(k, v.clone());
                 }
                 ctx.arena(new.into())
             }

@@ -30,7 +30,8 @@ impl Document {
     ///
     /// ### Panics
     /// This function will panic if the key contains null char (`'\0'`)
-    pub fn insert(&mut self, key: String, value: impl Into<Value>) {
+    pub fn insert(&mut self, key: impl Into<String>, value: impl Into<Value>) {
+        let key = key.into();
         check_key(&key);
         self.inner.insert(key.into(), value.into());
     }

@@ -86,7 +86,7 @@ impl TransactionLiteEngine<'_> {
                 #[cfg(feature = "sequential-index")]
                 _ => Self::get_sequence(sequences, collection, indexes, indexer, auto_id).await?,
             };
-            doc.insert("_id".into(), id);
+            doc.insert("_id", id);
             doc.get("_id")
         };
 

@@ -4,7 +4,7 @@ macro_rules! document {
     {$($k:expr => $v:expr),* $(,)?} => {{
         #[allow(unused_mut)]
         let mut doc = $crate::bson::Document::new();
-        $(doc.insert($k.into(), $v);)*
+        $(doc.insert($k, $v);)*
         doc
     }}
 }
