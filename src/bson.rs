@@ -418,6 +418,15 @@ mod from_impls {
             Value::Null
         }
     }
+
+    impl<T> From<Option<T>> for Value
+    where
+        Value: From<T>,
+    {
+        fn from(value: Option<T>) -> Value {
+            value.map(From::from).unwrap_or(Value::Null)
+        }
+    }
 }
 
 impl Value {
@@ -818,7 +827,7 @@ mod tests {
             "userAvatarHref" => "https://www.gravatar.com/avatar/9496065924d90ffa6b6184c741aa0184?d=mm"
           },
           "device_info" => document!{
-            "_id" => None,
+            "_id" => Value::Null,
             "short_id" => 133,
             "device_name" => "DANSCOMPUTER"
           },
@@ -842,18 +851,18 @@ mod tests {
               "filesize_bytes" => 4225974i64,
               "friendly_filesize" => "4MB",
               "metadata" => document!{
-                "2c0066d2-3f9f-4cf8-8d06-33a544624418" => None,
-                "4a389ee1-9e1b-4e06-b46f-23f1fd8f6a93" => None,
-                "b0ad5374-213f-488f-bb21-407e782de287" => None,
-                "91328cc4-eb72-4c30-9545-e931c830e847" => None,
-                "b94b21cf-eef3-4e8c-951a-1c20d16d871f" => None,
-                "3a660b33-c99f-4111-ba88-633533017b40" => None,
-                "500c2388-ccc1-4b63-8da1-5bbb468a0c5b" => None,
-                "652cdabe-3c6f-4765-86fd-1680749b412b" => None,
-                "2a2668c3-2b69-4f9b-89a8-914b70e00aa3" => None,
-                "fd67fdb2-3705-4f14-a929-5336c8e46489" => None,
+                "2c0066d2-3f9f-4cf8-8d06-33a544624418" => Value::Null,
+                "4a389ee1-9e1b-4e06-b46f-23f1fd8f6a93" => Value::Null,
+                "b0ad5374-213f-488f-bb21-407e782de287" => Value::Null,
+                "91328cc4-eb72-4c30-9545-e931c830e847" => Value::Null,
+                "b94b21cf-eef3-4e8c-951a-1c20d16d871f" => Value::Null,
+                "3a660b33-c99f-4111-ba88-633533017b40" => Value::Null,
+                "500c2388-ccc1-4b63-8da1-5bbb468a0c5b" => Value::Null,
+                "652cdabe-3c6f-4765-86fd-1680749b412b" => Value::Null,
+                "2a2668c3-2b69-4f9b-89a8-914b70e00aa3" => Value::Null,
+                "fd67fdb2-3705-4f14-a929-5336c8e46489" => Value::Null,
                 "2405d44c-13d3-4ce3-8ba1-dae189139f84" => array![],
-                "8b73f206-8b2c-4ce5-9867-a4e1892370e5" => None,
+                "8b73f206-8b2c-4ce5-9867-a4e1892370e5" => Value::Null,
                 "5c73f206-8b2c-4ce5-9852-a4e1892370a5" => array!["csitemplate"],
                 "9fc32696-4efd-4b6a-8fcc-554c75421cff" => array!["{{asset.uploadtype}}"],
                 "c47645ab-0bfa-42e0-9c43-66868f10f90f" => array!["{{curentuser.username}}"],
@@ -873,7 +882,7 @@ mod tests {
             "b94b21cf-eef3-4e8c-951a-1c20d16d871f" => array!["DHL"],
             "3a660b33-c99f-4111-ba88-633533017b40" => array!["Medium"]
           },
-          "error_reason" => None,
+          "error_reason" => Value::Null,
           "retry_count" => 0,
           "error_counters" => document!{},
           "deleted_datetime" => date![2020-06-10 16:00:30.3920000],
