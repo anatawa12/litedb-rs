@@ -162,4 +162,7 @@ jobs:
           NEXT_VERSION="$(get-version | version-stable)"
           git commit -m "prepare for next version: $NEXT_VERSION"
           git push
+
+      - name: Remove releasing branch
+        run: |
           git push --delete origin releasing
