@@ -1,5 +1,5 @@
 use futures::prelude::*;
-use litedb::engine::FileStream;
+use vrc_get_litedb::engine::{FileStream, StreamFactory};
 use std::cmp::max;
 use std::future::Future;
 use std::io;
@@ -32,11 +32,11 @@ impl MemoryStreamFactory {
     }
 }
 
-impl litedb::engine::StreamFactory for MemoryStreamFactory {
+impl StreamFactory for MemoryStreamFactory {
     fn get_stream(
         &self,
         writable: bool,
-    ) -> Pin<Box<dyn Future<Output = litedb::Result<Box<dyn FileStream>>> + '_>> {
+    ) -> Pin<Box<dyn Future<Output = vrc_get_litedb::Result<Box<dyn FileStream>>> + Send + Sync + '_>> {
         Box::pin(async move {
             let mut buffer = self.buffer.lock().await;
             if !writable && buffer.is_none() {
@@ -53,11 +53,11 @@ impl litedb::engine::StreamFactory for MemoryStreamFactory {
         })
     }
 
-    fn exists(&self) -> Pin<Box<dyn Future<Output = bool> + '_>> {
+    fn exists(&self) -> Pin<Box<dyn Future<Output = bool> + Send + Sync + '_>> {
         Box::pin(async move { self.buffer.lock().await.is_some() })
     }
 
-    fn len(&self) -> Pin<Box<dyn Future<Output = litedb::Result<u64>> + '_>> {
+    fn len(&self) -> Pin<Box<dyn Future<Output = vrc_get_litedb::Result<u64>> + Send + Sync + '_>> {
         Box::pin(async move {
             Ok(self
                 .buffer
@@ -69,7 +69,7 @@ impl litedb::engine::StreamFactory for MemoryStreamFactory {
         })
     }
 
-    fn delete(&self) -> Pin<Box<dyn Future<Output = litedb::Result<()>> + '_>> {
+    fn delete(&self) -> Pin<Box<dyn Future<Output = vrc_get_litedb::Result<()>> + Send + Sync + '_>> {
         Box::pin(async move {
             *self.buffer.lock().await = None;
             Ok(())
@@ -77,8 +77,8 @@ impl litedb::engine::StreamFactory for MemoryStreamFactory {
     }
 }
 
-impl litedb::engine::FileStream for MemoryStream {
-    fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output = litedb::Result<()>> + '_>> {
+impl FileStream for MemoryStream {
+    fn set_len(&self, len: u64) -> Pin<Box<dyn Future<Output = vrc_get_litedb::Result<()>> + Send + Sync + '_>> {
         Box::pin(async move {
             self.buffer.lock().unwrap().resize(len as usize, 0);
             Ok(())
