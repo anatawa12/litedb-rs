@@ -194,7 +194,7 @@ impl DateTime {
         DateTime::from_ticks(total_ticks)
     }
 
-    pub(crate) fn as_unix_milliseconds(&self) -> i64 {
+    pub fn as_unix_milliseconds(&self) -> i64 {
         let millis = (self.ticks() / TICKS_PER_MILLISECOND) as i64;
         let unix_epoc = (TICKS_UNIX_EPOC / TICKS_PER_MILLISECOND) as i64;
 
