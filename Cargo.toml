@@ -2,6 +2,15 @@
 name = "vrc-get-litedb"
 version = "0.3.0-beta.1"
 edition = "2024"
+license = "MIT"
+authors = [
+    "anatawa12 <anatawa12@icloud.com>",
+    "Mauricio David <mauricio.david@gmail.com>"
+]
+readme = "README.md"
+description = "A Rust reimplementation of LiteDB made for vrc-get."
+keywords = ["litedb"]
+categories = ["database"]
 
 [dependencies]
 async-lock = "3.4.0"
