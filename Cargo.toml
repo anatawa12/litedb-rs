@@ -27,6 +27,7 @@ rand = "0.9.0"
 base64 = "0.22.1"
 hex = "0.4.3"
 thread_local = "1.1.8"
+indexmap = "2.7.1"
 
 [target."cfg(windows)".dependencies]
 windows = { version = "0.60.0", features = [

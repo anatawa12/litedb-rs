@@ -1,15 +1,15 @@
 use super::{BsonReader, BsonWriter, ParseError, Value};
 use crate::utils::{CaseInsensitiveStr, CaseInsensitiveString};
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::fmt::{Debug, Formatter};
+use indexmap::IndexMap;
+use indexmap::map::Entry;
 
 /// The bson document.
 ///
 /// Since bson in litedb uses case-insensitive key comparison, this implementation does so.
 #[derive(Clone, PartialEq)]
 pub struct Document {
-    inner: HashMap<CaseInsensitiveString, Value>,
+    inner: IndexMap<CaseInsensitiveString, Value>,
 }
 
 impl Default for Document {
@@ -21,7 +21,7 @@ impl Default for Document {
 impl Document {
     pub fn new() -> Document {
         Self {
-            inner: HashMap::new(),
+            inner: IndexMap::new(),
         }
     }
 
@@ -56,7 +56,7 @@ impl Document {
     }
 
     pub fn remove(&mut self, key: impl AsRef<str>) -> Option<Value> {
-        self.inner.remove(CaseInsensitiveStr::new(key.as_ref()))
+        self.inner.shift_remove(CaseInsensitiveStr::new(key.as_ref()))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -123,7 +123,7 @@ impl Document {
             //document.inner.try_insert()
             match document.inner.entry(key.into()) {
                 Entry::Occupied(e) => {
-                    return Err(ParseError::DuplicatedKey(e.remove_entry().0.into()).into());
+                    return Err(ParseError::DuplicatedKey(e.shift_remove_entry().0.into()).into());
                 }
                 Entry::Vacant(e) => {
                     e.insert(value);
