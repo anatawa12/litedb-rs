@@ -1,8 +1,8 @@
 use super::{BsonReader, BsonWriter, ParseError, Value};
 use crate::utils::{CaseInsensitiveStr, CaseInsensitiveString};
-use std::fmt::{Debug, Formatter};
 use indexmap::IndexMap;
 use indexmap::map::Entry;
+use std::fmt::{Debug, Formatter};
 
 /// The bson document.
 ///
@@ -56,7 +56,8 @@ impl Document {
     }
 
     pub fn remove(&mut self, key: impl AsRef<str>) -> Option<Value> {
-        self.inner.shift_remove(CaseInsensitiveStr::new(key.as_ref()))
+        self.inner
+            .shift_remove(CaseInsensitiveStr::new(key.as_ref()))
     }
 
     pub fn is_empty(&self) -> bool {
