@@ -248,7 +248,7 @@ transaction_stream_wrapper!(pub fn get_by_index(
 ) -> impl Stream<Item = Result<bson::Document>>);
 
 #[allow(dead_code)]
-fn _type_check<'a>() {
+fn _type_check() {
     use crate::utils::checker::*;
 
     check_sync_send(dummy::<TransactionLiteEngine>().get_all(dummy()));

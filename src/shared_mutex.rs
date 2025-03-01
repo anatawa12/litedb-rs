@@ -2,7 +2,7 @@
 //!
 //! This implementation only supports locks in `Global\\` namespace for simplicity.
 //!
-//! On windows, this module is based on shared windows mutex ([`CreateMutexExW`]) 
+//! On windows, this module is based on shared windows mutex ([`CreateMutexExW`])
 //! and this is machine-shared lock.
 //!
 //! [Mutex in C#]: https://learn.microsoft.com/en-us/dotnet/api/system.threading.mutex?view=net-8.0
@@ -29,13 +29,22 @@ impl SharedMutex {
             let name_bytes = name.as_encoded_bytes();
 
             if !name_bytes.starts_with(b"Global\\") {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput, "Global Mutex is only supported"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Global Mutex is only supported",
+                ));
             }
 
             let global_name = &name_bytes[b"Global\\".len()..];
 
-            if !global_name.iter().all(|&x| matches!(x, b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' | b'.'| b'-'| b'_')) {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid character in mutex name"));
+            if !global_name
+                .iter()
+                .all(|&x| matches!(x, b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' | b'.'| b'-'| b'_'))
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Invalid character in mutex name",
+                ));
             }
 
             Ok(SharedMutex {
@@ -52,7 +61,7 @@ impl SharedMutex {
 }
 
 #[allow(dead_code)]
-fn _type_check<'a>() {
+fn _type_check() {
     use crate::utils::checker::*;
 
     check_sync_send(dummy::<SharedMutex>());
@@ -64,10 +73,10 @@ mod windows {
     use std::ffi::OsStr;
     use std::io;
     use std::marker::PhantomData;
-    use windows::core::{Free, Owned};
     use windows::Win32::Foundation::*;
     use windows::Win32::System::SystemServices::MAXIMUM_ALLOWED;
     use windows::Win32::System::Threading::*;
+    use windows::core::{Free, Owned};
 
     // https://github.com/dotnet/runtime/blob/2fef8277b701cfa6636d8ab55c14da6e001b9218/src/libraries/System.Private.CoreLib/src/System/Threading/EventWaitHandle.Windows.cs#L12
     const ACCESS_RIGHTS: u32 = MAXIMUM_ALLOWED | PROCESS_SYNCHRONIZE.0 | MUTEX_MODIFY_STATE.0;
@@ -102,12 +111,16 @@ mod windows {
                     Ok(handle) => Ok(SendHandle(handle)),
                     Err(e) => Err(e.into()),
                 }
-            }).await {
+            })
+            .await
+            {
                 Ok(handle) => handle?,
-                Err(_) => return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "background task failed",
-                )),
+                Err(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        "background task failed",
+                    ));
+                }
             };
 
             Ok(Self {

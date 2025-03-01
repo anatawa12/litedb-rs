@@ -150,7 +150,7 @@ impl TransactionLiteEngine<'_> {
 transaction_wrapper!(pub async fn update(&mut self, collection: &str, docs: Vec<bson::Document>) -> Result<usize>);
 
 #[allow(dead_code)]
-fn _type_check<'a>() {
+fn _type_check() {
     use crate::utils::checker::*;
 
     check_sync_send(dummy::<LiteEngine>().update(dummy(), dummy()));

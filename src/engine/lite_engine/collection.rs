@@ -76,7 +76,7 @@ transaction_wrapper!(pub async fn drop_collection(&mut self, name: &str) -> Resu
 transaction_wrapper!(pub async fn rename_collection(&mut self, collection: &str, new_name: &str) -> Result<bool>);
 
 #[allow(dead_code)]
-fn _type_check<'a>() {
+fn _type_check() {
     use crate::utils::checker::*;
 
     check_sync_send(dummy::<LiteEngine>().drop_collection(dummy()));

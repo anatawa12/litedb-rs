@@ -267,7 +267,7 @@ impl<'a> ExecutionContext<'a> {
     }
 
     fn arena(&self, value: bson::Value) -> &'a bson::Value {
-        self.arena.get_or(|| typed_arena::Arena::new()).alloc(value)
+        self.arena.get_or(typed_arena::Arena::new).alloc(value)
     }
 
     fn bool(&self, b: bool) -> &'a bson::Value {

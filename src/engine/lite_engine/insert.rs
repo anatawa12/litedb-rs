@@ -127,7 +127,7 @@ transaction_wrapper!(pub async fn insert(
 ) -> Result<usize>);
 
 #[allow(dead_code)]
-fn _type_check<'a>() {
+fn _type_check() {
     use crate::utils::checker::*;
 
     check_sync_send(dummy::<LiteEngine>().insert(dummy(), dummy(), dummy()));

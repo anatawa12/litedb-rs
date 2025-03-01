@@ -242,7 +242,7 @@ unsafe impl<'a, T: 'a + ?Sized> Sync for SendPtr<T> where &'a T: Sync {}
 
 impl<T> Clone for SendPtr<T> {
     fn clone(&self) -> Self {
-        SendPtr(self.0)
+        *self
     }
 }
 impl<T> Copy for SendPtr<T> {}
