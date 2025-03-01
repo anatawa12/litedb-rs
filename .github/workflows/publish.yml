@@ -155,11 +155,11 @@ jobs:
           gh release create --verify-tag "v$VERSION"
 
       - name: Update To Next Version
+        if: ${{ !needs.pre-build.outputs.prerelease }}
         run: |
-          VERSION="$(get-version)"
-          VERSION="$(version-next "$VERSION")"
-          set-version "$(version-snapshot "$VERSION")"
+          get-version | version-next | version-set-channel - beta 0 | set-version
           git add Cargo.toml
-          git commit -m "prepare for next version: $VERSION"
+          NEXT_VERSION="$(get-version | version-stable)"
+          git commit -m "prepare for next version: $NEXT_VERSION"
           git push
           git push --delete origin releasing
