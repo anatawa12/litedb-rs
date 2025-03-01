@@ -19,7 +19,7 @@ pub mod engine;
 pub mod expression;
 mod utils;
 
-#[cfg(feature = "tokio-fs")]
+#[cfg(all(feature = "tokio-fs", windows))]
 pub mod shared_mutex;
 #[cfg(feature = "tokio-fs")]
 mod tokio_fs;

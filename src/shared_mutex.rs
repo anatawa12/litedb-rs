@@ -8,7 +8,9 @@
 //! [Mutex in C#]: https://learn.microsoft.com/en-us/dotnet/api/system.threading.mutex?view=net-8.0
 //! [`CreateMutexExW`]: windows::Win32::System::Threading::CreateMutexExW
 
-use os::*;
+#[cfg(windows)]
+use windows::*;
+
 use std::ffi::OsStr;
 use std::io;
 
@@ -57,7 +59,7 @@ fn _type_check<'a>() {
 }
 
 #[cfg(windows)]
-mod os {
+mod windows {
     use futures::channel::oneshot;
     use std::ffi::OsStr;
     use std::io;
