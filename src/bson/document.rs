@@ -3,6 +3,7 @@ use crate::utils::{CaseInsensitiveStr, CaseInsensitiveString};
 use indexmap::IndexMap;
 use indexmap::map::Entry;
 use std::fmt::{Debug, Formatter};
+use std::ops::Index;
 
 /// The bson document.
 ///
@@ -137,6 +138,14 @@ impl Document {
         }
 
         Ok(document)
+    }
+}
+
+impl Index<&str> for Document {
+    type Output = Value;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        self.get(index)
     }
 }
 
