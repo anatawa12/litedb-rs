@@ -1,7 +1,9 @@
 use super::{BsonReader, BsonWriter, ParseError, Value};
 use crate::utils::{CaseInsensitiveStr, CaseInsensitiveString};
 use indexmap::IndexMap;
-use indexmap::map::Entry;
+use indexmap::map::Entry as IndexMapEntry;
+use indexmap::map::OccupiedEntry as IndexMapOccupiedEntry;
+use indexmap::map::VacantEntry as IndexMapVacantEntry;
 use std::fmt::{Debug, Formatter};
 use std::ops::Index;
 
@@ -23,6 +25,12 @@ impl Document {
     pub fn new() -> Document {
         Self {
             inner: IndexMap::new(),
+        }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Document {
+        Self {
+            inner: IndexMap::with_capacity(capacity),
         }
     }
 
@@ -72,6 +80,17 @@ impl Document {
 
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> + Clone {
         self.inner.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    pub fn clear(&mut self) {
+        self.inner.clear();
+    }
+
+    pub fn entry(&mut self, key: impl Into<String>) -> Entry {
+        let key = key.into();
+        check_key(&key);
+
+        Entry::new(self.inner.entry(CaseInsensitiveString(key)))
     }
 }
 
@@ -124,9 +143,9 @@ impl Document {
 
         while let Some((key, value)) = super::de::parse_element(r.reader)? {
             //document.inner.try_insert()
-            match document.inner.entry(key.into()) {
+            match document.entry(key) {
                 Entry::Occupied(e) => {
-                    return Err(ParseError::DuplicatedKey(e.shift_remove_entry().0.into()).into());
+                    return Err(ParseError::DuplicatedKey(e.remove_entry().0).into());
                 }
                 Entry::Vacant(e) => {
                     e.insert(value);
@@ -147,6 +166,119 @@ impl Index<&str> for Document {
 
     fn index(&self, index: &str) -> &Self::Output {
         self.get(index)
+    }
+}
+
+pub enum Entry<'a> {
+    Occupied(OccupiedEntry<'a>),
+    Vacant(VacantEntry<'a>),
+}
+
+impl<'a> Entry<'a> {
+    fn new(inner: IndexMapEntry<'a, CaseInsensitiveString, Value>) -> Self {
+        match inner {
+            IndexMapEntry::Occupied(e) => Self::Occupied(OccupiedEntry::new(e)),
+            IndexMapEntry::Vacant(e) => Self::Vacant(VacantEntry::new(e)),
+        }
+    }
+
+    fn into_index(self) -> IndexMapEntry<'a, CaseInsensitiveString, Value> {
+        match self {
+            Entry::Occupied(e) => IndexMapEntry::Occupied(e.inner),
+            Entry::Vacant(e) => IndexMapEntry::Vacant(e.inner),
+        }
+    }
+
+    pub fn insert_entry(self, value: impl Into<Value>) -> OccupiedEntry<'a> {
+        OccupiedEntry::new(self.into_index().insert_entry(value.into()))
+    }
+
+    pub fn or_insert(self, value: impl Into<Value>) -> &'a mut Value {
+        self.into_index().or_insert(value.into())
+    }
+
+    pub fn or_insert_with<F: FnOnce() -> V, V: Into<Value>>(self, f: F) -> &'a mut Value {
+        self.into_index().or_insert_with(|| f().into())
+    }
+
+    pub fn or_insert_with_key<F: FnOnce(&str) -> V, V: Into<Value>>(self, f: F) -> &'a mut Value {
+        self.into_index().or_insert_with_key(|k| f(k.as_str()).into())
+    }
+
+    pub fn key(&self) -> &str {
+        match self {
+            Entry::Occupied(e) => e.key(),
+            Entry::Vacant(e) => e.key(),
+        }
+    }
+
+    pub fn and_modify<F: FnOnce(&mut Value)>(self, f: F) -> Self {
+        Self::new(self.into_index().and_modify(f))
+    }
+}
+
+pub struct OccupiedEntry<'a> {
+    inner: IndexMapOccupiedEntry<'a, CaseInsensitiveString, Value>,
+}
+
+impl<'a> OccupiedEntry<'a> {
+    fn new(inner: IndexMapOccupiedEntry<'a, CaseInsensitiveString, Value>) -> Self {
+        Self { inner }
+    }
+
+    pub fn key(&self) -> &str {
+        self.inner.key().as_str()
+    }
+
+    pub fn get(&self) -> &Value {
+        self.inner.get()
+    }
+
+    pub fn get_mut(&mut self) -> &mut Value {
+        self.inner.get_mut()
+    }
+
+    pub fn into_mut(self) -> &'a mut Value {
+        self.inner.into_mut()
+    }
+
+    pub fn insert(&mut self, value: impl Into<Value>) -> Value {
+        self.inner.insert(value.into())
+    }
+
+    pub fn remove(self) -> Value {
+        self.inner.shift_remove()
+    }
+
+    pub fn remove_entry(self) -> (String, Value) {
+        let (k, v) = self.inner.shift_remove_entry();
+        (k.0, v)
+    }
+}
+
+pub struct VacantEntry<'a> {
+    inner: IndexMapVacantEntry<'a, CaseInsensitiveString, Value>,
+}
+
+impl<'a> VacantEntry<'a> {
+    fn new(inner: IndexMapVacantEntry<'a, CaseInsensitiveString, Value>) -> Self {
+        Self { inner }
+    }
+
+    pub fn key(&self) -> &str {
+        self.inner.key().as_str()
+    }
+
+    pub fn into_key(self) -> String {
+        self.inner.into_key().0
+    }
+
+    pub fn insert(self, value: impl Into<Value>) -> &'a mut Value {
+        self.inner.insert(value.into())
+    }
+
+    pub fn insert_entry(self, value: impl Into<Value>) -> OccupiedEntry<'a> {
+        OccupiedEntry::new(self.inner.insert_entry(value.into()))
     }
 }
 
