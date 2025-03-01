@@ -583,6 +583,9 @@ fn test_debug() {
         format!("{:?}", time!(0001-01-01 00:00:00.000000100 UTC)),
         "0001-01-01T00:00:00.0000001"
     );
+    // Useless on windows since windows system time is based on tick (100 ns),
+    // and time - 1 ns would be rounded
+    #[cfg(unix)]
     assert_eq!(
         format!("{:?}", time!(0001-01-01 00:00:00.000000199 UTC)),
         "0001-01-01T00:00:00.0000001"
