@@ -62,12 +62,6 @@ impl Display for ParseError {
 
 type Error = super::Error;
 
-impl Error {
-    fn expr_run_error(str: &str) -> Self {
-        Self::err(format!("executing: {}", str))
-    }
-}
-
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum BsonExpressionType {
     Double = 1,

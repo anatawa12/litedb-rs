@@ -43,8 +43,12 @@ impl CollectionIndex {
     pub fn load(reader: &mut BufferReader) -> Result<Self> {
         let slot = reader.read_u8();
         let index_type = reader.read_u8();
-        let name = reader.read_cstring()?;
-        let expression = reader.read_cstring()?;
+        let name = reader
+            .read_cstring()
+            .ok_or_else(crate::Error::invalid_page)?;
+        let expression = reader
+            .read_cstring()
+            .ok_or_else(crate::Error::invalid_page)?;
         let unique = reader.read_bool();
         let head = reader.read_page_address();
         let tail = reader.read_page_address();

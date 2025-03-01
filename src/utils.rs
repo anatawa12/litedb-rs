@@ -135,7 +135,7 @@ impl BufferSlice {
     }
 
     pub fn read_string(&self, offset: usize, length: usize) -> crate::Result<&str> {
-        std::str::from_utf8(self.read_bytes(offset, length)).map_err(Error::err)
+        std::str::from_utf8(self.read_bytes(offset, length)).map_err(|_| Error::invalid_bson())
     }
 
     pub fn read_date_time(&self, offset: usize) -> crate::Result<bson::DateTime> {

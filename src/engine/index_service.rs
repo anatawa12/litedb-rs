@@ -116,9 +116,7 @@ impl<'snapshot> IndexService<'snapshot> {
             || key == bson::Value::MaxValue
             || key.ty() == bson::BsonType::Document
         {
-            return Err(Error::invalid_index_key(
-                "Min/Max Value are not supported as index key",
-            ));
+            return Err(Error::invalid_index_key_type());
         }
 
         let levels = self.flip();
@@ -138,7 +136,7 @@ impl<'snapshot> IndexService<'snapshot> {
         let (bytes_length, key_length) = IndexNode::get_node_length(insert_levels, &key);
 
         if key_length > MAX_INDEX_KEY_LENGTH {
-            return Err(Error::invalid_index_key("Index key too long"));
+            return Err(Error::index_key_too_long());
         }
 
         let mut node = self

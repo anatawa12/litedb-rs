@@ -139,7 +139,7 @@ impl BufferReader<'_> {
         self.read_u8() != 0
     }
 
-    pub fn read_cstring(&mut self) -> Result<String> {
+    pub fn read_cstring(&mut self) -> Option<String> {
         let mut bytes = Vec::new();
         loop {
             let byte = self.read_u8();
@@ -148,7 +148,7 @@ impl BufferReader<'_> {
             }
             bytes.push(byte);
         }
-        Ok(String::from_utf8(bytes)?)
+        String::from_utf8(bytes).ok()
     }
 
     pub fn read_page_address(&mut self) -> PageAddress {
