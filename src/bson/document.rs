@@ -215,6 +215,26 @@ impl<'a> Entry<'a> {
     pub fn and_modify<F: FnOnce(&mut Value)>(self, f: F) -> Self {
         Self::new(self.into_index().and_modify(f))
     }
+
+    pub fn document_or_replace(self) -> &'a mut Document {
+        match self {
+            Entry::Occupied(mut e) => {
+                if !matches!(e.get(), Value::Document(_)) {
+                    e.insert(Value::Document(Document::new()));
+                }
+                match e.into_mut() {
+                    Value::Document(d) => d,
+                    _ => unreachable!(),
+                }
+            }
+            Entry::Vacant(e) => {
+                match e.insert(Value::Document(Document::new())) {
+                    Value::Document(d) => d,
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
 }
 
 pub struct OccupiedEntry<'a> {
