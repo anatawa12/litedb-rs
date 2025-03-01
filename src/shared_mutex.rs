@@ -13,6 +13,7 @@ use windows::*;
 
 use std::ffi::OsStr;
 use std::io;
+use std::marker::PhantomData;
 
 /// The Shared Mutex
 pub struct SharedMutex {
@@ -20,7 +21,13 @@ pub struct SharedMutex {
 }
 
 pub struct SharedMutexGuard<'a> {
-    _inner: MutexGuardImpl<'a>,
+    _inner: MutexGuardImpl,
+    _phantom: PhantomData<&'a SharedMutexImpl>,
+}
+
+pub struct SharedMutexOwnedGuard {
+    _inner: MutexGuardImpl,
+    _owner: SharedMutex,
 }
 
 impl SharedMutex {
@@ -58,6 +65,14 @@ impl SharedMutex {
     pub async fn lock(&self) -> io::Result<SharedMutexGuard> {
         Ok(SharedMutexGuard {
             _inner: self.inner.lock().await?,
+            _phantom: PhantomData,
+        })
+    }
+
+    pub async fn lock_owned(self) -> io::Result<SharedMutexOwnedGuard> {
+        Ok(SharedMutexOwnedGuard {
+            _inner: self.inner.lock().await?,
+            _owner: self,
         })
     }
 }
@@ -68,6 +83,7 @@ fn _type_check() {
 
     check_sync_send(dummy::<SharedMutex>());
     check_sync_send(dummy::<SharedMutexGuard>());
+    check_sync_send(dummy::<SharedMutexOwnedGuard>());
 }
 
 #[cfg(windows)]
@@ -75,7 +91,6 @@ mod windows {
     use futures::channel::oneshot;
     use std::ffi::OsStr;
     use std::io;
-    use std::marker::PhantomData;
     use std::ops::Deref;
     use windows::Win32::Foundation::*;
     use windows::Win32::System::SystemServices::MAXIMUM_ALLOWED;
@@ -101,9 +116,8 @@ mod windows {
         handle: Owned<SendHandle>,
     }
 
-    pub(super) struct MutexGuardImpl<'a> {
+    pub(super) struct MutexGuardImpl {
         wait_sender: std::sync::mpsc::SyncSender<()>,
-        _phantom: PhantomData<&'a SharedMutexImpl>,
         release_end_receiver: SyncReceiver<()>,
     }
 
@@ -175,12 +189,11 @@ mod windows {
             Ok(MutexGuardImpl {
                 wait_sender,
                 release_end_receiver: SyncReceiver(release_end_receiver),
-                _phantom: PhantomData,
             })
         }
     }
 
-    impl Drop for MutexGuardImpl<'_> {
+    impl Drop for MutexGuardImpl {
         fn drop(&mut self) {
             self.wait_sender.send(()).ok();
             self.release_end_receiver.recv().ok();
