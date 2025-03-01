@@ -82,7 +82,7 @@ jobs:
         id: commit
         run: |-
           # commit & tag
-          git add Cargo.toml CHANGELOG.md
+          git add Cargo.toml
           git commit -m "v$VERSION"
           git branch releasing
           git push -u origin releasing
@@ -150,10 +150,9 @@ jobs:
         env:
           VERSION: ${{ needs.pre-build.outputs.version }}
           GH_TOKEN: ${{ github.token }}
-          RELEASE_NOTE: ${{ steps.download-release-note.outputs.download-path }}/release-note.md
         run: |-
           sleep 1
-          gh release create --verify-tag "v$VERSION" --notes-file "$RELEASE_NOTE"
+          gh release create --verify-tag "v$VERSION"
 
       - name: Update To Next Version
         run: |
