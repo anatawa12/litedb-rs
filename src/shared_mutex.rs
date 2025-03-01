@@ -92,6 +92,7 @@ mod windows {
     use std::ffi::OsStr;
     use std::io;
     use std::ops::Deref;
+    use std::sync::Mutex;
     use windows::Win32::Foundation::*;
     use windows::Win32::System::SystemServices::MAXIMUM_ALLOWED;
     use windows::Win32::System::Threading::*;
@@ -118,7 +119,7 @@ mod windows {
 
     pub(super) struct MutexGuardImpl {
         wait_sender: std::sync::mpsc::SyncSender<()>,
-        release_end_receiver: SyncReceiver<()>,
+        release_end_receiver: Mutex<std::sync::mpsc::Receiver<()>>,
     }
 
     impl SharedMutexImpl {
@@ -188,7 +189,7 @@ mod windows {
 
             Ok(MutexGuardImpl {
                 wait_sender,
-                release_end_receiver: SyncReceiver(release_end_receiver),
+                release_end_receiver: Mutex::new(release_end_receiver),
             })
         }
     }
@@ -196,18 +197,7 @@ mod windows {
     impl Drop for MutexGuardImpl {
         fn drop(&mut self) {
             self.wait_sender.send(()).ok();
-            self.release_end_receiver.recv().ok();
+            self.release_end_receiver.get_mut().unwrap().recv().ok();
         }
     }
-
-    /// The sync variant of receiver, by requiring `&mut self` it won't actually be synced.
-    struct SyncReceiver<T>(std::sync::mpsc::Receiver<T>);
-
-    impl<T> SyncReceiver<T> {
-        pub(crate) fn recv(&mut self) -> Result<T, std::sync::mpsc::RecvError> {
-            self.0.recv()
-        }
-    }
-
-    unsafe impl<T> Sync for SyncReceiver<T> {}
 }
