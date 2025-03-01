@@ -202,7 +202,8 @@ impl<'a> Entry<'a> {
     }
 
     pub fn or_insert_with_key<F: FnOnce(&str) -> V, V: Into<Value>>(self, f: F) -> &'a mut Value {
-        self.into_index().or_insert_with_key(|k| f(k.as_str()).into())
+        self.into_index()
+            .or_insert_with_key(|k| f(k.as_str()).into())
     }
 
     pub fn key(&self) -> &str {
@@ -227,12 +228,10 @@ impl<'a> Entry<'a> {
                     _ => unreachable!(),
                 }
             }
-            Entry::Vacant(e) => {
-                match e.insert(Value::Document(Document::new())) {
-                    Value::Document(d) => d,
-                    _ => unreachable!(),
-                }
-            }
+            Entry::Vacant(e) => match e.insert(Value::Document(Document::new())) {
+                Value::Document(d) => d,
+                _ => unreachable!(),
+            },
         }
     }
 }
