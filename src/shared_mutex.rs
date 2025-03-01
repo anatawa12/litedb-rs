@@ -57,7 +57,7 @@ impl SharedMutex {
 
     pub async fn lock(&self) -> io::Result<SharedMutexGuard> {
         Ok(SharedMutexGuard {
-            inner: self.inner.lock().await?
+            inner: self.inner.lock().await?,
         })
     }
 }
