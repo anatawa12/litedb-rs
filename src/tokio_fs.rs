@@ -20,10 +20,15 @@ impl crate::engine::StreamFactory for TokioStreamFactory {
     ) -> Pin<Box<dyn Future<Output = crate::Result<Box<dyn FileStream>>> + Send + Sync + '_>> {
         Box::pin(async move {
             if writable {
-                Ok(
-                    Box::new(tokio::fs::File::create(self.path.clone()).await?.compat())
-                        as Box<dyn FileStream>,
-                )
+                Ok(Box::new(
+                    tokio::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(false)
+                        .open(self.path.clone())
+                        .await?
+                        .compat(),
+                ) as Box<dyn FileStream>)
             } else {
                 Ok(
                     Box::new(tokio::fs::File::open(self.path.clone()).await?.compat())
