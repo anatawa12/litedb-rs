@@ -7,7 +7,8 @@ use either::Either;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::{Deref, DerefMut, Neg};
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut, Index, IndexMut, Neg};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 // TODO: Implement the CompareOptions struct
@@ -731,3 +732,35 @@ pub(crate) mod checker {
     }
     pub(crate) fn check_sync_send<'a, T: Send + Sync + 'a>(_: T) {}
 }
+
+pub(crate) struct KeyArena<T>(slab::Slab<T>);
+
+impl<T> KeyArena<T> {
+    pub fn new() -> Self {
+        Self(slab::Slab::new())
+    }
+
+    pub fn alloc(&mut self, value: T) -> ArenaKey<T> {
+        ArenaKey(self.0.insert(value), PhantomData)
+    }
+
+    pub fn free(&mut self, key: ArenaKey<T>) {
+        self.0.remove(key.0);
+    }
+}
+
+impl<T> Index<ArenaKey<T>> for KeyArena<T> {
+    type Output = T;
+
+    fn index(&self, index: ArenaKey<T>) -> &Self::Output {
+        &self.0[index.0]
+    }
+}
+
+impl<T> IndexMut<ArenaKey<T>> for KeyArena<T> {
+    fn index_mut(&mut self, index: ArenaKey<T>) -> &mut Self::Output {
+        &mut self.0[index.0]
+    }
+}
+
+pub(crate) struct ArenaKey<T>(usize, PhantomData<T>);
