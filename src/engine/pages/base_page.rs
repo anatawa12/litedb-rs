@@ -1,6 +1,7 @@
 use crate::Error;
 use crate::Result;
-use crate::engine::{PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer};
+use crate::engine::pages::PageBufferRef;
+use crate::engine::{PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer, PageBufferMut};
 use crate::utils::BufferSlice;
 use std::cmp::Ordering;
 use std::fmt::Debug;
@@ -28,8 +29,8 @@ const P_FRAGMENTED_BYTES: usize = 26; // 26-27 [ushort]
 const P_NEXT_FREE_POSITION: usize = 28; // 28-29 [ushort]
 const P_HIGHEST_INDEX: usize = 30; // 30-30 [byte]
 
-pub(crate) struct BasePage {
-    buffer: Box<PageBuffer>,
+pub(crate) struct BasePage<Buffer: PageBufferRef = Box<PageBuffer>> {
+    buffer: Buffer,
     page_id: u32,
     page_type: PageType,
     prev_page_id: u32,
@@ -75,8 +76,10 @@ impl BasePage {
     pub const P_IS_CONFIRMED: usize = P_IS_CONFIRMED;
     pub const P_TRANSACTION_ID: usize = P_TRANSACTION_ID;
     pub const SLOT_SIZE: usize = SLOT_SIZE;
+}
 
-    fn instance(buffer: Box<PageBuffer>) -> Self {
+impl<Buffer: PageBufferRef> BasePage<Buffer> {
+    fn instance(buffer: Buffer) -> Self {
         BasePage {
             buffer,
 
@@ -103,7 +106,10 @@ impl BasePage {
         }
     }
 
-    pub fn new(buffer: Box<PageBuffer>, page_id: u32, page_type: PageType) -> Self {
+    pub fn new(buffer: Buffer, page_id: u32, page_type: PageType) -> Self
+    where
+        Buffer: PageBufferMut,
+    {
         let mut base = Self::instance(buffer);
 
         base.page_id = page_id;
@@ -114,7 +120,7 @@ impl BasePage {
         base
     }
 
-    pub fn load(buffer: Box<PageBuffer>) -> Result<Self> {
+    pub fn load(buffer: Buffer) -> Result<Self> {
         let mut new = Self::instance(buffer);
         new.reload_fully()?;
 
@@ -122,7 +128,7 @@ impl BasePage {
     }
 
     pub(crate) fn reload_fully(&mut self) -> Result<()> {
-        let buffer = self.buffer.as_mut();
+        let buffer = self.buffer.deref();
 
         // page information
         self.page_id = buffer.read_u32(P_PAGE_ID);
@@ -146,7 +152,10 @@ impl BasePage {
         Ok(())
     }
 
-    pub(crate) fn update_buffer(&mut self) -> &PageBuffer {
+    pub(crate) fn update_buffer(&mut self) -> &PageBuffer
+    where
+        Buffer: PageBufferMut,
+    {
         let buffer = &mut self.buffer;
 
         assert_eq!(
@@ -175,7 +184,10 @@ impl BasePage {
         buffer
     }
 
-    pub fn mark_as_empty(&mut self) {
+    pub fn mark_as_empty(&mut self)
+    where
+        Buffer: PageBufferMut,
+    {
         self.set_dirty();
 
         // page information
@@ -285,11 +297,14 @@ impl BasePage {
         &self.buffer
     }
 
-    pub(crate) fn buffer_mut(&mut self) -> &mut PageBuffer {
+    pub(crate) fn buffer_mut(&mut self) -> &mut PageBuffer
+    where
+        Buffer: PageBufferMut,
+    {
         &mut self.buffer
     }
 
-    pub(crate) fn into_buffer(self) -> Box<PageBuffer> {
+    pub(crate) fn into_buffer(self) -> Buffer {
         self.buffer
     }
 
@@ -344,7 +359,7 @@ macro_rules! partial_slice_mut {
 }
 
 // Access/Manipulate PageSegments
-impl BasePage {
+impl<Buffer: PageBufferRef> BasePage<Buffer> {
     pub fn get(&self, index: u8) -> &BufferSlice {
         assert!(self.items_count > 0, "should have items in this page");
         assert_ne!(
@@ -357,8 +372,8 @@ impl BasePage {
             "get only index below highest index"
         );
 
-        let position_addr = Self::calc_position_addr(index);
-        let length_addr = Self::calc_length_addr(index);
+        let position_addr = BasePage::calc_position_addr(index);
+        let length_addr = BasePage::calc_length_addr(index);
 
         let position = partial_slice!(self, position_addr, 2).read_u16(0) as usize;
         let length = partial_slice!(self, length_addr, 2).read_u16(0) as usize;
@@ -371,11 +386,17 @@ impl BasePage {
         partial_slice!(self, position, length)
     }
 
-    pub fn get_mut(&mut self, index: u8) -> &mut BufferSlice {
+    pub fn get_mut(&mut self, index: u8) -> &mut BufferSlice
+    where
+        Buffer: PageBufferMut,
+    {
         self.get_mut_with_dirty(index).0
     }
 
-    pub fn get_mut_with_dirty(&mut self, index: u8) -> (&mut BufferSlice, &DirtyFlag) {
+    pub fn get_mut_with_dirty(&mut self, index: u8) -> (&mut BufferSlice, &DirtyFlag)
+    where
+        Buffer: PageBufferMut,
+    {
         assert!(self.items_count > 0, "should have items in this page");
         assert_ne!(
             self.highest_index,
@@ -387,8 +408,8 @@ impl BasePage {
             "get only index below highest index"
         );
 
-        let position_addr = Self::calc_position_addr(index);
-        let length_addr = Self::calc_length_addr(index);
+        let position_addr = BasePage::calc_position_addr(index);
+        let length_addr = BasePage::calc_length_addr(index);
 
         let position = partial_slice_mut!(self, position_addr, 2).read_u16(0) as usize;
         let length = partial_slice_mut!(self, length_addr, 2).read_u16(0) as usize;
@@ -405,12 +426,18 @@ impl BasePage {
     }
 
     // safety conserns: insert may move existing nodes; we may have to restrict having node on same page on insert / update
-    pub fn insert(&mut self, length: usize) -> (&mut BufferSlice, u8) {
+    pub fn insert(&mut self, length: usize) -> (&mut BufferSlice, u8)
+    where
+        Buffer: PageBufferMut,
+    {
         let (slice, index, _) = self.internal_insert(length, u8::MAX);
         (slice, index)
     }
 
-    pub fn insert_with_dirty(&mut self, length: usize) -> (&mut BufferSlice, u8, &DirtyFlag) {
+    pub fn insert_with_dirty(&mut self, length: usize) -> (&mut BufferSlice, u8, &DirtyFlag)
+    where
+        Buffer: PageBufferMut,
+    {
         self.internal_insert(length, u8::MAX)
     }
 
@@ -418,7 +445,10 @@ impl BasePage {
         &mut self,
         length: usize,
         mut index: u8,
-    ) -> (&mut BufferSlice, u8, &DirtyFlag) {
+    ) -> (&mut BufferSlice, u8, &DirtyFlag)
+    where
+        Buffer: PageBufferMut,
+    {
         let is_new = index == u8::MAX;
 
         // assert!(self.buffer.writable)
@@ -474,8 +504,8 @@ impl BasePage {
             self.highest_index = index;
         }
 
-        let position_addr = Self::calc_position_addr(index);
-        let length_addr = Self::calc_length_addr(index);
+        let position_addr = BasePage::calc_position_addr(index);
+        let length_addr = BasePage::calc_length_addr(index);
 
         debug_assert!(
             partial_slice_mut!(self, position_addr, 2).read_u16(0) == 0,
@@ -504,17 +534,23 @@ impl BasePage {
         )
     }
 
-    pub fn delete(&mut self, index: u8) {
+    pub fn delete(&mut self, index: u8)
+    where
+        Buffer: PageBufferMut,
+    {
         self.delete_inner(index, |this, position, length| {
             partial_slice_mut!(this, position, length).clear(0, length)
         });
     }
 
-    fn delete_inner(&mut self, index: u8, clear_buffer: impl FnOnce(&mut Self, usize, usize)) {
+    fn delete_inner(&mut self, index: u8, clear_buffer: impl FnOnce(&mut Self, usize, usize))
+    where
+        Buffer: PageBufferMut,
+    {
         // assert!(this.buffer.writable)
 
-        let position_addr = Self::calc_position_addr(index);
-        let length_addr = Self::calc_length_addr(index);
+        let position_addr = BasePage::calc_position_addr(index);
+        let length_addr = BasePage::calc_length_addr(index);
 
         let position = partial_slice_mut!(self, position_addr, 2).read_u16(0) as usize;
         let length = partial_slice_mut!(self, length_addr, 2).read_u16(0) as usize;
@@ -569,20 +605,22 @@ impl BasePage {
     }
 
     #[allow(dead_code)]
-    pub fn update(&mut self, index: u8, length: usize) -> &mut BufferSlice {
+    pub fn update(&mut self, index: u8, length: usize) -> &mut BufferSlice
+    where
+        Buffer: PageBufferMut,
+    {
         self.update_with_dirty(index, length).0
     }
 
-    pub fn update_with_dirty(
-        &mut self,
-        index: u8,
-        length: usize,
-    ) -> (&mut BufferSlice, &DirtyFlag) {
+    pub fn update_with_dirty(&mut self, index: u8, length: usize) -> (&mut BufferSlice, &DirtyFlag)
+    where
+        Buffer: PageBufferMut,
+    {
         // debug_assert!(this.buffer.writable)
         debug_assert!(length > 0, "length should be greater than 0");
 
-        let position_addr = Self::calc_position_addr(index);
-        let length_addr = Self::calc_length_addr(index);
+        let position_addr = BasePage::calc_position_addr(index);
+        let length_addr = BasePage::calc_length_addr(index);
 
         let position = partial_slice_mut!(self, position_addr, 2).read_u16(0) as usize;
         let old_length = partial_slice_mut!(self, length_addr, 2).read_u16(0) as usize;
@@ -646,7 +684,10 @@ impl BasePage {
         }
     }
 
-    pub fn defrag(&mut self) {
+    pub fn defrag(&mut self)
+    where
+        Buffer: PageBufferMut,
+    {
         // assert!(this.buffer.writable)
         debug_assert!(
             self.fragmented_bytes > 0,
@@ -662,7 +703,7 @@ impl BasePage {
         let mut segments = Vec::with_capacity(self.highest_index as usize);
 
         for index in 0..=self.highest_index {
-            let position_addr = Self::calc_position_addr(index);
+            let position_addr = BasePage::calc_position_addr(index);
             let position = self.buffer.read_u16(position_addr) as usize;
 
             if position != 0 {
@@ -675,8 +716,8 @@ impl BasePage {
         let mut next_position = PAGE_HEADER_SIZE;
 
         for (position, index) in segments {
-            let length_addr = Self::calc_length_addr(index);
-            let position_addr = Self::calc_position_addr(index);
+            let length_addr = BasePage::calc_length_addr(index);
+            let position_addr = BasePage::calc_position_addr(index);
 
             let length = self.buffer.read_u16(length_addr) as usize;
             //let position = self.buffer.read_u16(position_addr) as usize;
@@ -705,7 +746,7 @@ impl BasePage {
 
     fn get_free_index(&mut self) -> u8 {
         for index in self.start_index..=self.highest_index {
-            let position_addr = Self::calc_position_addr(index);
+            let position_addr = BasePage::calc_position_addr(index);
             let position = partial_slice!(self, position_addr, 2).read_u16(0) as usize;
 
             if position == 0 {
@@ -719,7 +760,7 @@ impl BasePage {
 
     pub fn get_used_indices(&self) -> impl Iterator<Item = u8> {
         (0..=self.highest_index).filter(move |&index| {
-            let position_addr = Self::calc_position_addr(index);
+            let position_addr = BasePage::calc_position_addr(index);
             let position = partial_slice!(self, position_addr, 2).read_u16(0) as usize;
             position != 0
         })

@@ -12,7 +12,16 @@ pub(crate) use data_page::*;
 pub(crate) use header_page::*;
 pub(crate) use index_page::*;
 use std::any::{Any, TypeId};
+use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
+
+pub(crate) trait PageBufferRef: Deref<Target = PageBuffer> {}
+
+impl<T: Deref<Target = PageBuffer>> PageBufferRef for T {}
+
+pub(crate) trait PageBufferMut: PageBufferRef + DerefMut {}
+
+impl<T: Deref<Target = PageBuffer> + DerefMut> PageBufferMut for T {}
 
 pub(crate) trait Page: AsRef<BasePage> + AsMut<BasePage> + Any + Send + Sync {
     fn load(buffer: Box<PageBuffer>) -> Result<Self>

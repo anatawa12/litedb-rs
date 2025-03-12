@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::bson;
 use crate::engine::utils::SendPtr;
-use crate::engine::{IndexPage, PageAddress};
+use crate::engine::{IndexPage, PageAddress, PageBuffer, PageBufferMut};
 use crate::utils::{BufferSlice, Order};
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -29,8 +29,10 @@ pub(crate) struct IndexNodeShared<S, D> {
 }
 
 pub(crate) type IndexNode = IndexNodeShared<(), ()>;
-pub(crate) type IndexNodeMut<'a> =
-    IndexNodeShared<SendPtr<BufferSlice>, (SendPtr<IndexPage>, PhantomData<&'a BufferSlice>)>;
+pub(crate) type IndexNodeMut<'a, Buffer = Box<PageBuffer>> = IndexNodeShared<
+    SendPtr<BufferSlice>,
+    (SendPtr<IndexPage<Buffer>>, PhantomData<&'a BufferSlice>),
+>;
 
 extend_lifetime!(IndexNodeMut);
 
@@ -205,10 +207,10 @@ impl IndexNode {
     }
 }
 
-impl<'a> IndexNodeMut<'a> {
+impl<'a, Buffer: PageBufferMut> IndexNodeMut<'a, Buffer> {
     pub fn load(
         page_id: u32,
-        dirty_ptr: *mut IndexPage,
+        dirty_ptr: *mut IndexPage<Buffer>,
         index: u8,
         segment: &'a mut BufferSlice,
     ) -> Result<Self> {
@@ -224,7 +226,7 @@ impl<'a> IndexNodeMut<'a> {
     pub fn new(
         page_id: u32,
         index: u8,
-        dirty_ptr: *mut IndexPage,
+        dirty_ptr: *mut IndexPage<Buffer>,
         segment: &'a mut BufferSlice,
         slot: u8,
         levels: u8,
@@ -298,7 +300,7 @@ impl<'a> IndexNodeMut<'a> {
         self.set_dirty();
     }
 
-    pub fn page_ptr(&self) -> SendPtr<IndexPage> {
+    pub fn page_ptr(&self) -> SendPtr<IndexPage<Buffer>> {
         self.ptr.0
     }
 

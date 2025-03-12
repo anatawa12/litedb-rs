@@ -8,7 +8,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::bson::Value;
-use crate::engine::{BasePage, PageType};
+use crate::engine::{BasePage, PageBufferRef, PageType};
 use std::fmt::Display;
 
 #[macro_use]
@@ -101,7 +101,10 @@ impl Error {
         Error::new(ErrorImpl::CollationMismatch)
     }
 
-    pub(crate) fn invalid_page_type(expected: PageType, page: BasePage) -> Error {
+    pub(crate) fn invalid_page_type<Buffer: PageBufferRef>(
+        expected: PageType,
+        page: BasePage<Buffer>,
+    ) -> Error {
         Error::new(ErrorImpl::InvalidPageType {
             expected,
             actual: page.page_type(),

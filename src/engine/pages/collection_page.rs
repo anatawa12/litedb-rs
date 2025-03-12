@@ -1,10 +1,10 @@
 use crate::engine::buffer_reader::BufferReader;
 use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::collection_index::CollectionIndex;
-use crate::engine::pages::{BasePage, PageType};
+use crate::engine::pages::{BasePage, PageBufferRef, PageType};
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
 use crate::engine::{
-    DirtyFlag, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer,
+    DirtyFlag, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer, PageBufferMut,
 };
 use crate::expression::BsonExpression;
 use crate::{Error, Result};
@@ -25,15 +25,18 @@ pub(crate) struct CollectionIndexesPartialBorrow<'a>(
 pub(crate) type CollectionIndexRef<'a> = PartialRefMut<&'a mut CollectionIndex, &'a str>;
 
 // all fields are accessed by snapshot for partial borrowing
-pub(crate) struct CollectionPage {
-    pub base: BasePage, // for Dirty flag, temporary
+pub(crate) struct CollectionPage<Buffer: PageBufferRef = Box<PageBuffer>> {
+    pub base: BasePage<Buffer>, // for Dirty flag, temporary
 
     pub free_data_page_list: FreeDataPageList,
     pub indexes: CollectionIndexes,
 }
 
-impl CollectionPage {
-    pub fn new(buffer: Box<PageBuffer>, page_id: u32) -> Self {
+impl<Buffer: PageBufferRef> CollectionPage<Buffer> {
+    pub fn new(buffer: Buffer, page_id: u32) -> Self
+    where
+        Buffer: PageBufferMut,
+    {
         let base = BasePage::new(buffer, page_id, PageType::Collection);
         let free_data_page_list = [u32::MAX; PAGE_FREE_LIST_SLOTS];
 
@@ -44,7 +47,7 @@ impl CollectionPage {
         }
     }
 
-    pub fn load(buffer: Box<PageBuffer>) -> Result<Self> {
+    pub fn load(buffer: Buffer) -> Result<Self> {
         let base = BasePage::load(buffer)?;
         let mut free_data_page_list = [u32::MAX; PAGE_FREE_LIST_SLOTS];
         let mut indexes = HashMap::new();
@@ -78,8 +81,11 @@ impl CollectionPage {
         })
     }
 
-    pub fn update_buffer(&mut self) -> &PageBuffer {
-        if self.page_type() == PageType::Empty {
+    pub fn update_buffer(&mut self) -> &PageBuffer
+    where
+        Buffer: PageBufferMut,
+    {
+        if self.base.page_type() == PageType::Empty {
             return self.base.update_buffer();
         }
         let buffer = self
@@ -196,7 +202,7 @@ impl CollectionIndexes {
     }
 }
 
-impl CollectionPage {
+impl<Buffer: PageBufferRef> CollectionPage<Buffer> {
     #[allow(dead_code)] // basically indexes variant is used
     pub fn get_collection_indexes_slots(&self) -> Vec<Option<&CollectionIndex>> {
         self.indexes.get_collection_indexes_slots()
@@ -215,7 +221,7 @@ impl CollectionPage {
 
     #[allow(dead_code)] // basically indexes variant is used
     pub fn update_collection_index(&mut self, name: &str) -> &mut CollectionIndex {
-        self.set_dirty();
+        self.base.set_dirty();
         self.indexes.0.get_mut(name).unwrap()
     }
 

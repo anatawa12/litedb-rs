@@ -1,44 +1,56 @@
 use crate::Result;
 use crate::engine::data_block::{DataBlock, DataBlockMut};
 use crate::engine::page_address::PageAddress;
+use crate::engine::pages::PageBufferRef;
 use crate::engine::{
-    BasePage, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer, PageType,
+    BasePage, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer, PageBufferMut,
+    PageType,
 };
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 
-pub(crate) struct DataPage {
-    base: BasePage,
+pub(crate) struct DataPage<Buffer: PageBufferRef = Box<PageBuffer>> {
+    base: BasePage<Buffer>,
 }
 
-impl DataPage {
-    pub fn new(buffer: Box<PageBuffer>, page_id: u32) -> Self {
-        DataPage {
+impl<Buffer: PageBufferRef> DataPage<Buffer> {
+    pub fn new(buffer: Buffer, page_id: u32) -> Self
+    where
+        Buffer: PageBufferMut,
+    {
+        Self {
             base: BasePage::new(buffer, page_id, PageType::Data),
         }
     }
 
-    pub fn load(buffer: Box<PageBuffer>) -> Result<Self> {
-        Ok(DataPage {
+    pub fn load(buffer: Buffer) -> Result<Self> {
+        Ok(Self {
             base: BasePage::load(buffer)?,
         })
     }
 
     pub fn get_data_block(&self, index: u8) -> DataBlock {
-        let segment = self.get(index);
-        DataBlock::load(self.page_id(), index, segment)
+        let segment = self.base.get(index);
+        DataBlock::load(self.base.page_id(), index, segment)
     }
 
-    pub fn get_data_block_mut(&mut self, index: u8) -> DataBlockMut {
+    pub fn get_data_block_mut(&mut self, index: u8) -> DataBlockMut
+    where
+        Buffer: PageBufferMut,
+    {
         let page_id = self.base.page_id();
         let (segment, dirty) = self.base.get_mut_with_dirty(index);
         DataBlockMut::load(page_id, dirty, index, segment)
     }
 
-    pub fn insert_block(&mut self, length: usize, extend: bool) -> DataBlockMut {
-        let page_id = self.page_id();
-        let (segment, index, dirty) =
-            self.insert_with_dirty(length + DataBlock::DATA_BLOCK_FIXED_SIZE);
+    pub fn insert_block(&mut self, length: usize, extend: bool) -> DataBlockMut
+    where
+        Buffer: PageBufferMut,
+    {
+        let page_id = self.base.page_id();
+        let (segment, index, dirty) = self
+            .base
+            .insert_with_dirty(length + DataBlock::DATA_BLOCK_FIXED_SIZE);
         DataBlockMut::new(page_id, dirty, index, segment, extend, PageAddress::EMPTY)
     }
 
@@ -49,16 +61,23 @@ impl DataPage {
         extend: bool,
         next_block: PageAddress,
         length: usize,
-    ) -> DataBlockMut {
-        let page_id = self.page_id();
-        let (buffer, dirty) =
-            self.update_with_dirty(index, length + DataBlock::DATA_BLOCK_FIXED_SIZE);
+    ) -> DataBlockMut
+    where
+        Buffer: PageBufferMut,
+    {
+        let page_id = self.base.page_id();
+        let (buffer, dirty) = self
+            .base
+            .update_with_dirty(index, length + DataBlock::DATA_BLOCK_FIXED_SIZE);
 
         DataBlockMut::new(page_id, dirty, index, buffer, extend, next_block)
     }
 
-    pub fn delete_block(&mut self, index: u8) {
-        self.delete(index)
+    pub fn delete_block(&mut self, index: u8)
+    where
+        Buffer: PageBufferMut,
+    {
+        self.base.delete(index)
     }
 
     #[allow(dead_code)] // unused in upstream
@@ -71,9 +90,11 @@ impl DataPage {
                 let extend = self.base.buffer().read_bool(position + DataBlock::P_EXTEND);
                 !extend
             })
-            .map(|index| PageAddress::new(self.page_id(), index))
+            .map(|index| PageAddress::new(self.base.page_id(), index))
     }
+}
 
+impl DataPage {
     const FREE_PAGE_SLOTS: [usize; 4] = [
         ((PAGE_SIZE - PAGE_HEADER_SIZE) as f64 * 0.90) as usize, // 0
         ((PAGE_SIZE - PAGE_HEADER_SIZE) as f64 * 0.75) as usize, // 1

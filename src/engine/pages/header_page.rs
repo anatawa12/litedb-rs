@@ -2,9 +2,9 @@ use crate::bson;
 use crate::engine::buffer_reader::BufferReader;
 use crate::engine::buffer_writer::BufferWriter;
 use crate::engine::engine_pragmas::EnginePragmas;
-use crate::engine::pages::PageType;
 use crate::engine::pages::base_page::BasePage;
-use crate::engine::{DirtyFlag, PageBuffer};
+use crate::engine::pages::{PageBufferRef, PageType};
+use crate::engine::{DirtyFlag, PageBuffer, PageBufferMut};
 use crate::{Error, Result};
 use async_lock::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 use std::ops::Deref;
@@ -27,8 +27,8 @@ const P_INVALID_DATAFILE_STATE: usize = 191; // 191-191 (1 byte)
 const P_COLLECTIONS: usize = 192; // 192-8159 (8064 bytes)
 const COLLECTIONS_SIZE: usize = 8000; // 250 blocks with 32 bytes each
 
-pub(crate) struct HeaderPage {
-    lock: AsyncMutex<BasePage>,
+pub(crate) struct HeaderPage<Buffer: PageBufferRef = Box<PageBuffer>> {
+    lock: AsyncMutex<BasePage<Buffer>>,
     inner: HeaderPageInner,
 }
 
@@ -50,9 +50,14 @@ pub(crate) struct HeaderPageLocked<'a> {
 
 impl HeaderPage {
     pub const P_INVALID_DATAFILE_STATE: usize = P_INVALID_DATAFILE_STATE;
+}
 
-    pub(crate) fn new(buffer: Box<PageBuffer>) -> Self {
-        let mut header = HeaderPage {
+impl<Buffer: PageBufferRef> HeaderPage<Buffer> {
+    pub(crate) fn new(buffer: Buffer) -> Self
+    where
+        Buffer: PageBufferMut,
+    {
+        let mut header = Self {
             lock: AsyncMutex::new(BasePage::new(buffer, 0, PageType::Header)),
 
             inner: HeaderPageInner {
@@ -77,8 +82,8 @@ impl HeaderPage {
         header
     }
 
-    pub fn load(buffer: Box<PageBuffer>) -> Result<Self> {
-        let mut header = HeaderPage {
+    pub fn load(buffer: Buffer) -> Result<Self> {
+        let mut header = Self {
             lock: AsyncMutex::new(BasePage::load(buffer)?),
 
             inner: HeaderPageInner {
