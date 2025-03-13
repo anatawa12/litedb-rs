@@ -5,6 +5,7 @@ use crate::engine::{PAGE_SIZE, PageAddress, PageType};
 use crate::utils::BufferSlice;
 use std::collections::HashMap;
 
+use crate::file_io::parser::raw_data_block::RawDataBlock;
 use raw_index_node::RawIndexNode;
 
 #[derive(Debug)]
@@ -57,7 +58,26 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
         index_nodes
     };
 
+    // parse data blocks
+    let data_blocks = {
+        let mut data_blocks = HashMap::<PageAddress, RawDataBlock>::new();
+
+        for &page in pages.iter() {
+            if page.page_type() == Some(PageType::Data) {
+                for (index, buffer) in page.blocks() {
+                    data_blocks.insert(
+                        PageAddress::new(page.page_id(), index),
+                        RawDataBlock::parse(buffer),
+                    );
+                }
+            }
+        }
+
+        data_blocks
+    };
+
     println!("{:#?}", index_nodes);
+    println!("{:#?}", data_blocks);
 
     //let header = HeaderPage::load(&pages[0])?;
 
@@ -122,6 +142,45 @@ mod raw_index_node {
                 prev,
                 next,
             })
+        }
+    }
+}
+
+mod raw_data_block {
+    use super::*;
+    use std::fmt::Debug;
+
+    const P_EXTEND: usize = 0; // 00-00 [byte]
+    const P_NEXT_BLOCK: usize = 1; // 01-05 [pageAddress]
+    const P_BUFFER: usize = 6; // 06-EOF [byte[]]
+
+    pub(super) struct RawDataBlock<'a> {
+        extend: bool,
+        next_block: PageAddress,
+        buffer: &'a BufferSlice,
+    }
+
+    impl<'a> RawDataBlock<'a> {
+        pub fn parse(segment: &'a BufferSlice) -> Self {
+            let extend = segment.read_bool(P_EXTEND);
+            let next_block = segment.read_page_address(P_NEXT_BLOCK);
+            let buffer = segment.slice(P_BUFFER, segment.len() - P_BUFFER);
+
+            Self {
+                extend,
+                next_block,
+                buffer,
+            }
+        }
+    }
+
+    impl<'a> Debug for RawDataBlock<'a> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("RawDataBlock")
+                .field("extend", &self.extend)
+                .field("next_block", &self.next_block)
+                .field("buffer", self.buffer.as_bytes())
+                .finish()
         }
     }
 }
