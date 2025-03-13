@@ -1,21 +1,29 @@
 use super::page::PageBuffer;
-use super::LiteDBFile;
-use crate::bson;
-use crate::engine::{PageAddress, PageType, PAGE_SIZE};
-use crate::utils::BufferSlice;
-use std::collections::HashMap;
+use super::{Collection, CollectionIndex, IndexNode, LiteDBFile};
+use crate::engine::{BufferReader, PAGE_SIZE, PageAddress, PageType};
+use crate::utils::{ArenaKey, BufferSlice, CaseInsensitiveString, KeyArena};
+use crate::{bson};
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet, VecDeque};
 
+use crate::file_io::parser::collection_page::RawCollectionPage;
 use crate::file_io::parser::header_page::HeaderPage;
 use crate::file_io::parser::raw_data_block::RawDataBlock;
 use raw_index_node::RawIndexNode;
-use crate::file_io::parser::collection_page::RawCollectionPage;
 
 #[derive(Debug)]
-enum ParseError {
+pub enum ParseError {
     InvalidDatabase,
     BadPageId,
     PagePageType,
-    BsonExpression(crate::expression::ParseError)
+    BsonExpression(crate::expression::ParseError),
+    BadBlockReference,
+}
+
+impl ParseError {
+    fn bad_block_reference() -> Self {
+        Self::BadBlockReference
+    }
 }
 
 impl From<crate::Error> for ParseError {
@@ -32,13 +40,14 @@ impl From<crate::expression::ParseError> for ParseError {
 
 type ParseResult<T> = Result<T, ParseError>;
 
+#[allow(dead_code)]
 pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
     // if the length is not multiple of PAGE_SIZE, crop
     let data = &data[..(data.len() & !PAGE_SIZE)];
 
     let pages = data
         .chunks(PAGE_SIZE)
-        .map(|page| PageBuffer::new(page))
+        .map(PageBuffer::new)
         .collect::<Vec<_>>();
 
     for (index, &page) in pages.iter().enumerate() {
@@ -51,8 +60,6 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
     }
 
     let header = HeaderPage::parse(pages[0])?;
-
-    println!("header: {:#?}", header);
 
     // parse index nodes
     let index_nodes = {
@@ -90,18 +97,210 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
         data_blocks
     };
 
-    println!("{:#?}", index_nodes);
-    println!("{:#?}", data_blocks);
+    struct DataBuilder<'buf> {
+        arena: KeyArena<bson::Document>,
+        raw_node: HashMap<PageAddress, RawDataBlock<'buf>>,
+        keys: HashMap<PageAddress, ArenaKey<bson::Document>>,
+    }
+
+    impl<'buf> DataBuilder<'buf> {
+        pub fn new(raw_node: HashMap<PageAddress, RawDataBlock<'buf>>) -> Self {
+            Self {
+                arena: KeyArena::new(),
+                keys: HashMap::new(),
+                raw_node,
+            }
+        }
+
+        fn get_opt(
+            &mut self,
+            position: PageAddress,
+        ) -> ParseResult<Option<ArenaKey<bson::Document>>> {
+            if position.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(self.get(position)?))
+            }
+        }
+
+        fn get(&mut self, position: PageAddress) -> ParseResult<ArenaKey<bson::Document>> {
+            match self.keys.entry(position) {
+                Entry::Occupied(e) => Ok(*e.get()),
+                Entry::Vacant(e) => {
+                    let mut buffers = vec![];
+
+                    {
+                        let mut cur = position;
+
+                        while !cur.is_empty() {
+                            let raw = self
+                                .raw_node
+                                .remove(&position)
+                                .ok_or_else(ParseError::bad_block_reference)?;
+                            buffers.push(raw.buffer());
+                            cur = raw.next_block();
+                        }
+                    }
+
+                    let mut reader = BufferReader::fragmented(buffers);
+                    let document = reader.read_document()?;
+
+                    Ok(*e.insert(self.arena.alloc(document)))
+                }
+            }
+        }
+    }
+
+    struct IndexBuilder<'buf, 'a> {
+        arena: KeyArena<IndexNode>,
+        raw_node: HashMap<PageAddress, RawIndexNode>,
+        keys: HashMap<PageAddress, ArenaKey<IndexNode>>,
+        data_builder: &'a mut DataBuilder<'buf>,
+    }
+
+    impl<'buf, 'a> IndexBuilder<'buf, 'a> {
+        fn new(
+            raw_node: HashMap<PageAddress, RawIndexNode>,
+            data_builder: &'a mut DataBuilder<'buf>,
+        ) -> Self {
+            Self {
+                arena: KeyArena::new(),
+                keys: HashMap::new(),
+                raw_node,
+                data_builder,
+            }
+        }
+
+        fn get(&mut self, position: PageAddress) -> ParseResult<ArenaKey<IndexNode>> {
+            if let Some(key) = self.keys.get(&position) {
+                return Ok(*key);
+            }
+
+            struct RawIndexAddress {
+                data_block: PageAddress,
+                next_node: PageAddress,
+                prev: Vec<PageAddress>,
+                next: Vec<PageAddress>,
+                key: ArenaKey<IndexNode>,
+            }
+
+            let mut address_map = Vec::<RawIndexAddress>::new();
+
+            let mut processing = HashSet::<PageAddress>::new();
+            let mut process_queue = VecDeque::new();
+            process_queue.push_back(position);
+            processing.insert(position);
+
+            while let Some(current) = process_queue.pop_front() {
+                let raw = self
+                    .raw_node
+                    .remove(&current)
+                    .ok_or_else(ParseError::bad_block_reference)?;
+
+                let key = *self
+                    .keys
+                    .entry(current)
+                    .insert_entry(self.arena.alloc(IndexNode {
+                        slot: raw.slot,
+                        levels: raw.levels,
+                        key: raw.key,
+                        data: self.data_builder.get_opt(raw.data_block)?,
+                        next_node: None,
+                        prev: vec![None; raw.levels as usize],
+                        next: vec![None; raw.levels as usize],
+                    }))
+                    .get();
+
+                for &addr in (raw.next.iter())
+                    .chain(raw.prev.iter())
+                    .chain([&raw.next_node])
+                    .filter(|x| !x.is_empty())
+                {
+                    if processing.insert(addr) && !self.keys.contains_key(&addr) {
+                        process_queue.push_back(addr);
+                    }
+                }
+
+                address_map.push(RawIndexAddress {
+                    key,
+                    data_block: raw.data_block,
+                    next_node: raw.next_node,
+                    prev: raw.prev,
+                    next: raw.next,
+                });
+            }
+
+            fn get(
+                keys: &mut HashMap<PageAddress, ArenaKey<IndexNode>>,
+                addr: PageAddress,
+            ) -> Option<ArenaKey<IndexNode>> {
+                if addr.is_empty() {
+                    None
+                } else {
+                    Some(keys[&addr])
+                }
+            }
+
+            for addresses in address_map {
+                let node = &mut self.arena[addresses.key];
+                node.next_node = get(&mut self.keys, addresses.next_node);
+                for (node, &addr) in node.prev.iter_mut().zip(addresses.prev.iter()) {
+                    *node = get(&mut self.keys, addr);
+                }
+                for (node, &addr) in node.next.iter_mut().zip(addresses.next.iter()) {
+                    *node = get(&mut self.keys, addr);
+                }
+            }
+
+            Ok(*self.keys.get(&position).unwrap())
+        }
+    }
+
+    let mut data_builder = DataBuilder::new(data_blocks);
+    let mut index_builder = IndexBuilder::new(index_nodes, &mut data_builder);
+
+    let mut collections = HashMap::new();
 
     // parse collection pages
     for (key, page) in header.collections().iter() {
         let page = page.as_i32().ok_or(ParseError::InvalidDatabase)? as u32;
-        let page_buffer = *pages.get(page as usize).ok_or(ParseError::InvalidDatabase)?;
+        let page_buffer = *pages
+            .get(page as usize)
+            .ok_or(ParseError::InvalidDatabase)?;
         let collection = RawCollectionPage::parse(page_buffer)?;
-        println!("{key:#}: {collection:#?}");
+
+        let mut indexes = HashMap::new();
+
+        for (name, index) in collection.indexes() {
+            indexes.insert(
+                name.clone(),
+                CollectionIndex {
+                    slot: index.slot(),
+                    index_type: index.index_type(),
+                    name: index.name().to_string(),
+                    expression: index.expression().to_string(),
+                    unique: index.unique(),
+                    reserved: index.reserved(),
+                    bson_expr: index.bson_expr().clone(),
+                    head: index_builder.get(index.head())?,
+                    tail: index_builder.get(index.tail())?,
+                },
+            );
+        }
+
+        let collection = Collection { indexes };
+
+        collections.insert(CaseInsensitiveString(key.to_string()), collection);
     }
 
-    todo!()
+    Ok(LiteDBFile {
+        collections,
+        creation_time: header.creation_time(),
+        pragmas: header.pragmas().clone(),
+
+        index_arena: index_builder.arena,
+        data: data_builder.arena,
+    })
 }
 
 mod raw_index_node {
@@ -115,13 +314,13 @@ mod raw_index_node {
 
     #[derive(Debug)]
     pub(super) struct RawIndexNode {
-        slot: u8,
-        levels: u8,
-        key: bson::Value,
-        data_block: PageAddress,
-        next_node: PageAddress,
-        prev: Vec<PageAddress>,
-        next: Vec<PageAddress>,
+        pub slot: u8,
+        pub levels: u8,
+        pub key: bson::Value,
+        pub data_block: PageAddress,
+        pub next_node: PageAddress,
+        pub prev: Vec<PageAddress>,
+        pub next: Vec<PageAddress>,
     }
 
     fn calc_key_ptr(levels: u8) -> usize {
@@ -192,9 +391,17 @@ mod raw_data_block {
                 buffer,
             }
         }
+
+        pub fn buffer(&self) -> &'a BufferSlice {
+            self.buffer
+        }
+
+        pub fn next_block(&self) -> PageAddress {
+            self.next_block
+        }
     }
 
-    impl<'a> Debug for RawDataBlock<'a> {
+    impl Debug for RawDataBlock<'_> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct("RawDataBlock")
                 .field("extend", &self.extend)
@@ -257,6 +464,14 @@ mod header_page {
             })
         }
 
+        pub fn creation_time(&self) -> bson::DateTime {
+            self.creation_time
+        }
+
+        pub fn pragmas(&self) -> &EnginePragmas {
+            &self.pragmas
+        }
+
         pub fn collections(&self) -> &bson::Document {
             &self.collections
         }
@@ -298,7 +513,7 @@ mod collection_page {
             let count = reader.read_u8().into();
 
             for _ in 0..count {
-                let index = load_collection_index(&mut reader)?;
+                let index = RawCollectionIndex::parse(&mut reader)?;
                 indexes.insert(index.name.clone(), index);
             }
 
@@ -307,10 +522,14 @@ mod collection_page {
                 indexes,
             })
         }
+
+        pub fn indexes(&self) -> &HashMap<String, RawCollectionIndex> {
+            &self.indexes
+        }
     }
 
     #[derive(Debug)]
-    struct RawCollectionIndex {
+    pub(super) struct RawCollectionIndex {
         // same as CollectionIndex
         slot: u8,
         index_type: u8,
@@ -324,34 +543,77 @@ mod collection_page {
         bson_expr: BsonExpression,
     }
 
-    fn load_collection_index(reader: &mut BufferReader) -> ParseResult<RawCollectionIndex> {
-        let slot = reader.read_u8();
-        let index_type = reader.read_u8();
-        let name = reader
-            .read_cstring()
-            .ok_or_else(crate::Error::invalid_page)?;
-        let expression = reader
-            .read_cstring()
-            .ok_or_else(crate::Error::invalid_page)?;
-        let unique = reader.read_bool();
-        let head = reader.read_page_address();
-        let tail = reader.read_page_address();
-        let reserved = reader.read_u8();
-        let free_index_page_list = reader.read_u32();
-        let parsed = BsonExpression::create(&expression)?;
+    impl RawCollectionIndex {
+        fn parse(reader: &mut BufferReader) -> ParseResult<Self> {
+            let slot = reader.read_u8();
+            let index_type = reader.read_u8();
+            let name = reader
+                .read_cstring()
+                .ok_or_else(crate::Error::invalid_page)?;
+            let expression = reader
+                .read_cstring()
+                .ok_or_else(crate::Error::invalid_page)?;
+            let unique = reader.read_bool();
+            let head = reader.read_page_address();
+            let tail = reader.read_page_address();
+            let reserved = reader.read_u8();
+            let free_index_page_list = reader.read_u32();
+            let parsed = BsonExpression::create(&expression)?;
 
-        Ok(RawCollectionIndex {
-            slot,
-            index_type,
-            name,
-            expression,
-            unique,
-            head,
-            tail,
-            reserved,
-            free_index_page_list,
-            bson_expr: parsed,
-        })
+            Ok(Self {
+                slot,
+                index_type,
+                name,
+                expression,
+                unique,
+                head,
+                tail,
+                reserved,
+                free_index_page_list,
+                bson_expr: parsed,
+            })
+        }
+
+        pub fn slot(&self) -> u8 {
+            self.slot
+        }
+
+        pub fn index_type(&self) -> u8 {
+            self.index_type
+        }
+
+        pub fn name(&self) -> &str {
+            &self.name
+        }
+
+        pub fn expression(&self) -> &str {
+            &self.expression
+        }
+
+        pub fn unique(&self) -> bool {
+            self.unique
+        }
+
+        pub fn reserved(&self) -> u8 {
+            self.reserved
+        }
+
+        pub fn head(&self) -> PageAddress {
+            self.head
+        }
+
+        pub fn tail(&self) -> PageAddress {
+            self.tail
+        }
+
+        #[allow(dead_code)]
+        pub fn free_index_page_list(&self) -> u32 {
+            self.free_index_page_list
+        }
+
+        pub fn bson_expr(&self) -> &BsonExpression {
+            &self.bson_expr
+        }
     }
 }
 
@@ -361,5 +623,6 @@ fn test_parse() {
         "/Users/anatawa12/.local/share/VRChatCreatorCompanion/vcc.liteDb backup copy",
     )
     .unwrap();
-    parse(&buffer).unwrap();
+    let file = parse(&buffer).unwrap();
+    println!("{:#?}", file);
 }

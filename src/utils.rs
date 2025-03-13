@@ -733,6 +733,7 @@ pub(crate) mod checker {
     pub(crate) fn check_sync_send<'a, T: Send + Sync + 'a>(_: T) {}
 }
 
+#[derive(Debug)]
 pub(crate) struct KeyArena<T>(slab::Slab<T>);
 
 impl<T> KeyArena<T> {
@@ -763,4 +764,13 @@ impl<T> IndexMut<ArenaKey<T>> for KeyArena<T> {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct ArenaKey<T>(usize, PhantomData<T>);
+
+impl<T> Clone for ArenaKey<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for ArenaKey<T> {}

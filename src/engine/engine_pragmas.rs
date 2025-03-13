@@ -39,6 +39,20 @@ impl Default for EnginePragmas {
     }
 }
 
+impl Clone for EnginePragmas {
+    fn clone(&self) -> Self {
+        Self {
+            user_version: self.user_version.load(Relaxed).into(),
+            collation: self.collation.load(Relaxed).into(),
+            timeout_seconds: self.timeout_seconds.load(Relaxed).into(),
+            limit_size: self.limit_size.load(Relaxed).into(),
+            utc_date: self.utc_date.load(Relaxed).into(),
+            checkpoint: self.checkpoint.load(Relaxed).into(),
+            dirty: DirtyFlag::new(),
+        }
+    }
+}
+
 #[allow(dead_code)]
 impl EnginePragmas {
     pub fn read(&self, buffer: &BufferSlice) -> crate::Result<()> {
