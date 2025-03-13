@@ -5,11 +5,13 @@ use crate::engine::{PAGE_SIZE, PageAddress, PageType};
 use crate::utils::BufferSlice;
 use std::collections::HashMap;
 
+use crate::file_io::parser::header_page::HeaderPage;
 use crate::file_io::parser::raw_data_block::RawDataBlock;
 use raw_index_node::RawIndexNode;
 
 #[derive(Debug)]
 enum ParseError {
+    InvalidDatabase,
     BadPageId,
     PagePageType,
 }
@@ -39,6 +41,10 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
             return Err(ParseError::PagePageType);
         }
     }
+
+    let header = HeaderPage::parse(pages[0])?;
+
+    println!("header: {:#?}", header);
 
     // parse index nodes
     let index_nodes = {
@@ -78,8 +84,6 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
 
     println!("{:#?}", index_nodes);
     println!("{:#?}", data_blocks);
-
-    //let header = HeaderPage::load(&pages[0])?;
 
     todo!()
 }
@@ -179,8 +183,66 @@ mod raw_data_block {
             f.debug_struct("RawDataBlock")
                 .field("extend", &self.extend)
                 .field("next_block", &self.next_block)
-                .field("buffer", self.buffer.as_bytes())
+                .field("buffer", &self.buffer.as_bytes())
                 .finish()
+        }
+    }
+}
+
+mod header_page {
+    use super::*;
+    use crate::engine::{BufferReader, EnginePragmas};
+
+    const HEADER_INFO: &[u8] = b"** This is a LiteDB file **";
+    const FILE_VERSION: u8 = 8;
+
+    const P_HEADER_INFO: usize = 32; // 32-58 (27 bytes)
+    const P_FILE_VERSION: usize = 59; // 59-59 (1 byte)
+    const P_FREE_EMPTY_PAGE_ID: usize = 60; // 60-63 (4 bytes)
+    const P_LAST_PAGE_ID: usize = 64; // 64-67 (4 bytes)
+    const P_CREATION_TIME: usize = 68; // 68-75 (8 bytes)
+
+    //const P_PRAGMAS: usize = 76; // 76-190 (115 bytes)
+    const P_INVALID_DATAFILE_STATE: usize = 191; // 191-191 (1 byte)
+
+    const P_COLLECTIONS: usize = 192; // 192-8159 (8064 bytes)
+    const COLLECTIONS_SIZE: usize = 8000; // 250 blocks with 32 bytes each
+
+    #[derive(Debug)]
+    pub(super) struct HeaderPage {
+        creation_time: bson::DateTime,
+        pragmas: EnginePragmas,
+        collections: bson::Document,
+        last_page_id: u32,
+        free_empty_page_list: u32,
+    }
+
+    impl HeaderPage {
+        pub fn parse(buffer: &PageBuffer) -> ParseResult<Self> {
+            let info = buffer.read_bytes(P_HEADER_INFO, HEADER_INFO.len());
+            let version = buffer.read_byte(P_FILE_VERSION);
+
+            if info != HEADER_INFO || version != FILE_VERSION {
+                return Err(ParseError::InvalidDatabase);
+            }
+
+            let collections_area = buffer.slice(P_COLLECTIONS, COLLECTIONS_SIZE);
+
+            let pragmas = EnginePragmas::default();
+
+            pragmas.read(buffer)?;
+
+            Ok(Self {
+                creation_time: buffer.read_date_time(P_CREATION_TIME)?,
+                pragmas,
+                free_empty_page_list: buffer.read_u32(P_FREE_EMPTY_PAGE_ID),
+                last_page_id: buffer.read_u32(P_LAST_PAGE_ID),
+                collections: BufferReader::single(collections_area).read_document()?,
+            })
+        }
+
+        pub fn collections(&self) -> &bson::Document {
+            &self.collections
         }
     }
 }

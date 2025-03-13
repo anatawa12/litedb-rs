@@ -1,5 +1,6 @@
 use crate::engine::{PAGE_HEADER_SIZE, PAGE_SIZE, PageType};
 use crate::utils::BufferSlice;
+use std::ops::{Deref, DerefMut};
 
 // Slot for page blocks
 const SLOT_SIZE: usize = 4;
@@ -203,5 +204,19 @@ impl PageBuffer {
         let (position, length) = self.block_addr(index);
 
         self.inner.slice(position, length)
+    }
+}
+
+impl Deref for PageBuffer {
+    type Target = BufferSlice;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for PageBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }

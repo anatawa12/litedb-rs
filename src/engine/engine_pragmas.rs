@@ -1,5 +1,5 @@
 use crate::engine::{DirtyFlag, PageBuffer};
-use crate::utils::{Collation, CompareOptions};
+use crate::utils::{BufferSlice, Collation, CompareOptions};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64};
 use std::time::Duration;
@@ -14,6 +14,7 @@ const P_CHECKPOINT: usize = 97; // 97-100 (4 bytes)
 const P_LIMIT_SIZE: usize = 101; // 101-108 (8 bytes)
 
 /// Clone this class will share the same inner object
+#[derive(Debug)]
 pub(crate) struct EnginePragmas {
     user_version: AtomicI32,
     collation: AtomicU64,
@@ -40,7 +41,7 @@ impl Default for EnginePragmas {
 
 #[allow(dead_code)]
 impl EnginePragmas {
-    pub fn read(&self, buffer: &PageBuffer) -> crate::Result<()> {
+    pub fn read(&self, buffer: &BufferSlice) -> crate::Result<()> {
         self.user_version
             .store(buffer.read_i32(P_USER_VERSION), Relaxed);
         self.collation.store(

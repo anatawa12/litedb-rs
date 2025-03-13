@@ -50,6 +50,7 @@ pub(crate) struct BasePage<Buffer: PageBufferRef = Box<PageBuffer>> {
     start_index: u8,
 }
 
+#[derive(Debug)]
 pub(crate) struct DirtyFlag(AtomicBool);
 
 impl DirtyFlag {
