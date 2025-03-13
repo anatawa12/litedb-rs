@@ -1,7 +1,10 @@
-use std::collections::HashMap;
+mod page;
+mod parser;
+
 use crate::bson;
 use crate::expression::BsonExpression;
 use crate::utils::{ArenaKey, CaseInsensitiveString, KeyArena};
+use std::collections::HashMap;
 
 pub struct LiteDBFile {
     collections: HashMap<CaseInsensitiveString, Collection>,
