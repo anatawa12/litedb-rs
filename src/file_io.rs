@@ -18,6 +18,7 @@ struct Collection {
 
 struct CollectionIndex {
     // same as CollectionIndex
+    slot: u8,
     index_type: u8,
     name: String,
     expression: String,

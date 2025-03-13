@@ -1,24 +1,32 @@
-use super::LiteDBFile;
 use super::page::PageBuffer;
+use super::LiteDBFile;
 use crate::bson;
-use crate::engine::{PAGE_SIZE, PageAddress, PageType};
+use crate::engine::{PageAddress, PageType, PAGE_SIZE};
 use crate::utils::BufferSlice;
 use std::collections::HashMap;
 
 use crate::file_io::parser::header_page::HeaderPage;
 use crate::file_io::parser::raw_data_block::RawDataBlock;
 use raw_index_node::RawIndexNode;
+use crate::file_io::parser::collection_page::RawCollectionPage;
 
 #[derive(Debug)]
 enum ParseError {
     InvalidDatabase,
     BadPageId,
     PagePageType,
+    BsonExpression(crate::expression::ParseError)
 }
 
 impl From<crate::Error> for ParseError {
     fn from(value: crate::Error) -> Self {
         todo!("{:?}", value)
+    }
+}
+
+impl From<crate::expression::ParseError> for ParseError {
+    fn from(value: crate::expression::ParseError) -> Self {
+        Self::BsonExpression(value)
     }
 }
 
@@ -84,6 +92,14 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
 
     println!("{:#?}", index_nodes);
     println!("{:#?}", data_blocks);
+
+    // parse collection pages
+    for (key, page) in header.collections().iter() {
+        let page = page.as_i32().ok_or(ParseError::InvalidDatabase)? as u32;
+        let page_buffer = *pages.get(page as usize).ok_or(ParseError::InvalidDatabase)?;
+        let collection = RawCollectionPage::parse(page_buffer)?;
+        println!("{key:#}: {collection:#?}");
+    }
 
     todo!()
 }
@@ -244,6 +260,98 @@ mod header_page {
         pub fn collections(&self) -> &bson::Document {
             &self.collections
         }
+    }
+}
+
+mod collection_page {
+    use super::*;
+    use crate::engine::{BufferReader, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE};
+    use crate::expression::BsonExpression;
+
+    const P_INDEXES: usize = 96; // 96-8192 (64 + 32 header = 96)
+    const P_INDEXES_COUNT: usize = PAGE_SIZE - P_INDEXES;
+
+    #[derive(Debug)]
+    pub(super) struct RawCollectionPage {
+        free_data_page_list: [u32; 5],
+        indexes: HashMap<String, RawCollectionIndex>,
+    }
+
+    impl RawCollectionPage {
+        pub fn parse(buffer: &PageBuffer) -> ParseResult<Self> {
+            let mut free_data_page_list = [u32::MAX; PAGE_FREE_LIST_SLOTS];
+            let mut indexes = HashMap::new();
+
+            if buffer.page_type() != Some(PageType::Collection) {
+                return Err(ParseError::PagePageType);
+            }
+
+            let area = buffer.slice(PAGE_HEADER_SIZE, PAGE_SIZE - PAGE_HEADER_SIZE);
+            let mut reader = BufferReader::single(area);
+
+            for item in free_data_page_list.iter_mut() {
+                *item = reader.read_u32();
+            }
+
+            reader.skip(P_INDEXES - PAGE_HEADER_SIZE - reader.position());
+
+            let count = reader.read_u8().into();
+
+            for _ in 0..count {
+                let index = load_collection_index(&mut reader)?;
+                indexes.insert(index.name.clone(), index);
+            }
+
+            Ok(Self {
+                free_data_page_list,
+                indexes,
+            })
+        }
+    }
+
+    #[derive(Debug)]
+    struct RawCollectionIndex {
+        // same as CollectionIndex
+        slot: u8,
+        index_type: u8,
+        name: String,
+        expression: String,
+        unique: bool,
+        reserved: u8,
+        head: PageAddress,
+        tail: PageAddress,
+        free_index_page_list: u32,
+        bson_expr: BsonExpression,
+    }
+
+    fn load_collection_index(reader: &mut BufferReader) -> ParseResult<RawCollectionIndex> {
+        let slot = reader.read_u8();
+        let index_type = reader.read_u8();
+        let name = reader
+            .read_cstring()
+            .ok_or_else(crate::Error::invalid_page)?;
+        let expression = reader
+            .read_cstring()
+            .ok_or_else(crate::Error::invalid_page)?;
+        let unique = reader.read_bool();
+        let head = reader.read_page_address();
+        let tail = reader.read_page_address();
+        let reserved = reader.read_u8();
+        let free_index_page_list = reader.read_u32();
+        let parsed = BsonExpression::create(&expression)?;
+
+        Ok(RawCollectionIndex {
+            slot,
+            index_type,
+            name,
+            expression,
+            unique,
+            head,
+            tail,
+            reserved,
+            free_index_page_list,
+            bson_expr: parsed,
+        })
     }
 }
 
