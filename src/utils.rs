@@ -784,8 +784,7 @@ impl<T> Debug for ArenaKey<T> {
     }
 }
 
-impl<T> Eq for ArenaKey<T> {
-}
+impl<T> Eq for ArenaKey<T> {}
 
 impl<T> PartialEq for ArenaKey<T> {
     fn eq(&self, other: &Self) -> bool {

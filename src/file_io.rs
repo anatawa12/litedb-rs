@@ -1,10 +1,10 @@
+mod index_helper;
 mod operations;
 mod page;
 mod parser;
-mod index_helper;
 
 use crate::bson;
-use crate::engine::{EnginePragmas};
+use crate::engine::EnginePragmas;
 use crate::expression::BsonExpression;
 use crate::utils::{ArenaKey, CaseInsensitiveString, KeyArena, Order};
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ pub struct LiteDBFile {
     data: KeyArena<bson::Document>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Collection {
     indexes: HashMap<String, CollectionIndex>,
 }
@@ -55,11 +55,7 @@ struct IndexNode {
 }
 
 impl IndexNode {
-    pub(crate) fn new(
-        slot: u8,
-        levels: u8,
-        key: bson::Value,
-    ) -> Self {
+    pub(crate) fn new(slot: u8, levels: u8, key: bson::Value) -> Self {
         IndexNode {
             slot,
             levels,

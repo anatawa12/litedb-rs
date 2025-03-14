@@ -1,16 +1,19 @@
 use crate::bson;
-use crate::file_io::index_helper::IndexHelper;
 use crate::file_io::LiteDBFile;
+use crate::file_io::index_helper::IndexHelper;
 use crate::utils::{CaseInsensitiveStr, Order};
 
 impl LiteDBFile {
     pub async fn delete(&mut self, collection: &str, ids: &[bson::Value]) -> crate::Result<usize> {
-        let Some(collection) = self.collections.get_mut(CaseInsensitiveStr::new(collection)) else {
+        let Some(collection) = self
+            .collections
+            .get_mut(CaseInsensitiveStr::new(collection))
+        else {
             return Ok(0);
         };
 
         let pk = collection.pk_index();
-        
+
         let mut count = 0;
         //let pk = parts.collection_page.pk_index();
 
@@ -21,9 +24,8 @@ impl LiteDBFile {
                 pk,
                 id,
                 false,
-                Order::Ascending
-            )
-            else {
+                Order::Ascending,
+            ) else {
                 continue;
             };
 
