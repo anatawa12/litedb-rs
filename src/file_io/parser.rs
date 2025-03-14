@@ -294,7 +294,11 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
             );
         }
 
-        let collection = Collection { indexes };
+        let collection = Collection {
+            indexes,
+            #[cfg(feature = "sequential-index")]
+            last_id: None,
+        };
 
         collections.insert(CaseInsensitiveString(key.to_string()), collection);
     }

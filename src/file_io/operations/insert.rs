@@ -49,7 +49,7 @@ impl LiteDBFile {
             #[cfg(feature = "sequential-index")]
             if let Some(id) = id.as_i64() {
                 // update memory sequence of numeric _id
-                Self::set_sequence(sequences, collection, indexes, indexer, id).await?;
+                Self::set_sequence(collection, index_arena, id);
             }
             id
         } else {
@@ -57,7 +57,7 @@ impl LiteDBFile {
                 BsonAutoId::ObjectId => bson::Value::ObjectId(bson::ObjectId::new()),
                 BsonAutoId::Guid => bson::Value::Guid(bson::Guid::new()),
                 #[cfg(feature = "sequential-index")]
-                _ => Self::get_sequence(sequences, collection, indexes, indexer, auto_id).await?,
+                _ => Self::get_sequence(collection, index_arena, auto_id),
             };
             doc.insert("_id", id);
             doc.get("_id")

@@ -21,6 +21,8 @@ pub struct LiteDBFile {
 #[derive(Debug, Default)]
 struct Collection {
     indexes: HashMap<String, CollectionIndex>,
+    #[cfg(feature = "sequential-index")]
+    last_id: Option<i64>,
 }
 
 impl Collection {
