@@ -40,6 +40,12 @@ impl From<crate::expression::ParseError> for ParseError {
 
 type ParseResult<T> = Result<T, ParseError>;
 
+impl LiteDBFile {
+    pub fn parse(data: &[u8]) -> ParseResult<Self> {
+        parse(data)
+    }
+}
+
 #[allow(dead_code)]
 pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
     // if the length is not multiple of PAGE_SIZE, crop
