@@ -4,12 +4,12 @@ use crate::file_io::index_helper::IndexHelper;
 use crate::utils::{CaseInsensitiveStr, Order};
 
 impl LiteDBFile {
-    pub fn delete(&mut self, collection: &str, ids: &[bson::Value]) -> crate::Result<usize> {
+    pub fn delete(&mut self, collection: &str, ids: &[bson::Value]) -> usize {
         let Some(collection) = self
             .collections
             .get_mut(CaseInsensitiveStr::new(collection))
         else {
-            return Ok(0);
+            return 0;
         };
 
         let pk = collection.pk_index();
@@ -36,6 +36,6 @@ impl LiteDBFile {
             count += 1;
         }
 
-        Ok(count)
+        count
     }
 }
