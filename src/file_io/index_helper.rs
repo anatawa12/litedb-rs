@@ -1,9 +1,9 @@
-use std::collections::HashSet;
 use crate::engine::{MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH};
 use crate::expression::BsonExpression;
 use crate::file_io::{Collection, CollectionIndex, IndexNode};
 use crate::utils::{ArenaKey, Collation, KeyArena, Order};
 use crate::{Error, bson};
+use std::collections::HashSet;
 use std::hash::{BuildHasher, RandomState};
 
 pub(crate) struct IndexHelper;
@@ -112,7 +112,10 @@ impl IndexHelper {
                 let diff = collation.compare(&arena[right_key].key, &arena[node_key].key);
 
                 if diff.is_eq() && index.unique {
-                    return Err(Error::index_duplicate_key(&index.name, arena[node_key].key.clone()));
+                    return Err(Error::index_duplicate_key(
+                        &index.name,
+                        arena[node_key].key.clone(),
+                    ));
                 }
 
                 if diff.is_gt() {

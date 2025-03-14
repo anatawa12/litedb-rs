@@ -1,8 +1,8 @@
 use crate::bson;
-use crate::engine::{BsonAutoId, IndexPage};
+use crate::engine::BsonAutoId;
 use crate::expression::ExecutionScope;
-use crate::file_io::{Collection, IndexNode, LiteDBFile};
 use crate::file_io::index_helper::IndexHelper;
+use crate::file_io::{Collection, IndexNode, LiteDBFile};
 use crate::utils::{ArenaKey, CaseInsensitiveString, Collation, KeyArena};
 
 impl LiteDBFile {
@@ -12,7 +12,10 @@ impl LiteDBFile {
         docs: Vec<bson::Document>,
         auto_id: BsonAutoId,
     ) -> crate::Result<usize> {
-        let collection = self.collections.entry(CaseInsensitiveString(collection.into())).or_default();
+        let collection = self
+            .collections
+            .entry(CaseInsensitiveString(collection.into()))
+            .or_default();
 
         let mut count = 0;
 
@@ -60,10 +63,13 @@ impl LiteDBFile {
             doc.get("_id")
         };
 
-        assert!(matches!(
-            id,
-            bson::Value::Null | bson::Value::MinValue | bson::Value::MaxValue
-        ), "_id is not indexable type");
+        assert!(
+            matches!(
+                id,
+                bson::Value::Null | bson::Value::MinValue | bson::Value::MaxValue
+            ),
+            "_id is not indexable type"
+        );
 
         let data_key = data_arena.alloc(doc.clone());
         let doc_value = bson::Value::Document(doc);
@@ -76,7 +82,8 @@ impl LiteDBFile {
             for key in scope.get_index_keys(&index.bson_expr.clone(), &doc_value) {
                 let key = key?.clone();
 
-                let node = IndexHelper::add_node(index_arena, &collation, index, key, data_key, last)?;
+                let node =
+                    IndexHelper::add_node(index_arena, &collation, index, key, data_key, last)?;
                 last = Some(node);
             }
         }

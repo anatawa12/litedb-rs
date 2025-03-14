@@ -99,7 +99,10 @@ impl LiteDBFile {
     pub fn drop_index(&mut self, collection: &str, name: &str) -> bool {
         assert!(name != "_id", "dropping primary key index");
 
-        let Some(collection) = self.collections.get_mut(CaseInsensitiveStr::new(collection)) else {
+        let Some(collection) = self
+            .collections
+            .get_mut(CaseInsensitiveStr::new(collection))
+        else {
             return false;
         };
 
