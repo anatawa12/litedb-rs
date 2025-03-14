@@ -1,8 +1,7 @@
 use crate::bson;
-use crate::engine::BsonAutoId;
 use crate::expression::ExecutionScope;
 use crate::file_io::index_helper::IndexHelper;
-use crate::file_io::{Collection, IndexNode, LiteDBFile};
+use crate::file_io::{BsonAutoId, Collection, IndexNode, LiteDBFile};
 use crate::utils::{ArenaKey, CaseInsensitiveString, Collation, KeyArena};
 
 impl LiteDBFile {

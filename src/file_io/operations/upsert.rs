@@ -1,6 +1,5 @@
 use crate::bson;
-use crate::engine::BsonAutoId;
-use crate::file_io::LiteDBFile;
+use crate::file_io::{BsonAutoId, LiteDBFile};
 use crate::utils::CaseInsensitiveString;
 
 impl LiteDBFile {

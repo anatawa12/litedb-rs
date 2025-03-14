@@ -1,6 +1,5 @@
 use crate::bson;
-use crate::engine::BsonAutoId;
-use crate::file_io::{Collection, CollectionIndex, IndexNode, LiteDBFile};
+use crate::file_io::{BsonAutoId, Collection, CollectionIndex, IndexNode, LiteDBFile};
 use crate::utils::KeyArena;
 use std::cmp::max;
 

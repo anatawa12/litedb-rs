@@ -18,6 +18,16 @@ pub struct LiteDBFile {
     data: KeyArena<bson::Document>,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum BsonAutoId {
+    #[cfg(feature = "sequential-index")]
+    Int32 = 2,
+    #[cfg(feature = "sequential-index")]
+    Int64 = 3,
+    ObjectId = 10,
+    Guid = 11,
+}
+
 #[derive(Debug, Default)]
 struct Collection {
     indexes: HashMap<String, CollectionIndex>,
