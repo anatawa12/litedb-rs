@@ -175,6 +175,22 @@ impl IndexHelper {
         levels
     }
 
+    pub fn get_node_list(
+        arena: &KeyArena<IndexNode>,
+        first: Option<ArenaKey<IndexNode>>,
+    ) -> Vec<ArenaKey<IndexNode>> {
+        let mut result = Vec::new();
+
+        let mut current = first;
+        while let Some(node_key) = current {
+            let node = &arena[node_key];
+            current = node.next_node;
+            result.push(node_key)
+        }
+
+        result
+    }
+
     pub fn delete_all(arena: &mut KeyArena<IndexNode>, first: ArenaKey<IndexNode>) {
         // TODO? check for recursion
         let mut current = Some(first);
@@ -186,7 +202,7 @@ impl IndexHelper {
         }
     }
 
-    pub async fn delete_list(
+    pub fn delete_list(
         arena: &mut KeyArena<IndexNode>,
         first_address: ArenaKey<IndexNode>,
         to_delete: HashSet<ArenaKey<IndexNode>>,

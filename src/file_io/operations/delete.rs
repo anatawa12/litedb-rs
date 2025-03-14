@@ -4,7 +4,7 @@ use crate::file_io::index_helper::IndexHelper;
 use crate::utils::{CaseInsensitiveStr, Order};
 
 impl LiteDBFile {
-    pub async fn delete(&mut self, collection: &str, ids: &[bson::Value]) -> crate::Result<usize> {
+    pub fn delete(&mut self, collection: &str, ids: &[bson::Value]) -> crate::Result<usize> {
         let Some(collection) = self
             .collections
             .get_mut(CaseInsensitiveStr::new(collection))

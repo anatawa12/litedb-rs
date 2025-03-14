@@ -5,3 +5,4 @@ mod insert;
 mod query;
 #[cfg(feature = "sequential-index")]
 mod sequence;
+mod update;
