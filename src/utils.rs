@@ -746,7 +746,11 @@ impl<T> KeyArena<T> {
     }
 
     pub fn free(&mut self, key: ArenaKey<T>) -> T {
-        self.0.remove(key.0);
+        self.0.remove(key.0)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -764,7 +768,6 @@ impl<T> IndexMut<ArenaKey<T>> for KeyArena<T> {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub(crate) struct ArenaKey<T>(usize, PhantomData<T>);
 
 impl<T> Clone for ArenaKey<T> {
@@ -774,3 +777,24 @@ impl<T> Clone for ArenaKey<T> {
 }
 
 impl<T> Copy for ArenaKey<T> {}
+
+impl<T> Debug for ArenaKey<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ArenaKey").field(&self.0).finish()
+    }
+}
+
+impl<T> Eq for ArenaKey<T> {
+}
+
+impl<T> PartialEq for ArenaKey<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T> Hash for ArenaKey<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
