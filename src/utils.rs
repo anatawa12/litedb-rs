@@ -745,7 +745,7 @@ impl<T> KeyArena<T> {
         ArenaKey(self.0.insert(value), PhantomData)
     }
 
-    pub fn free(&mut self, key: ArenaKey<T>) {
+    pub fn free(&mut self, key: ArenaKey<T>) -> T {
         self.0.remove(key.0);
     }
 }
@@ -764,7 +764,7 @@ impl<T> IndexMut<ArenaKey<T>> for KeyArena<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub(crate) struct ArenaKey<T>(usize, PhantomData<T>);
 
 impl<T> Clone for ArenaKey<T> {
