@@ -117,7 +117,7 @@ impl LiteDBFile {
                 return;
             };
 
-            let collation = self.pragmas.collation();
+            let collation = self.pragmas.collation;
 
             pub(crate) fn is_edge(this: &bson::Value) -> bool {
                 matches!(this, bson::Value::MinValue | bson::Value::MaxValue)

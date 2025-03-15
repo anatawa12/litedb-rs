@@ -19,11 +19,10 @@ impl LiteDBFile {
         let mut count = 0;
 
         for doc in docs {
-            let collation = self.pragmas.collation();
             Self::insert_document(
                 &mut self.index_arena,
                 &mut self.data,
-                collation,
+                self.pragmas.collation,
                 collection,
                 doc,
                 auto_id,

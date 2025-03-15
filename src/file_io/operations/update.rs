@@ -21,7 +21,7 @@ impl LiteDBFile {
                 &mut self.index_arena,
                 &mut self.data,
                 collection,
-                self.pragmas.collation(),
+                self.pragmas.collation,
                 doc,
             )?
             .is_none()

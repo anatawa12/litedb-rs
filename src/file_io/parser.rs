@@ -1,5 +1,4 @@
 use crate::bson;
-use crate::engine::EnginePragmas;
 use crate::constants::{PAGE_SIZE, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE};
 use crate::utils::{ArenaKey, BufferSlice, CaseInsensitiveString, KeyArena, PageAddress};
 use std::collections::hash_map::Entry;
@@ -310,7 +309,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
     Ok(LiteDBFile {
         collections,
         creation_time: header.creation_time(),
-        pragmas: header.pragmas().clone(),
+        pragmas: header.pragmas,
 
         index_arena: index_builder.arena,
         data: data_builder.arena,
@@ -447,9 +446,9 @@ mod header_page {
 
     #[derive(Debug)]
     pub(super) struct HeaderPage {
-        creation_time: bson::DateTime,
-        pragmas: EnginePragmas,
-        collections: bson::Document,
+        pub creation_time: bson::DateTime,
+        pub pragmas: EnginePragmas,
+        pub collections: bson::Document,
         #[allow(dead_code)] // for page structure; not needed for 
         last_page_id: u32,
         #[allow(dead_code)] // for page structure; not needed for 
@@ -467,13 +466,9 @@ mod header_page {
 
             let collections_area = buffer.slice(P_COLLECTIONS, COLLECTIONS_SIZE);
 
-            let pragmas = EnginePragmas::default();
-
-            pragmas.read(buffer)?;
-
             Ok(Self {
                 creation_time: buffer.read_date_time(P_CREATION_TIME)?,
-                pragmas,
+                pragmas: EnginePragmas::parse(buffer),
                 free_empty_page_list: buffer.read_u32(P_FREE_EMPTY_PAGE_ID),
                 last_page_id: buffer.read_u32(P_LAST_PAGE_ID),
                 collections: BufferReader::single(collections_area).read_document()?,

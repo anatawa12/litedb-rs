@@ -59,7 +59,7 @@ impl LiteDBFile {
             );
             let index = &collection.indexes[name];
 
-            let exec_context = ExecutionScope::new(self.pragmas.collation());
+            let exec_context = ExecutionScope::new(self.pragmas.collation);
 
             let pk_index = collection.pk_index();
             for pk_key in IndexHelper::find_all(&self.index_arena, pk_index, Order::Ascending) {
@@ -73,7 +73,7 @@ impl LiteDBFile {
                     let key = key?;
                     let node_key = IndexHelper::add_node(
                         &mut self.index_arena,
-                        &self.pragmas.collation(),
+                        &self.pragmas.collation,
                         index,
                         key.clone(),
                         data_key,

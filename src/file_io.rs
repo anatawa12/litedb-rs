@@ -2,14 +2,15 @@ mod index_helper;
 mod operations;
 mod page;
 mod parser;
+mod pragma;
 
 use crate::bson;
-use crate::engine::EnginePragmas;
 use crate::expression::BsonExpression;
 use crate::utils::{ArenaKey, CaseInsensitiveString, KeyArena, Order as InternalOrder};
 use std::collections::HashMap;
 
 pub use operations::Order;
+use pragma::EnginePragmas;
 
 #[derive(Debug)]
 pub struct LiteDBFile {

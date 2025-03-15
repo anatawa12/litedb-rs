@@ -14,7 +14,7 @@ impl LiteDBFile {
             .entry(CaseInsensitiveString(collection.into()))
             .or_default();
 
-        let collation = self.pragmas.collation();
+        let collation = self.pragmas.collation;
 
         let mut count = 0;
 

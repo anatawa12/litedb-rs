@@ -20,7 +20,7 @@ impl LiteDBFile {
         for id in ids {
             let Some((pk_node, pk_key)) = IndexHelper::find(
                 &self.index_arena,
-                &self.pragmas.collation(),
+                &self.pragmas.collation,
                 pk,
                 id,
                 false,
