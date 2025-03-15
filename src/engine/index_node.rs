@@ -1,8 +1,8 @@
 use crate::Result;
 use crate::bson;
 use crate::engine::utils::SendPtr;
-use crate::engine::{IndexPage, PageAddress, PageBuffer, PageBufferMut};
-use crate::utils::{BufferSlice, Order};
+use crate::engine::{IndexPage, PageBuffer, PageBufferMut};
+use crate::utils::{BufferSlice, Order, PageAddress};
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::pin::Pin;

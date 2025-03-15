@@ -1,14 +1,18 @@
-use super::page::PageBuffer;
-use super::{Collection, CollectionIndex, IndexNode, LiteDBFile};
 use crate::bson;
-use crate::engine::{BufferReader, PAGE_SIZE, PageAddress, PageType};
-use crate::utils::{ArenaKey, BufferSlice, CaseInsensitiveString, KeyArena};
+use crate::engine::EnginePragmas;
+use crate::constants::{PAGE_SIZE, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE};
+use crate::utils::{ArenaKey, BufferSlice, CaseInsensitiveString, KeyArena, PageAddress};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
+use crate::buffer_reader::BufferReader;
 
+use super::*;
+use crate::file_io::page::PageBuffer;
+use crate::file_io::page::PageType;
 use crate::file_io::parser::collection_page::RawCollectionPage;
 use crate::file_io::parser::header_page::HeaderPage;
 use crate::file_io::parser::raw_data_block::RawDataBlock;
+
 use raw_index_node::RawIndexNode;
 
 #[derive(Debug)]
@@ -424,7 +428,6 @@ mod raw_data_block {
 
 mod header_page {
     use super::*;
-    use crate::engine::{BufferReader, EnginePragmas};
 
     const HEADER_INFO: &[u8] = b"** This is a LiteDB file **";
     const FILE_VERSION: u8 = 8;
@@ -436,6 +439,7 @@ mod header_page {
     const P_CREATION_TIME: usize = 68; // 68-75 (8 bytes)
 
     //const P_PRAGMAS: usize = 76; // 76-190 (115 bytes)
+    #[allow(dead_code)] // no rebuild is supported (for now)
     const P_INVALID_DATAFILE_STATE: usize = 191; // 191-191 (1 byte)
 
     const P_COLLECTIONS: usize = 192; // 192-8159 (8064 bytes)
@@ -446,7 +450,9 @@ mod header_page {
         creation_time: bson::DateTime,
         pragmas: EnginePragmas,
         collections: bson::Document,
+        #[allow(dead_code)] // for page structure; not needed for 
         last_page_id: u32,
+        #[allow(dead_code)] // for page structure; not needed for 
         free_empty_page_list: u32,
     }
 
@@ -490,14 +496,15 @@ mod header_page {
 
 mod collection_page {
     use super::*;
-    use crate::engine::{BufferReader, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE};
     use crate::expression::BsonExpression;
 
     const P_INDEXES: usize = 96; // 96-8192 (64 + 32 header = 96)
+    #[allow(dead_code)] // for serializing
     const P_INDEXES_COUNT: usize = PAGE_SIZE - P_INDEXES;
 
     #[derive(Debug)]
     pub(super) struct RawCollectionPage {
+        #[allow(dead_code)]
         free_data_page_list: [u32; 5],
         indexes: HashMap<String, RawCollectionIndex>,
     }

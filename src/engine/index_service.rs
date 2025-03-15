@@ -5,10 +5,10 @@ use crate::engine::snapshot::SnapshotIndexPages;
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
 use crate::engine::{
     CollectionIndexRef, CollectionIndexes, CollectionIndexesMut, CollectionIndexesPartialBorrow,
-    MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page, PageAddress,
+    MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH, Page,
 };
 use crate::expression::BsonExpression;
-use crate::utils::{Collation, Order};
+use crate::utils::{Collation, Order, PageAddress};
 use crate::{Error, Result};
 use std::collections::HashSet;
 use std::hash::{BuildHasher, RandomState};

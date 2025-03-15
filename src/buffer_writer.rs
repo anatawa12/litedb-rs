@@ -1,6 +1,5 @@
 use crate::bson;
-use crate::engine::page_address::PageAddress;
-use crate::utils::BufferSlice;
+use crate::utils::{BufferSlice, IntoOk, PageAddress};
 use std::convert::Infallible;
 
 pub struct BufferWriter<'a> {
@@ -25,11 +24,11 @@ impl<'a> BufferWriter<'a> {
     }
 
     pub fn write_document(&mut self, document: &bson::Document) {
-        into_ok!(document.write_value(self));
+        document.write_value(self).into_ok1();
     }
 
     pub(crate) fn write_array(&mut self, array: &bson::Array) {
-        into_ok!(array.write_value(self));
+        array.write_value(self).into_ok1();
     }
 
     pub fn skip(&mut self, mut bytes: usize) {

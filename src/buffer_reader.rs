@@ -1,7 +1,6 @@
 use crate::Result;
 use crate::bson;
-use crate::engine::page_address::PageAddress;
-use crate::utils::BufferSlice;
+use crate::utils::{BufferSlice, PageAddress};
 
 pub(crate) struct BufferReader<'a> {
     slices: Box<[&'a BufferSlice]>,

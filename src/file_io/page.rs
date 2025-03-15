@@ -1,6 +1,7 @@
-use crate::engine::{PAGE_HEADER_SIZE, PAGE_SIZE, PageType};
+use crate::constants::{PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::utils::BufferSlice;
 use std::ops::{Deref, DerefMut};
+use crate::Error;
 
 // Slot for page blocks
 const SLOT_SIZE: usize = 4;
@@ -20,6 +21,30 @@ const P_USED_BYTES: usize = 24; // 24-25 [ushort]
 const P_FRAGMENTED_BYTES: usize = 26; // 26-27 [ushort]
 const P_NEXT_FREE_POSITION: usize = 28; // 28-29 [ushort]
 const P_HIGHEST_INDEX: usize = 30; // 30-30 [byte]
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PageType {
+    Empty = 0,
+    Header = 1,
+    Collection = 2,
+    Index = 3,
+    Data = 4,
+}
+
+impl TryFrom<u8> for PageType {
+    type Error = Error;
+
+    fn try_from(value: u8) -> crate::Result<Self> {
+        match value {
+            0 => Ok(PageType::Empty),
+            1 => Ok(PageType::Header),
+            2 => Ok(PageType::Collection),
+            3 => Ok(PageType::Index),
+            4 => Ok(PageType::Data),
+            _ => Err(Error::invalid_page()),
+        }
+    }
+}
 
 pub(crate) struct PageBuffer {
     inner: BufferSlice,

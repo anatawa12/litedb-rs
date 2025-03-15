@@ -1,5 +1,5 @@
+use crate::constants::INDEX_NAME_MAX_LENGTH;
 use crate::Error;
-use crate::engine::INDEX_NAME_MAX_LENGTH;
 use crate::expression::{BsonExpression, ExecutionScope};
 use crate::file_io::index_helper::IndexHelper;
 use crate::file_io::{IndexNode, LiteDBFile};

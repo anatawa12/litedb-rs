@@ -47,10 +47,12 @@ impl Collection {
 struct CollectionIndex {
     // same as CollectionIndex
     slot: u8,
+    #[allow(dead_code)] // legacy; reserved 
     index_type: u8,
     name: String,
     expression: String,
     unique: bool,
+    #[allow(dead_code)] // reserved 
     reserved: u8,
     bson_expr: BsonExpression,
     head: ArenaKey<IndexNode>,

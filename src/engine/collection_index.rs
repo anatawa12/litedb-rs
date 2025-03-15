@@ -1,8 +1,8 @@
+use crate::buffer_reader::BufferReader;
+use crate::buffer_writer::BufferWriter;
 use crate::Result;
-use crate::engine::buffer_reader::BufferReader;
-use crate::engine::buffer_writer::BufferWriter;
-use crate::engine::page_address::PageAddress;
 use crate::expression::BsonExpression;
+use crate::utils::PageAddress;
 
 pub(crate) struct CollectionIndex {
     slot: u8,

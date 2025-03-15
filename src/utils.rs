@@ -1,10 +1,11 @@
 use crate::Error;
 use crate::bson;
 use crate::bson::TotalOrd;
-use crate::engine::{BufferReader, BufferWriter, IndexNode, MAX_INDEX_KEY_LENGTH, PageAddress};
+use crate::engine::{BufferReader, BufferWriter, IndexNode, MAX_INDEX_KEY_LENGTH};
 use bson::BsonType;
 use either::Either;
 use std::cmp::Ordering;
+use std::convert::Infallible;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
@@ -795,5 +796,51 @@ impl<T> PartialEq for ArenaKey<T> {
 impl<T> Hash for ArenaKey<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct PageAddress {
+    page_id: u32,
+    index: u8,
+}
+
+impl PageAddress {
+    pub const EMPTY: PageAddress = PageAddress {
+        page_id: u32::MAX,
+        index: u8::MAX,
+    };
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.page_id == u32::MAX && self.index == u8::MAX
+    }
+}
+
+impl PageAddress {
+    pub const SERIALIZED_SIZE: usize = 5;
+
+    pub(crate) fn new(page_id: u32, index: u8) -> Self {
+        Self { page_id, index }
+    }
+
+    pub(crate) fn page_id(&self) -> u32 {
+        self.page_id
+    }
+
+    pub(crate) fn index(&self) -> u8 {
+        self.index
+    }
+}
+
+pub(super) trait IntoOk<T> {
+    fn into_ok1(self) -> T;
+}
+
+impl<T> IntoOk<T> for Result<T, Infallible> {
+    fn into_ok1(self) -> T {
+        match self {
+            Ok(ok) => ok,
+            Err(e) => match e {},
+        }
     }
 }

@@ -1,4 +1,4 @@
-use crate::engine::{MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH};
+use crate::constants::{MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH};
 use crate::expression::BsonExpression;
 use crate::file_io::{Collection, CollectionIndex, IndexNode};
 use crate::utils::{ArenaKey, Collation, KeyArena, Order};

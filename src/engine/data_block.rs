@@ -1,7 +1,6 @@
 use crate::engine::DirtyFlag;
-use crate::engine::page_address::PageAddress;
 use crate::engine::utils::SendPtr;
-use crate::utils::BufferSlice;
+use crate::utils::{BufferSlice, PageAddress};
 use std::marker::PhantomData;
 
 const P_EXTEND: usize = 0; // 00-00 [byte]

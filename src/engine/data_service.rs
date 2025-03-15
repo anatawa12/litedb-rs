@@ -2,10 +2,11 @@ use crate::engine::data_block::{DataBlock, DataBlockMut};
 use crate::engine::snapshot::SnapshotDataPages;
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
 use crate::engine::{
-    BasePage, BufferWriter, MAX_DOCUMENT_SIZE, PAGE_HEADER_SIZE, PAGE_SIZE, PageAddress,
+    BasePage, BufferWriter, MAX_DOCUMENT_SIZE, PAGE_HEADER_SIZE, PAGE_SIZE,
 };
 use crate::{Error, Result, bson};
 use std::cmp::min;
+use crate::utils::PageAddress;
 
 pub(crate) struct DataService<'a> {
     data_blocks: PartialDataBlockAccessorMut<'a>,

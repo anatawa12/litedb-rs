@@ -1,6 +1,5 @@
 use crate::Result;
 use crate::engine::data_block::{DataBlock, DataBlockMut};
-use crate::engine::page_address::PageAddress;
 use crate::engine::pages::PageBufferRef;
 use crate::engine::{
     BasePage, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer, PageBufferMut,
@@ -8,6 +7,7 @@ use crate::engine::{
 };
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
+use crate::utils::PageAddress;
 
 pub(crate) struct DataPage<Buffer: PageBufferRef = Box<PageBuffer>> {
     base: BasePage<Buffer>,

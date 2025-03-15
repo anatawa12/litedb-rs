@@ -1,5 +1,5 @@
-use crate::engine::buffer_reader::BufferReader;
-use crate::engine::buffer_writer::BufferWriter;
+use crate::buffer_reader::BufferReader;
+use crate::buffer_writer::BufferWriter;
 use crate::engine::collection_index::CollectionIndex;
 use crate::engine::pages::{BasePage, PageBufferRef, PageType};
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
