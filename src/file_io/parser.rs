@@ -280,19 +280,19 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
 
         let mut indexes = HashMap::new();
 
-        for (name, index) in collection.indexes() {
+        for (name, index) in collection.indexes {
             indexes.insert(
                 name.clone(),
                 CollectionIndex {
-                    slot: index.slot(),
-                    index_type: index.index_type(),
-                    name: index.name().to_string(),
-                    expression: index.expression().to_string(),
-                    unique: index.unique(),
-                    reserved: index.reserved(),
-                    bson_expr: index.bson_expr().clone(),
-                    head: index_builder.get(index.head())?,
-                    tail: index_builder.get(index.tail())?,
+                    slot: index.slot,
+                    index_type: index.index_type,
+                    name: index.name,
+                    expression: index.expression,
+                    unique: index.unique,
+                    reserved: index.reserved,
+                    bson_expr: index.bson_expr,
+                    head: index_builder.get(index.head)?,
+                    tail: index_builder.get(index.tail)?,
                 },
             );
         }
@@ -319,11 +319,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
 mod raw_index_node {
     use super::*;
 
-    const P_SLOT: usize = 0; // 00-00 [byte]
-    const P_LEVELS: usize = 1; // 01-01 [byte]
-    const P_DATA_BLOCK: usize = 2; // 02-06 [PageAddress]
-    const P_NEXT_NODE: usize = 7; // 07-11 [PageAddress]
-    const P_PREV_NEXT: usize = 12; // 12-(_level * 5 [PageAddress] * 2 [prev-next])
+    use offsets::index_node::*;
 
     #[derive(Debug)]
     pub(super) struct RawIndexNode {
@@ -382,9 +378,7 @@ mod raw_data_block {
     use super::*;
     use std::fmt::Debug;
 
-    const P_EXTEND: usize = 0; // 00-00 [byte]
-    const P_NEXT_BLOCK: usize = 1; // 01-05 [pageAddress]
-    const P_BUFFER: usize = 6; // 06-EOF [byte[]]
+    use offsets::data_block::*;
 
     pub(super) struct RawDataBlock<'a> {
         extend: bool,
@@ -428,21 +422,7 @@ mod raw_data_block {
 mod header_page {
     use super::*;
 
-    const HEADER_INFO: &[u8] = b"** This is a LiteDB file **";
-    const FILE_VERSION: u8 = 8;
-
-    const P_HEADER_INFO: usize = 32; // 32-58 (27 bytes)
-    const P_FILE_VERSION: usize = 59; // 59-59 (1 byte)
-    const P_FREE_EMPTY_PAGE_ID: usize = 60; // 60-63 (4 bytes)
-    const P_LAST_PAGE_ID: usize = 64; // 64-67 (4 bytes)
-    const P_CREATION_TIME: usize = 68; // 68-75 (8 bytes)
-
-    //const P_PRAGMAS: usize = 76; // 76-190 (115 bytes)
-    #[allow(dead_code)] // no rebuild is supported (for now)
-    const P_INVALID_DATAFILE_STATE: usize = 191; // 191-191 (1 byte)
-
-    const P_COLLECTIONS: usize = 192; // 192-8159 (8064 bytes)
-    const COLLECTIONS_SIZE: usize = 8000; // 250 blocks with 32 bytes each
+    use offsets::header_page::*;
 
     #[derive(Debug)]
     pub(super) struct HeaderPage {
@@ -491,17 +471,14 @@ mod header_page {
 
 mod collection_page {
     use super::*;
-    use crate::expression::BsonExpression;
 
-    const P_INDEXES: usize = 96; // 96-8192 (64 + 32 header = 96)
-    #[allow(dead_code)] // for serializing
-    const P_INDEXES_COUNT: usize = PAGE_SIZE - P_INDEXES;
+    use offsets::collection_page::*;
 
     #[derive(Debug)]
     pub(super) struct RawCollectionPage {
         #[allow(dead_code)]
-        free_data_page_list: [u32; 5],
-        indexes: HashMap<String, RawCollectionIndex>,
+        pub free_data_page_list: [u32; 5],
+        pub indexes: HashMap<String, RawCollectionIndex>,
     }
 
     impl RawCollectionPage {
@@ -543,16 +520,16 @@ mod collection_page {
     #[derive(Debug)]
     pub(super) struct RawCollectionIndex {
         // same as CollectionIndex
-        slot: u8,
-        index_type: u8,
-        name: String,
-        expression: String,
-        unique: bool,
-        reserved: u8,
-        head: PageAddress,
-        tail: PageAddress,
-        free_index_page_list: u32,
-        bson_expr: BsonExpression,
+        pub slot: u8,
+        pub index_type: u8,
+        pub name: String,
+        pub expression: String,
+        pub unique: bool,
+        pub reserved: u8,
+        pub head: PageAddress,
+        pub tail: PageAddress,
+        pub free_index_page_list: u32,
+        pub bson_expr: BsonExpression,
     }
 
     impl RawCollectionIndex {
@@ -584,47 +561,6 @@ mod collection_page {
                 free_index_page_list,
                 bson_expr: parsed,
             })
-        }
-
-        pub fn slot(&self) -> u8 {
-            self.slot
-        }
-
-        pub fn index_type(&self) -> u8 {
-            self.index_type
-        }
-
-        pub fn name(&self) -> &str {
-            &self.name
-        }
-
-        pub fn expression(&self) -> &str {
-            &self.expression
-        }
-
-        pub fn unique(&self) -> bool {
-            self.unique
-        }
-
-        pub fn reserved(&self) -> u8 {
-            self.reserved
-        }
-
-        pub fn head(&self) -> PageAddress {
-            self.head
-        }
-
-        pub fn tail(&self) -> PageAddress {
-            self.tail
-        }
-
-        #[allow(dead_code)]
-        pub fn free_index_page_list(&self) -> u32 {
-            self.free_index_page_list
-        }
-
-        pub fn bson_expr(&self) -> &BsonExpression {
-            &self.bson_expr
         }
     }
 }

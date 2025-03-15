@@ -3,6 +3,7 @@ mod operations;
 mod page;
 mod parser;
 mod pragma;
+mod offsets;
 
 use crate::bson;
 use crate::expression::BsonExpression;
