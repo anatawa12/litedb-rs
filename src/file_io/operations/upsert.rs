@@ -3,13 +3,14 @@ use crate::file_io::{BsonAutoId, LiteDBFile};
 use crate::utils::CaseInsensitiveString;
 
 impl LiteDBFile {
-    pub async fn upsert(
+    pub fn upsert(
         &mut self,
         collection: &str,
         docs: Vec<bson::Document>,
         auto_id: BsonAutoId,
     ) -> crate::Result<usize> {
-        let collection = self.collections
+        let collection = self
+            .collections
             .entry(CaseInsensitiveString(collection.into()))
             .or_default();
 

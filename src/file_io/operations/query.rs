@@ -7,7 +7,7 @@ use std::cell::Cell;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::task::Poll;
+use std::task::{Context, Poll};
 
 #[derive(Copy, Clone)]
 #[repr(i8)]
@@ -31,7 +31,34 @@ struct IteratorContext<T> {
 
 impl<T> IteratorContext<T> {
     async fn yields(&self, value: T) {
-        self.data.set(Some(value));
+        let old = self.data.replace(Some(value));
+
+        assert!(old.is_none());
+
+        struct SuspendOnce {
+            suspend: bool,
+        }
+        impl SuspendOnce {
+            fn new() -> Self {
+                Self {
+                    suspend: false,
+                }
+            }
+        }
+
+        impl Future for SuspendOnce {
+            type Output = ();
+            fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
+                if self.suspend {
+                    Poll::Ready(())
+                } else {
+                    self.suspend = true;
+                    Poll::Pending
+                }
+            }
+        }
+
+        SuspendOnce::new().await
     }
 }
 
@@ -69,8 +96,7 @@ where
         }
     }
 
-    let impl_ = IteratorImpl { data, future };
-    impl_.fuse()
+    IteratorImpl { data, future }.fuse()
 }
 
 impl LiteDBFile {

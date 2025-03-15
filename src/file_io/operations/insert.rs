@@ -63,7 +63,7 @@ impl LiteDBFile {
         };
 
         assert!(
-            matches!(
+            !matches!(
                 id,
                 bson::Value::Null | bson::Value::MinValue | bson::Value::MaxValue
             ),

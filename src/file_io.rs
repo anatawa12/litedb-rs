@@ -6,8 +6,10 @@ mod parser;
 use crate::bson;
 use crate::engine::EnginePragmas;
 use crate::expression::BsonExpression;
-use crate::utils::{ArenaKey, CaseInsensitiveString, KeyArena, Order};
+use crate::utils::{ArenaKey, CaseInsensitiveString, KeyArena, Order as InternalOrder};
 use std::collections::HashMap;
+
+pub use operations::Order;
 
 #[derive(Debug)]
 pub struct LiteDBFile {
@@ -79,10 +81,14 @@ impl IndexNode {
         }
     }
 
-    pub(crate) fn get_next_prev(&self, level: u8, order: Order) -> Option<ArenaKey<IndexNode>> {
+    pub(crate) fn get_next_prev(
+        &self,
+        level: u8,
+        order: InternalOrder,
+    ) -> Option<ArenaKey<IndexNode>> {
         match order {
-            Order::Ascending => self.next[level as usize],
-            Order::Descending => self.prev[level as usize],
+            InternalOrder::Ascending => self.next[level as usize],
+            InternalOrder::Descending => self.prev[level as usize],
         }
     }
 }

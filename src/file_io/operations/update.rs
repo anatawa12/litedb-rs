@@ -22,7 +22,7 @@ impl LiteDBFile {
                 &mut self.data,
                 collection,
                 self.pragmas.collation(),
-                doc
+                doc,
             )?
             .is_none()
             {
@@ -79,10 +79,7 @@ impl LiteDBFile {
         let mut new_keys: Vec<(u8, &bson::Value, &str)> = vec![];
 
         let scope = ExecutionScope::new(collation);
-        for index in collection.indexes
-            .values()
-            .filter(|x| x.name != "_id")
-        {
+        for index in collection.indexes.values().filter(|x| x.name != "_id") {
             // getting all keys from expression over document
             let keys = scope.get_index_keys(&index.bson_expr, &doc_value);
 

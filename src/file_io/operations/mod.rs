@@ -7,3 +7,5 @@ mod query;
 mod sequence;
 mod update;
 mod upsert;
+
+pub use query::Order;

@@ -49,7 +49,7 @@ impl LiteDBFile {
 #[allow(dead_code)]
 pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
     // if the length is not multiple of PAGE_SIZE, crop
-    let data = &data[..(data.len() & !PAGE_SIZE)];
+    let data = &data[..(data.len() & !(PAGE_SIZE - 1))];
 
     let pages = data
         .chunks(PAGE_SIZE)
@@ -141,7 +141,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
                         while !cur.is_empty() {
                             let raw = self
                                 .raw_node
-                                .remove(&position)
+                                .remove(&cur)
                                 .ok_or_else(ParseError::bad_block_reference)?;
                             buffers.push(raw.buffer());
                             cur = raw.next_block();
