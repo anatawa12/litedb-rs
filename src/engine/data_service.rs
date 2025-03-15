@@ -1,12 +1,10 @@
-use crate::engine::data_block::{DataBlock, DataBlockMut};
+use crate::engine::data_block::DataBlockMut;
 use crate::engine::snapshot::SnapshotDataPages;
 use crate::engine::utils::{PartialBorrower, PartialRefMut};
-use crate::engine::{
-    BasePage, BufferWriter, MAX_DOCUMENT_SIZE, PAGE_HEADER_SIZE, PAGE_SIZE,
-};
+use crate::engine::{BufferWriter, MAX_DATA_BYTES_PER_PAGE, MAX_DOCUMENT_SIZE};
+use crate::utils::PageAddress;
 use crate::{Error, Result, bson};
 use std::cmp::min;
-use crate::utils::PageAddress;
 
 pub(crate) struct DataService<'a> {
     data_blocks: PartialDataBlockAccessorMut<'a>,
@@ -15,9 +13,6 @@ pub(crate) struct DataService<'a> {
 }
 
 impl<'a> DataService<'a> {
-    pub const MAX_DATA_BYTES_PER_PAGE: usize =
-        PAGE_SIZE - PAGE_HEADER_SIZE - BasePage::SLOT_SIZE - DataBlock::DATA_BLOCK_FIXED_SIZE;
-
     pub fn new(data_blocks: SnapshotDataPages<'a>, max_item_count: u32) -> Self {
         Self {
             data_blocks: PartialDataBlockAccessorMut::new(data_blocks),
@@ -38,7 +33,7 @@ impl<'a> DataService<'a> {
             let mut block_index = 0;
 
             while bytes_left > 0 {
-                let bytes_to_copy = min(bytes_left, Self::MAX_DATA_BYTES_PER_PAGE);
+                let bytes_to_copy = min(bytes_left, MAX_DATA_BYTES_PER_PAGE);
                 let data_block = self
                     .data_blocks
                     .insert_data_block(bytes_to_copy, block_index > 0)
@@ -114,7 +109,7 @@ impl<'a> DataService<'a> {
 
                     buffers.push(update_block);
                 } else {
-                    bytes_to_copy = min(bytes_left, DataService::MAX_DATA_BYTES_PER_PAGE);
+                    bytes_to_copy = min(bytes_left, MAX_DATA_BYTES_PER_PAGE);
                     let insert_block = self
                         .data_blocks
                         .insert_data_block(bytes_to_copy, true)

@@ -1,6 +1,6 @@
+use crate::Result;
 use crate::buffer_reader::BufferReader;
 use crate::buffer_writer::BufferWriter;
-use crate::Result;
 use crate::expression::BsonExpression;
 use crate::utils::PageAddress;
 

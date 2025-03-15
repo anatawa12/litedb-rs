@@ -17,14 +17,14 @@ pub mod engine;
 pub mod expression;
 mod utils;
 
+mod buffer_reader;
+mod buffer_writer;
+mod constants;
 pub mod file_io;
 #[cfg(all(feature = "shared-mutex", windows))]
 pub mod shared_mutex;
 #[cfg(feature = "tokio-fs")]
 pub mod tokio_fs;
-mod constants;
-mod buffer_reader;
-mod buffer_writer;
 
 pub type Result<T> = std::result::Result<T, Error>;
 

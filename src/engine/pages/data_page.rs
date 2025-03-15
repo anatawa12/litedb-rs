@@ -2,12 +2,12 @@ use crate::Result;
 use crate::engine::data_block::{DataBlock, DataBlockMut};
 use crate::engine::pages::PageBufferRef;
 use crate::engine::{
-    BasePage, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page, PageBuffer, PageBufferMut,
-    PageType,
+    BasePage, DATA_BLOCK_FIXED_SIZE, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, Page,
+    PageBuffer, PageBufferMut, PageType,
 };
+use crate::utils::PageAddress;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
-use crate::utils::PageAddress;
 
 pub(crate) struct DataPage<Buffer: PageBufferRef = Box<PageBuffer>> {
     base: BasePage<Buffer>,
@@ -48,9 +48,7 @@ impl<Buffer: PageBufferRef> DataPage<Buffer> {
         Buffer: PageBufferMut,
     {
         let page_id = self.base.page_id();
-        let (segment, index, dirty) = self
-            .base
-            .insert_with_dirty(length + DataBlock::DATA_BLOCK_FIXED_SIZE);
+        let (segment, index, dirty) = self.base.insert_with_dirty(length + DATA_BLOCK_FIXED_SIZE);
         DataBlockMut::new(page_id, dirty, index, segment, extend, PageAddress::EMPTY)
     }
 
@@ -68,7 +66,7 @@ impl<Buffer: PageBufferRef> DataPage<Buffer> {
         let page_id = self.base.page_id();
         let (buffer, dirty) = self
             .base
-            .update_with_dirty(index, length + DataBlock::DATA_BLOCK_FIXED_SIZE);
+            .update_with_dirty(index, length + DATA_BLOCK_FIXED_SIZE);
 
         DataBlockMut::new(page_id, dirty, index, buffer, extend, next_block)
     }

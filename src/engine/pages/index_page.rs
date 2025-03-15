@@ -2,12 +2,10 @@ use crate::Result;
 use crate::bson;
 use crate::engine::index_node::{IndexNode, IndexNodeMut};
 use crate::engine::pages::PageBufferRef;
-use crate::engine::{
-    BasePage, MAX_INDEX_LENGTH, Page, PageBuffer, PageBufferMut, PageType,
-};
+use crate::engine::{BasePage, MAX_INDEX_LENGTH, Page, PageBuffer, PageBufferMut, PageType};
+use crate::utils::PageAddress;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
-use crate::utils::PageAddress;
 
 pub(crate) struct IndexPage<Buffer: PageBufferRef = Box<PageBuffer>> {
     base: BasePage<Buffer>,
