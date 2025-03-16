@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::ParseResult;
 use crate::bson;
 use crate::utils::{BufferSlice, PageAddress};
 
@@ -60,11 +60,11 @@ impl<'a> BufferReader<'a> {
         }
     }
 
-    pub fn read_document(&mut self) -> Result<bson::Document> {
+    pub fn read_document(&mut self) -> ParseResult<bson::Document> {
         Ok(bson::Document::parse_document(self)?)
     }
 
-    pub(crate) fn read_array(&mut self) -> Result<bson::Array> {
+    pub(crate) fn read_array(&mut self) -> ParseResult<bson::Array> {
         Ok(bson::Array::parse_array(self)?)
     }
 

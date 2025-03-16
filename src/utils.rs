@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::{ParseError, ParseResult};
 use crate::bson;
 use crate::bson::TotalOrd;
 use crate::buffer_reader::BufferReader;
@@ -131,22 +131,22 @@ impl BufferSlice {
         &self.buffer[offset..][..length]
     }
 
-    pub fn read_string(&self, offset: usize, length: usize) -> crate::Result<&str> {
-        std::str::from_utf8(self.read_bytes(offset, length)).map_err(|_| Error::invalid_bson())
+    pub fn read_string(&self, offset: usize, length: usize) -> ParseResult<&str> {
+        std::str::from_utf8(self.read_bytes(offset, length)).map_err(|_| ParseError::invalid_bson())
     }
 
-    pub fn read_date_time(&self, offset: usize) -> crate::Result<bson::DateTime> {
-        bson::DateTime::from_ticks(self.read_u64(offset)).ok_or_else(Error::datetime_overflow)
+    pub fn read_date_time(&self, offset: usize) -> ParseResult<bson::DateTime> {
+        bson::DateTime::from_ticks(self.read_u64(offset)).ok_or_else(ParseError::invalid_bson)
     }
 
     pub fn read_page_address(&self, offset: usize) -> PageAddress {
         PageAddress::new(self.read_u32(offset), self.read_byte(offset + 4))
     }
 
-    pub fn read_index_key(&self, offset: usize) -> crate::Result<bson::Value> {
+    pub fn read_index_key(&self, offset: usize) -> ParseResult<bson::Value> {
         // extended length: use two bytes for type and length pair
         let type_byte = self.read_byte(offset);
-        let type_ = BsonType::from_u8(type_byte & 0b0011_1111).ok_or_else(Error::invalid_bson)?;
+        let type_ = BsonType::from_u8(type_byte & 0b0011_1111).ok_or_else(ParseError::invalid_bson)?;
 
         // RustChange: no out of bounds are allowed so we check for length byte before access
         let length = if matches!(type_, BsonType::Binary | BsonType::String) {
@@ -166,7 +166,7 @@ impl BufferSlice {
             BsonType::Double => bson::Value::Double(self.read_f64(offset)),
             BsonType::Decimal => bson::Value::Decimal(
                 bson::Decimal128::from_bytes(self.read_bytes(offset, 16).try_into().unwrap())
-                    .ok_or_else(Error::invalid_bson)?,
+                    .ok_or_else(ParseError::invalid_bson)?,
             ), // known to be 16 bytes
             BsonType::String => {
                 let offset = offset + 1; // using length byte

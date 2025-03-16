@@ -1,4 +1,3 @@
-use crate::Error;
 use crate::constants::{PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::utils::BufferSlice;
 use std::ops::{Deref, DerefMut};
@@ -32,16 +31,16 @@ pub(crate) enum PageType {
 }
 
 impl TryFrom<u8> for PageType {
-    type Error = Error;
+    type Error = ();
 
-    fn try_from(value: u8) -> crate::Result<Self> {
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(PageType::Empty),
             1 => Ok(PageType::Header),
             2 => Ok(PageType::Collection),
             3 => Ok(PageType::Index),
             4 => Ok(PageType::Data),
-            _ => Err(Error::invalid_page()),
+            _ => Err(()),
         }
     }
 }

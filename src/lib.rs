@@ -25,46 +25,39 @@ pub mod shared_mutex;
 pub mod tokio_fs;
 
 pub type Result<T> = std::result::Result<T, Error>;
+type ParseResult<T> = std::result::Result<T, ParseError>;
 
 pub struct Error(Box<ErrorImpl>);
 
 use err_impl::Error as ErrorImpl;
+use err_impl::ParseError as ParseErrorImpl;
 
 mod err_impl {
     use super::*;
     #[derive(Debug)]
     pub(crate) enum Error {
-        Io(std::io::Error),
-        Parser(expression::ParseError),
-
         Eval(String),
 
-        InvalidPage,
-        DatetimeOverflow,
-        InvalidBson,
         InvalidIndexKeyType,
         IndexKeySizeExceeded,
         DuplicatedIndexKey { index: String, key: Value },
         IndexAlreadyExists(String),
         InvalidFieldType { field: String, value: Value },
     }
+
+    #[derive(Debug)]
+    pub(crate) enum ParseError {
+        InvalidDatabase,
+        InvalidPage(u32),
+        InvalidBson,
+        BadReference,
+        Expression(expression::ParseError),
+    }
 }
 
 impl Error {
     fn new(inner: ErrorImpl) -> Error {
         Error(Box::new(inner))
-    }
-
-    pub(crate) fn invalid_page() -> Error {
-        Error::new(ErrorImpl::InvalidPage)
-    }
-
-    pub(crate) fn datetime_overflow() -> Error {
-        Error::new(ErrorImpl::DatetimeOverflow)
-    }
-
-    pub(crate) fn invalid_bson() -> Error {
-        Error::new(ErrorImpl::InvalidBson)
     }
 
     pub(crate) fn invalid_index_key_type() -> Error {
@@ -98,34 +91,11 @@ impl Error {
     }
 }
 
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Error::new(ErrorImpl::Io(err))
-    }
-}
-
-impl From<bson::ParseError> for Error {
-    fn from(_: bson::ParseError) -> Self {
-        Error::new(ErrorImpl::InvalidBson)
-    }
-}
-
-impl From<expression::ParseError> for Error {
-    fn from(err: expression::ParseError) -> Self {
-        Error::new(ErrorImpl::Parser(err))
-    }
-}
-
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0.as_ref() {
-            ErrorImpl::Io(e) => e.fmt(f),
-            ErrorImpl::Parser(e) => e.fmt(f),
             ErrorImpl::Eval(e) => e.fmt(f),
 
-            ErrorImpl::InvalidPage => f.write_str("Invalid page"),
-            ErrorImpl::DatetimeOverflow => f.write_str("DateTime overflow"),
-            ErrorImpl::InvalidBson => f.write_str("Invalid BSON"),
             ErrorImpl::InvalidIndexKeyType => f.write_str(
                 "Invalid index key: Min/Max or Document Value are not supported as index key",
             ),
@@ -150,23 +120,65 @@ impl std::fmt::Debug for Error {
 
 impl std::error::Error for Error {}
 
-impl From<Error> for std::io::Error {
-    fn from(value: Error) -> Self {
-        use std::io::ErrorKind::*;
-        let kind = match *value.0 {
-            ErrorImpl::Io(e) => return e,
-            ErrorImpl::Parser(_) => InvalidInput,
-            ErrorImpl::Eval(_) => InvalidInput,
-            ErrorImpl::InvalidPage => InvalidData,
-            ErrorImpl::DatetimeOverflow => InvalidData,
-            ErrorImpl::InvalidBson => InvalidData,
-            ErrorImpl::InvalidIndexKeyType => InvalidData,
-            ErrorImpl::IndexKeySizeExceeded => InvalidData,
-            ErrorImpl::DuplicatedIndexKey { .. } => InvalidData,
-            ErrorImpl::IndexAlreadyExists(_) => AlreadyExists,
-            ErrorImpl::InvalidFieldType { .. } => InvalidInput,
-        };
+pub struct ParseError(Box<ParseErrorImpl>);
 
-        std::io::Error::new(kind, value)
+impl ParseError {
+    fn invalid_database() -> Self {
+        Self::new(ParseErrorImpl::InvalidDatabase)
+    }
+
+    fn invalid_page(id: u32) -> Self {
+        Self::new(ParseErrorImpl::InvalidPage(id))
+    }
+
+    fn bad_reference() -> Self {
+        Self::new(ParseErrorImpl::BadReference)
+    }
+
+    fn invalid_bson() -> Self {
+        Self::new(ParseErrorImpl::InvalidBson)
+    }
+
+    fn new(inner: ParseErrorImpl) -> ParseError {
+        Self(Box::new(inner))
+    }
+}
+
+impl From<expression::ParseError> for ParseError {
+    fn from(value: expression::ParseError) -> Self {
+        Self::new(ParseErrorImpl::Expression(value))
+    }
+}
+
+impl From<bson::ParseError> for ParseError {
+    fn from(_: bson::ParseError) -> Self {
+        Self::invalid_bson()
+    }
+}
+
+impl From<ParseError> for std::io::Error {
+    fn from(value: ParseError) -> Self {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, value)
+    }
+}
+
+impl std::error::Error for ParseError {
+}
+
+impl std::fmt::Debug for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <ParseErrorImpl as std::fmt::Debug>::fmt(&self.0, f)
+    }
+}
+
+impl Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0.as_ref() {
+            ParseErrorImpl::InvalidDatabase => write!(f, "Invalid database"),
+            ParseErrorImpl::InvalidPage(id) => write!(f, "Invalid page at {id}"),
+            ParseErrorImpl::InvalidBson => write!(f, "Invalid BSON"),
+            ParseErrorImpl::BadReference => write!(f, "Bad reference"),
+            ParseErrorImpl::Expression(inner) => Display::fmt(inner, f),
+        }
     }
 }

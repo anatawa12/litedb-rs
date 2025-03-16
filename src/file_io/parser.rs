@@ -1,4 +1,4 @@
-use crate::bson;
+use crate::{bson, ParseError, ParseResult};
 use crate::buffer_reader::BufferReader;
 use crate::constants::{PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::utils::{ArenaKey, BufferSlice, CaseInsensitiveString, KeyArena, PageAddress};
@@ -13,35 +13,6 @@ use crate::file_io::parser::header_page::HeaderPage;
 use crate::file_io::parser::raw_data_block::RawDataBlock;
 
 use raw_index_node::RawIndexNode;
-
-#[derive(Debug)]
-pub enum ParseError {
-    InvalidDatabase,
-    BadPageId,
-    PagePageType,
-    BsonExpression(crate::expression::ParseError),
-    BadBlockReference,
-}
-
-impl ParseError {
-    fn bad_block_reference() -> Self {
-        Self::BadBlockReference
-    }
-}
-
-impl From<crate::Error> for ParseError {
-    fn from(value: crate::Error) -> Self {
-        todo!("{:?}", value)
-    }
-}
-
-impl From<crate::expression::ParseError> for ParseError {
-    fn from(value: crate::expression::ParseError) -> Self {
-        Self::BsonExpression(value)
-    }
-}
-
-type ParseResult<T> = Result<T, ParseError>;
 
 impl LiteDBFile {
     pub fn parse(data: &[u8]) -> ParseResult<Self> {
@@ -61,10 +32,10 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
 
     for (index, &page) in pages.iter().enumerate() {
         if index as u32 != page.page_id() {
-            return Err(ParseError::BadPageId);
+            return Err(ParseError::invalid_page(index as u32));
         }
         if page.page_type().is_none() {
-            return Err(ParseError::PagePageType);
+            return Err(ParseError::invalid_page(index as u32));
         }
     }
 
@@ -145,7 +116,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
                             let raw = self
                                 .raw_node
                                 .remove(&cur)
-                                .ok_or_else(ParseError::bad_block_reference)?;
+                                .ok_or_else(ParseError::bad_reference)?;
                             buffers.push(raw.buffer());
                             cur = raw.next_block();
                         }
@@ -204,7 +175,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
                 let raw = self
                     .raw_node
                     .remove(&current)
-                    .ok_or_else(ParseError::bad_block_reference)?;
+                    .ok_or_else(ParseError::bad_reference)?;
 
                 let key = *self
                     .keys
@@ -272,10 +243,10 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
 
     // parse collection pages
     for (key, page) in header.collections.iter() {
-        let page = page.as_i32().ok_or(ParseError::InvalidDatabase)? as u32;
+        let page = page.as_i32().ok_or_else(ParseError::invalid_database)? as u32;
         let page_buffer = *pages
             .get(page as usize)
-            .ok_or(ParseError::InvalidDatabase)?;
+            .ok_or_else(ParseError::invalid_database)?;
         let collection = RawCollectionPage::parse(page_buffer)?;
 
         let mut indexes = HashMap::new();
@@ -437,7 +408,7 @@ mod header_page {
             let version = buffer.read_byte(P_FILE_VERSION);
 
             if info != HEADER_INFO || version != FILE_VERSION {
-                return Err(ParseError::InvalidDatabase);
+                return Err(ParseError::invalid_database());
             }
 
             let collections_area = buffer.slice(P_COLLECTIONS, COLLECTIONS_SIZE);
@@ -471,7 +442,7 @@ mod collection_page {
             let mut indexes = HashMap::new();
 
             if buffer.page_type() != Some(PageType::Collection) {
-                return Err(ParseError::PagePageType);
+                return Err(ParseError::bad_reference());
             }
 
             let area = buffer.slice(PAGE_HEADER_SIZE, PAGE_SIZE - PAGE_HEADER_SIZE);
@@ -519,10 +490,10 @@ mod collection_page {
             let index_type = reader.read_u8();
             let name = reader
                 .read_cstring()
-                .ok_or_else(crate::Error::invalid_page)?;
+                .ok_or_else(ParseError::invalid_database)?;
             let expression = reader
                 .read_cstring()
-                .ok_or_else(crate::Error::invalid_page)?;
+                .ok_or_else(ParseError::invalid_database)?;
             let unique = reader.read_bool();
             let head = reader.read_page_address();
             let tail = reader.read_page_address();
