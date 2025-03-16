@@ -516,13 +516,3 @@ mod collection_page {
         }
     }
 }
-
-#[test]
-fn test_parse() {
-    let buffer = std::fs::read(
-        "/Users/anatawa12/.local/share/VRChatCreatorCompanion/vcc.liteDb backup copy",
-    )
-    .unwrap();
-    let file = parse(&buffer).unwrap();
-    println!("{:#?}", file);
-}
