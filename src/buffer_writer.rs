@@ -188,7 +188,8 @@ impl<'a, I: Iterator<Item = &'a mut BufferSlice>> bson::BsonWriter for BufferWri
 #[cfg(test)]
 mod tests {
     use crate::bson::Value;
-    use crate::engine::{BufferReader, BufferWriter};
+    use crate::buffer_reader::BufferReader;
+    use crate::buffer_writer::BufferWriter;
     use crate::utils::BufferSlice;
 
     #[test]
