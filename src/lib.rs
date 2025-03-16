@@ -160,8 +160,7 @@ impl From<ParseError> for std::io::Error {
     }
 }
 
-impl std::error::Error for ParseError {
-}
+impl std::error::Error for ParseError {}
 
 impl std::fmt::Debug for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

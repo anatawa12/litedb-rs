@@ -1,10 +1,10 @@
-use crate::{ParseError, ParseResult};
 use crate::bson;
 use crate::bson::TotalOrd;
 use crate::buffer_reader::BufferReader;
 use crate::buffer_writer::BufferWriter;
 use crate::constants::MAX_INDEX_KEY_LENGTH;
 use crate::file_io::get_key_length;
+use crate::{ParseError, ParseResult};
 use bson::BsonType;
 use either::Either;
 use std::cmp::Ordering;
@@ -146,7 +146,8 @@ impl BufferSlice {
     pub fn read_index_key(&self, offset: usize) -> ParseResult<bson::Value> {
         // extended length: use two bytes for type and length pair
         let type_byte = self.read_byte(offset);
-        let type_ = BsonType::from_u8(type_byte & 0b0011_1111).ok_or_else(ParseError::invalid_bson)?;
+        let type_ =
+            BsonType::from_u8(type_byte & 0b0011_1111).ok_or_else(ParseError::invalid_bson)?;
 
         // RustChange: no out of bounds are allowed so we check for length byte before access
         let length = if matches!(type_, BsonType::Binary | BsonType::String) {

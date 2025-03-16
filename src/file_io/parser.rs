@@ -1,7 +1,7 @@
-use crate::{bson, ParseError, ParseResult};
 use crate::buffer_reader::BufferReader;
 use crate::constants::{PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::utils::{ArenaKey, BufferSlice, CaseInsensitiveString, KeyArena, PageAddress};
+use crate::{ParseError, ParseResult, bson};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 
