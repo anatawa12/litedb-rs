@@ -1,7 +1,10 @@
 use crate::Error;
 use crate::bson;
 use crate::bson::TotalOrd;
-use crate::engine::{BufferReader, BufferWriter, IndexNode, MAX_INDEX_KEY_LENGTH};
+use crate::buffer_reader::BufferReader;
+use crate::buffer_writer::BufferWriter;
+use crate::constants::MAX_INDEX_KEY_LENGTH;
+use crate::file_io::get_key_length;
 use bson::BsonType;
 use either::Either;
 use std::cmp::Ordering;
@@ -9,13 +12,13 @@ use std::convert::Infallible;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut, Index, IndexMut, Neg};
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::ops::{Deref, Index, IndexMut, Neg};
 
 // TODO: Implement the CompareOptions struct
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompareOptions(pub i32);
 
+#[allow(dead_code)]
 impl CompareOptions {
     pub const IGNORE_CASE: CompareOptions = CompareOptions(1);
     pub const IGNORE_KANA_TYPE: CompareOptions = CompareOptions(8);
@@ -61,14 +64,6 @@ impl Collation {
 
     //    pub(crate) fn sql_like(&self, left: &str, right: &str) -> bool {
     //    }
-
-    pub(crate) fn to_u64(self) -> u64 {
-        unsafe { std::mem::transmute::<Self, u64>(self) }
-    }
-
-    pub(crate) fn from_u64(from: u64) -> Self {
-        unsafe { std::mem::transmute::<u64, Self>(from) }
-    }
 }
 
 #[repr(transparent)]
@@ -207,10 +202,6 @@ impl BufferSlice {
         Self::new(&self.buffer[offset..][..count])
     }
 
-    pub fn clear(&mut self, offset: usize, count: usize) {
-        self.buffer[offset..][..count].fill(0);
-    }
-
     pub fn as_bytes(&self) -> &[u8] {
         &self.buffer
     }
@@ -278,7 +269,7 @@ impl BufferSlice {
     }
 
     pub fn write_index_key(&mut self, offset: usize, value: &bson::Value) {
-        debug_assert!(IndexNode::get_key_length(value, true) <= MAX_INDEX_KEY_LENGTH);
+        debug_assert!(get_key_length(value) <= MAX_INDEX_KEY_LENGTH);
 
         fn make_extended_length(tag: BsonType, length: usize) -> [u8; 2] {
             assert!(length <= 1024);
@@ -386,71 +377,6 @@ impl Neg for Order {
         match self {
             Order::Ascending => Order::Descending,
             Order::Descending => Order::Ascending,
-        }
-    }
-}
-
-/// The wrapper struct for Arc<RwLock<T>>
-///
-/// We may extend to Arc<Mutex<T>> in the future
-pub(crate) struct Shared<T> {
-    inner: Arc<RwLock<T>>,
-}
-
-impl<T> Shared<T> {
-    pub fn new(inner: T) -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(inner)),
-        }
-    }
-
-    pub fn borrow(&self) -> Ref<T> {
-        Ref {
-            guard: self.inner.read().unwrap(),
-        }
-    }
-
-    pub fn borrow_mut(&self) -> RefMut<T> {
-        RefMut {
-            guard: self.inner.write().unwrap(),
-        }
-    }
-}
-
-pub(crate) struct Ref<'a, T> {
-    guard: RwLockReadGuard<'a, T>,
-}
-
-pub(crate) struct RefMut<'a, T> {
-    guard: RwLockWriteGuard<'a, T>,
-}
-
-impl<T> Deref for Ref<'_, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard.deref()
-    }
-}
-
-impl<T> Deref for RefMut<'_, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard.deref()
-    }
-}
-
-impl<T> DerefMut for RefMut<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard.deref_mut()
-    }
-}
-
-impl<T> Clone for Shared<T> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
         }
     }
 }
@@ -725,13 +651,6 @@ fn is_letter_or_digit(c: char) -> bool {
             | GeneralCategory::OtherLetter
             | GeneralCategory::DecimalNumber
     )
-}
-
-pub(crate) mod checker {
-    pub(crate) fn dummy<T: Send>() -> T {
-        unimplemented!()
-    }
-    pub(crate) fn check_sync_send<'a, T: Send + Sync + 'a>(_: T) {}
 }
 
 #[derive(Debug)]

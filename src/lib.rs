@@ -8,12 +8,10 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::bson::Value;
-use crate::engine::{BasePage, PageBufferRef, PageType};
 use std::fmt::Display;
 
 #[macro_use]
 pub mod bson;
-pub mod engine;
 pub mod expression;
 mod utils;
 
@@ -41,51 +39,20 @@ mod err_impl {
 
         Eval(String),
 
-        InvalidDatabase,
         InvalidPage,
         DatetimeOverflow,
-        Encrypted,
-        CollationMismatch,
-        InvalidPageType {
-            expected: PageType,
-            actual: PageType,
-            page: u32,
-        },
-        CollectionIndexLimitReached,
-        CollectionNameHeaderSpaceExceeds(String),
-        InvalidCollectionName(String),
         InvalidBson,
-        SizeLimitReached,
-        TransactionLimitReached,
         InvalidIndexKeyType,
         IndexKeySizeExceeded,
-        DuplicatedIndexKey {
-            index: String,
-            key: Value,
-        },
-        CollectionNameAlreadyExists(String),
-        DocumentSizeLimitExceeded,
+        DuplicatedIndexKey { index: String, key: Value },
         IndexAlreadyExists(String),
-        DropIdIndex,
-        BadAutoId {
-            auto_id: engine::BsonAutoId,
-            collection_name: String,
-            last_id: Value,
-        },
-        InvalidFieldType {
-            field: String,
-            value: Value,
-        },
+        InvalidFieldType { field: String, value: Value },
     }
 }
 
 impl Error {
     fn new(inner: ErrorImpl) -> Error {
         Error(Box::new(inner))
-    }
-
-    pub(crate) fn invalid_database() -> Error {
-        Error::new(ErrorImpl::InvalidDatabase)
     }
 
     pub(crate) fn invalid_page() -> Error {
@@ -96,49 +63,8 @@ impl Error {
         Error::new(ErrorImpl::DatetimeOverflow)
     }
 
-    pub(crate) fn encrypted_no_password() -> Error {
-        Error::new(ErrorImpl::Encrypted)
-    }
-
-    pub(crate) fn collation_not_match() -> Error {
-        Error::new(ErrorImpl::CollationMismatch)
-    }
-
-    pub(crate) fn invalid_page_type<Buffer: PageBufferRef>(
-        expected: PageType,
-        page: BasePage<Buffer>,
-    ) -> Error {
-        Error::new(ErrorImpl::InvalidPageType {
-            expected,
-            actual: page.page_type(),
-            page: page.page_id(),
-        })
-    }
-
-    pub(crate) fn collection_index_limit_reached() -> Error {
-        Error::new(ErrorImpl::CollectionIndexLimitReached)
-    }
-
-    pub(crate) fn name_length_header_space(name: &str) -> Error {
-        Error::new(ErrorImpl::CollectionNameHeaderSpaceExceeds(
-            name.to_string(),
-        ))
-    }
-
-    pub(crate) fn invalid_collection_name(name: &str) -> Error {
-        Error::new(ErrorImpl::InvalidCollectionName(name.to_string()))
-    }
-
     pub(crate) fn invalid_bson() -> Error {
         Error::new(ErrorImpl::InvalidBson)
-    }
-
-    pub(crate) fn size_limit_reached() -> Self {
-        Error::new(ErrorImpl::SizeLimitReached)
-    }
-
-    pub(crate) fn transaction_limit() -> Error {
-        Error::new(ErrorImpl::TransactionLimitReached)
     }
 
     pub(crate) fn invalid_index_key_type() -> Error {
@@ -156,33 +82,8 @@ impl Error {
         })
     }
 
-    pub(crate) fn already_exists_collection_name(name: &str) -> Error {
-        Error::new(ErrorImpl::CollectionNameAlreadyExists(name.to_string()))
-    }
-
-    pub(crate) fn document_size_exceed_limit() -> Self {
-        Error::new(ErrorImpl::DocumentSizeLimitExceeded)
-    }
-
     pub(crate) fn index_already_exists(name: &str) -> Error {
         Error::new(ErrorImpl::IndexAlreadyExists(name.to_string()))
-    }
-
-    pub(crate) fn drop_id_index() -> Error {
-        Error::new(ErrorImpl::DropIdIndex)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn bad_auto_id(
-        auto_id: engine::BsonAutoId,
-        collection_name: &str,
-        last_id: Value,
-    ) -> Self {
-        Error::new(ErrorImpl::BadAutoId {
-            auto_id,
-            collection_name: collection_name.to_string(),
-            last_id,
-        })
     }
 
     pub(crate) fn invalid_data_type(field: &str, value: &Value) -> Error {
@@ -222,34 +123,9 @@ impl Display for Error {
             ErrorImpl::Parser(e) => e.fmt(f),
             ErrorImpl::Eval(e) => e.fmt(f),
 
-            ErrorImpl::InvalidDatabase => f.write_str("Invalid database"),
             ErrorImpl::InvalidPage => f.write_str("Invalid page"),
             ErrorImpl::DatetimeOverflow => f.write_str("DateTime overflow"),
-            ErrorImpl::Encrypted => f.write_str("Encrypted database without password"),
-            ErrorImpl::CollationMismatch => f.write_str("Collation not match"),
-            ErrorImpl::InvalidPageType {
-                expected,
-                actual,
-                page,
-            } => write!(
-                f,
-                "Invalid page type: expected {:?}, got {:?} at page {}",
-                expected, actual, page
-            ),
-            ErrorImpl::CollectionIndexLimitReached => f.write_str("Collection index limit reached"),
-            ErrorImpl::CollectionNameHeaderSpaceExceeds(name) => write!(
-                f,
-                "Collection name length exceeds available header space: {}",
-                name
-            ),
-            ErrorImpl::InvalidCollectionName(name) => {
-                write!(f, "Invalid collection name: {}", name)
-            }
             ErrorImpl::InvalidBson => f.write_str("Invalid BSON"),
-            ErrorImpl::SizeLimitReached => f.write_str("Size limit reached"),
-            ErrorImpl::TransactionLimitReached => {
-                f.write_str("Maximum number of transactions reached")
-            }
             ErrorImpl::InvalidIndexKeyType => f.write_str(
                 "Invalid index key: Min/Max or Document Value are not supported as index key",
             ),
@@ -258,20 +134,7 @@ impl Display for Error {
                 f,
                 "Duplicate index key in unique index `{index}`, key: {key:?}"
             ),
-            ErrorImpl::CollectionNameAlreadyExists(name) => {
-                write!(f, "Collection name '{}' already exists", name)
-            }
-            ErrorImpl::DocumentSizeLimitExceeded => f.write_str("Document size limit reached"),
             ErrorImpl::IndexAlreadyExists(name) => write!(f, "Index '{}' already exists", name),
-            ErrorImpl::DropIdIndex => f.write_str("Drop _id index"),
-            ErrorImpl::BadAutoId {
-                auto_id,
-                collection_name,
-                last_id,
-            } => write!(
-                f,
-                "It's not possible use AutoId={auto_id:?} because '{collection_name}' collection contains not only numbers in _id index ({last_id:?})."
-            ),
             ErrorImpl::InvalidFieldType { field, value } => {
                 write!(f, "Invalid field type: {field}, value: {value:?}")
             }
@@ -294,26 +157,13 @@ impl From<Error> for std::io::Error {
             ErrorImpl::Io(e) => return e,
             ErrorImpl::Parser(_) => InvalidInput,
             ErrorImpl::Eval(_) => InvalidInput,
-            ErrorImpl::InvalidDatabase => InvalidData,
             ErrorImpl::InvalidPage => InvalidData,
             ErrorImpl::DatetimeOverflow => InvalidData,
-            ErrorImpl::Encrypted => InvalidInput,
-            ErrorImpl::CollationMismatch => InvalidInput,
-            ErrorImpl::InvalidPageType { .. } => InvalidInput,
-            ErrorImpl::CollectionIndexLimitReached => InvalidInput,
-            ErrorImpl::CollectionNameHeaderSpaceExceeds(_) => InvalidInput,
-            ErrorImpl::InvalidCollectionName(_) => InvalidInput,
             ErrorImpl::InvalidBson => InvalidData,
-            ErrorImpl::SizeLimitReached => InvalidInput,
-            ErrorImpl::TransactionLimitReached => QuotaExceeded,
             ErrorImpl::InvalidIndexKeyType => InvalidData,
             ErrorImpl::IndexKeySizeExceeded => InvalidData,
             ErrorImpl::DuplicatedIndexKey { .. } => InvalidData,
-            ErrorImpl::CollectionNameAlreadyExists(_) => InvalidInput,
-            ErrorImpl::DocumentSizeLimitExceeded => InvalidData,
             ErrorImpl::IndexAlreadyExists(_) => AlreadyExists,
-            ErrorImpl::DropIdIndex => PermissionDenied,
-            ErrorImpl::BadAutoId { .. } => InvalidData,
             ErrorImpl::InvalidFieldType { .. } => InvalidInput,
         };
 

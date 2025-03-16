@@ -3,9 +3,8 @@ use crate::bson;
 use crate::buffer_writer::BufferWriter;
 use crate::constants::{
     DATA_BLOCK_FIXED_SIZE, MAX_DATA_BYTES_PER_PAGE, MAX_DOCUMENT_SIZE, MAX_INDEX_LENGTH,
-    PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE,
+    PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE, PAGE_SLOT_SIZE,
 };
-use crate::engine::PAGE_SLOT_SIZE;
 use crate::file_io::index_helper::IndexHelper;
 use crate::file_io::offsets::collection_page::P_INDEXES;
 use crate::file_io::page::{PageBuffer, PageType};
@@ -346,7 +345,7 @@ fn get_index_node_length(level: u8, key: &bson::Value) -> usize {
         key_length // key
 }
 
-fn get_key_length(key: &bson::Value) -> usize {
+pub(crate) fn get_key_length(key: &bson::Value) -> usize {
     1 + if matches!(key, bson::Value::String(..) | bson::Value::Binary(..)) {
         1
     } else {

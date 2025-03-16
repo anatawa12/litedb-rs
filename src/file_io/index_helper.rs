@@ -1,6 +1,6 @@
 use crate::constants::{MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH};
 use crate::expression::BsonExpression;
-use crate::file_io::{Collection, CollectionIndex, IndexNode};
+use crate::file_io::{Collection, CollectionIndex, IndexNode, get_key_length};
 use crate::utils::{ArenaKey, Collation, KeyArena, Order};
 use crate::{Error, bson};
 use std::collections::HashSet;
@@ -86,7 +86,7 @@ impl IndexHelper {
         insert_levels: u8,
         last: Option<ArenaKey<IndexNode>>,
     ) -> Result<ArenaKey<IndexNode>, Error> {
-        let key_length = crate::engine::IndexNode::get_key_length(&key, false);
+        let key_length = get_key_length(&key);
 
         if key_length > MAX_INDEX_KEY_LENGTH {
             return Err(Error::index_key_too_long());

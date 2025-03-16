@@ -14,6 +14,8 @@ use std::collections::HashMap;
 pub use operations::Order;
 use pragma::EnginePragmas;
 
+pub(crate) use writer::get_key_length;
+
 #[derive(Debug)]
 pub struct LiteDBFile {
     collections: HashMap<CaseInsensitiveString, Collection>,
