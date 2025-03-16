@@ -86,7 +86,7 @@ where
             match self
                 .future
                 .as_mut()
-                .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+                .poll(&mut Context::from_waker(std::task::Waker::noop()))
             {
                 Poll::Pending => Some(self.data.take().expect("iterator returns")),
                 Poll::Ready(()) => None,
@@ -184,7 +184,7 @@ impl LiteDBFile {
         })
     }
 
-    pub fn get_all(&mut self, collection: &str) -> impl Iterator<Item = &bson::Document> {
+    pub fn get_all(&self, collection: &str) -> impl Iterator<Item = &bson::Document> {
         self.find_range_by_index(
             collection,
             "_id",
@@ -195,7 +195,7 @@ impl LiteDBFile {
     }
 
     pub fn get_range_indexed(
-        &mut self,
+        &self,
         collection: &str,
         index: &str,
         min_inclusive: &bson::Value,
@@ -206,7 +206,7 @@ impl LiteDBFile {
     }
 
     pub fn get_by_index(
-        &mut self,
+        &self,
         collection: &str,
         index: &str,
         find: &bson::Value,
