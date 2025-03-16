@@ -1,19 +1,24 @@
-use crate::Error;
 use crate::bson;
 use crate::bson::TotalOrd;
-use crate::engine::{BufferReader, BufferWriter, IndexNode, MAX_INDEX_KEY_LENGTH, PageAddress};
+use crate::buffer_reader::BufferReader;
+use crate::buffer_writer::BufferWriter;
+use crate::constants::MAX_INDEX_KEY_LENGTH;
+use crate::file_io::get_key_length;
+use crate::{ParseError, ParseResult};
 use bson::BsonType;
 use either::Either;
 use std::cmp::Ordering;
+use std::convert::Infallible;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::{Deref, DerefMut, Neg};
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::marker::PhantomData;
+use std::ops::{Deref, Index, IndexMut, Neg};
 
 // TODO: Implement the CompareOptions struct
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompareOptions(pub i32);
 
+#[allow(dead_code)]
 impl CompareOptions {
     pub const IGNORE_CASE: CompareOptions = CompareOptions(1);
     pub const IGNORE_KANA_TYPE: CompareOptions = CompareOptions(8);
@@ -59,14 +64,6 @@ impl Collation {
 
     //    pub(crate) fn sql_like(&self, left: &str, right: &str) -> bool {
     //    }
-
-    pub(crate) fn to_u64(self) -> u64 {
-        unsafe { std::mem::transmute::<Self, u64>(self) }
-    }
-
-    pub(crate) fn from_u64(from: u64) -> Self {
-        unsafe { std::mem::transmute::<u64, Self>(from) }
-    }
 }
 
 #[repr(transparent)]
@@ -134,22 +131,23 @@ impl BufferSlice {
         &self.buffer[offset..][..length]
     }
 
-    pub fn read_string(&self, offset: usize, length: usize) -> crate::Result<&str> {
-        std::str::from_utf8(self.read_bytes(offset, length)).map_err(|_| Error::invalid_bson())
+    pub fn read_string(&self, offset: usize, length: usize) -> ParseResult<&str> {
+        std::str::from_utf8(self.read_bytes(offset, length)).map_err(|_| ParseError::invalid_bson())
     }
 
-    pub fn read_date_time(&self, offset: usize) -> crate::Result<bson::DateTime> {
-        bson::DateTime::from_ticks(self.read_u64(offset)).ok_or_else(Error::datetime_overflow)
+    pub fn read_date_time(&self, offset: usize) -> ParseResult<bson::DateTime> {
+        bson::DateTime::from_ticks(self.read_u64(offset)).ok_or_else(ParseError::invalid_bson)
     }
 
     pub fn read_page_address(&self, offset: usize) -> PageAddress {
         PageAddress::new(self.read_u32(offset), self.read_byte(offset + 4))
     }
 
-    pub fn read_index_key(&self, offset: usize) -> crate::Result<bson::Value> {
+    pub fn read_index_key(&self, offset: usize) -> ParseResult<bson::Value> {
         // extended length: use two bytes for type and length pair
         let type_byte = self.read_byte(offset);
-        let type_ = BsonType::from_u8(type_byte & 0b0011_1111).ok_or_else(Error::invalid_bson)?;
+        let type_ =
+            BsonType::from_u8(type_byte & 0b0011_1111).ok_or_else(ParseError::invalid_bson)?;
 
         // RustChange: no out of bounds are allowed so we check for length byte before access
         let length = if matches!(type_, BsonType::Binary | BsonType::String) {
@@ -169,7 +167,7 @@ impl BufferSlice {
             BsonType::Double => bson::Value::Double(self.read_f64(offset)),
             BsonType::Decimal => bson::Value::Decimal(
                 bson::Decimal128::from_bytes(self.read_bytes(offset, 16).try_into().unwrap())
-                    .ok_or_else(Error::invalid_bson)?,
+                    .ok_or_else(ParseError::invalid_bson)?,
             ), // known to be 16 bytes
             BsonType::String => {
                 let offset = offset + 1; // using length byte
@@ -203,10 +201,6 @@ impl BufferSlice {
 
     pub(crate) fn slice(&self, offset: usize, count: usize) -> &Self {
         Self::new(&self.buffer[offset..][..count])
-    }
-
-    pub fn clear(&mut self, offset: usize, count: usize) {
-        self.buffer[offset..][..count].fill(0);
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -276,7 +270,7 @@ impl BufferSlice {
     }
 
     pub fn write_index_key(&mut self, offset: usize, value: &bson::Value) {
-        debug_assert!(IndexNode::get_key_length(value, true) <= MAX_INDEX_KEY_LENGTH);
+        debug_assert!(get_key_length(value) <= MAX_INDEX_KEY_LENGTH);
 
         fn make_extended_length(tag: BsonType, length: usize) -> [u8; 2] {
             assert!(length <= 1024);
@@ -384,71 +378,6 @@ impl Neg for Order {
         match self {
             Order::Ascending => Order::Descending,
             Order::Descending => Order::Ascending,
-        }
-    }
-}
-
-/// The wrapper struct for Arc<RwLock<T>>
-///
-/// We may extend to Arc<Mutex<T>> in the future
-pub(crate) struct Shared<T> {
-    inner: Arc<RwLock<T>>,
-}
-
-impl<T> Shared<T> {
-    pub fn new(inner: T) -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(inner)),
-        }
-    }
-
-    pub fn borrow(&self) -> Ref<T> {
-        Ref {
-            guard: self.inner.read().unwrap(),
-        }
-    }
-
-    pub fn borrow_mut(&self) -> RefMut<T> {
-        RefMut {
-            guard: self.inner.write().unwrap(),
-        }
-    }
-}
-
-pub(crate) struct Ref<'a, T> {
-    guard: RwLockReadGuard<'a, T>,
-}
-
-pub(crate) struct RefMut<'a, T> {
-    guard: RwLockWriteGuard<'a, T>,
-}
-
-impl<T> Deref for Ref<'_, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard.deref()
-    }
-}
-
-impl<T> Deref for RefMut<'_, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard.deref()
-    }
-}
-
-impl<T> DerefMut for RefMut<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard.deref_mut()
-    }
-}
-
-impl<T> Clone for Shared<T> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
         }
     }
 }
@@ -725,9 +654,121 @@ fn is_letter_or_digit(c: char) -> bool {
     )
 }
 
+#[allow(dead_code)]
 pub(crate) mod checker {
     pub(crate) fn dummy<T: Send>() -> T {
         unimplemented!()
     }
     pub(crate) fn check_sync_send<'a, T: Send + Sync + 'a>(_: T) {}
+}
+
+#[derive(Debug)]
+pub(crate) struct KeyArena<T>(slab::Slab<T>);
+
+impl<T> KeyArena<T> {
+    pub fn new() -> Self {
+        Self(slab::Slab::new())
+    }
+
+    pub fn alloc(&mut self, value: T) -> ArenaKey<T> {
+        ArenaKey(self.0.insert(value), PhantomData)
+    }
+
+    pub fn free(&mut self, key: ArenaKey<T>) -> T {
+        self.0.remove(key.0)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl<T> Index<ArenaKey<T>> for KeyArena<T> {
+    type Output = T;
+
+    fn index(&self, index: ArenaKey<T>) -> &Self::Output {
+        &self.0[index.0]
+    }
+}
+
+impl<T> IndexMut<ArenaKey<T>> for KeyArena<T> {
+    fn index_mut(&mut self, index: ArenaKey<T>) -> &mut Self::Output {
+        &mut self.0[index.0]
+    }
+}
+
+pub(crate) struct ArenaKey<T>(usize, PhantomData<T>);
+
+impl<T> Clone for ArenaKey<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for ArenaKey<T> {}
+
+impl<T> Debug for ArenaKey<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ArenaKey").field(&self.0).finish()
+    }
+}
+
+impl<T> Eq for ArenaKey<T> {}
+
+impl<T> PartialEq for ArenaKey<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T> Hash for ArenaKey<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct PageAddress {
+    page_id: u32,
+    index: u8,
+}
+
+impl PageAddress {
+    pub const EMPTY: PageAddress = PageAddress {
+        page_id: u32::MAX,
+        index: u8::MAX,
+    };
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.page_id == u32::MAX && self.index == u8::MAX
+    }
+}
+
+impl PageAddress {
+    pub const SERIALIZED_SIZE: usize = 5;
+
+    pub(crate) fn new(page_id: u32, index: u8) -> Self {
+        Self { page_id, index }
+    }
+
+    pub(crate) fn page_id(&self) -> u32 {
+        self.page_id
+    }
+
+    pub(crate) fn index(&self) -> u8 {
+        self.index
+    }
+}
+
+pub(super) trait IntoOk<T> {
+    fn into_ok1(self) -> T;
+}
+
+impl<T> IntoOk<T> for Result<T, Infallible> {
+    fn into_ok1(self) -> T {
+        match self {
+            Ok(ok) => ok,
+            Err(e) => match e {},
+        }
+    }
 }

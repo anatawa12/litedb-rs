@@ -28,6 +28,7 @@ base64 = "0.22.1"
 hex = "0.4.3"
 thread_local = "1.1.8"
 indexmap = "2.7.1"
+slab = "0.4.9"
 
 [target."cfg(windows)".dependencies]
 windows = { version = "0.60.0", features = [
@@ -44,7 +45,6 @@ tokio = { version = "1.43.0", features = ["rt-multi-thread", "macros", "fs"] }
 [features]
 default = ['expression-methods', 'shared-mutex']
 debug-logs = []
-tokio-fs = ['dep:tokio', 'dep:tokio-util']
 shared-mutex = [ 'dep:tokio', 'tokio/rt' ]
 # This feature enables support for methods of expression
 # even without this feature, ITEMS / ARRAY method is avaiable since it's 
