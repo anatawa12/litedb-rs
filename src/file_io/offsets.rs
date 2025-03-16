@@ -1,10 +1,15 @@
-
 pub mod index_node {
+    use crate::utils::PageAddress;
+
     pub const P_SLOT: usize = 0; // 00-00 [byte]
     pub const P_LEVELS: usize = 1; // 01-01 [byte]
     pub const P_DATA_BLOCK: usize = 2; // 02-06 [PageAddress]
     pub const P_NEXT_NODE: usize = 7; // 07-11 [PageAddress]
     pub const P_PREV_NEXT: usize = 12; // 12-(_level * 5 [PageAddress] * 2 [prev-next])
+
+    pub fn calc_key_ptr(levels: u8) -> usize {
+        P_PREV_NEXT + levels as usize * PageAddress::SERIALIZED_SIZE * 2
+    }
 }
 
 pub mod data_block {
@@ -35,5 +40,6 @@ pub mod collection_page {
     use crate::constants::PAGE_SIZE;
 
     pub const P_INDEXES: usize = 96; // 96-8192 (64 + 32 header = 96)
+    #[allow(dead_code)]
     pub const P_INDEXES_COUNT: usize = PAGE_SIZE - P_INDEXES;
 }

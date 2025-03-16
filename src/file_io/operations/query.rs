@@ -40,9 +40,7 @@ impl<T> IteratorContext<T> {
         }
         impl SuspendOnce {
             fn new() -> Self {
-                Self {
-                    suspend: false,
-                }
+                Self { suspend: false }
             }
         }
 
@@ -136,7 +134,7 @@ impl LiteDBFile {
             let first = match start {
                 bson::Value::MinValue => Some(&indexes[index.head]),
                 bson::Value::MaxValue => Some(&indexes[index.tail]),
-                start => IndexHelper::find(indexes, &collation, &index, start, true, order)
+                start => IndexHelper::find(indexes, &collation, index, start, true, order)
                     .map(|(node, _)| node),
             };
 

@@ -1,9 +1,9 @@
 use crate::bson;
-use crate::constants::{PAGE_SIZE, PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE};
+use crate::buffer_reader::BufferReader;
+use crate::constants::{PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::utils::{ArenaKey, BufferSlice, CaseInsensitiveString, KeyArena, PageAddress};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
-use crate::buffer_reader::BufferReader;
 
 use super::*;
 use crate::file_io::page::PageBuffer;
@@ -271,7 +271,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
     let mut collections = HashMap::new();
 
     // parse collection pages
-    for (key, page) in header.collections().iter() {
+    for (key, page) in header.collections.iter() {
         let page = page.as_i32().ok_or(ParseError::InvalidDatabase)? as u32;
         let page_buffer = *pages
             .get(page as usize)
@@ -308,7 +308,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
 
     Ok(LiteDBFile {
         collections,
-        creation_time: header.creation_time(),
+        creation_time: header.creation_time,
         pragmas: header.pragmas,
 
         index_arena: index_builder.arena,
@@ -330,10 +330,6 @@ mod raw_index_node {
         pub next_node: PageAddress,
         pub prev: Vec<PageAddress>,
         pub next: Vec<PageAddress>,
-    }
-
-    fn calc_key_ptr(levels: u8) -> usize {
-        P_PREV_NEXT + levels as usize * PageAddress::SERIALIZED_SIZE * 2
     }
 
     impl RawIndexNode {
@@ -429,9 +425,9 @@ mod header_page {
         pub creation_time: bson::DateTime,
         pub pragmas: EnginePragmas,
         pub collections: bson::Document,
-        #[allow(dead_code)] // for page structure; not needed for 
+        #[allow(dead_code)] // for page structure; not needed for
         last_page_id: u32,
-        #[allow(dead_code)] // for page structure; not needed for 
+        #[allow(dead_code)] // for page structure; not needed for
         free_empty_page_list: u32,
     }
 
@@ -453,18 +449,6 @@ mod header_page {
                 last_page_id: buffer.read_u32(P_LAST_PAGE_ID),
                 collections: BufferReader::single(collections_area).read_document()?,
             })
-        }
-
-        pub fn creation_time(&self) -> bson::DateTime {
-            self.creation_time
-        }
-
-        pub fn pragmas(&self) -> &EnginePragmas {
-            &self.pragmas
-        }
-
-        pub fn collections(&self) -> &bson::Document {
-            &self.collections
         }
     }
 }
@@ -511,10 +495,6 @@ mod collection_page {
                 indexes,
             })
         }
-
-        pub fn indexes(&self) -> &HashMap<String, RawCollectionIndex> {
-            &self.indexes
-        }
     }
 
     #[derive(Debug)]
@@ -528,6 +508,7 @@ mod collection_page {
         pub reserved: u8,
         pub head: PageAddress,
         pub tail: PageAddress,
+        #[allow(dead_code)] // pages format only
         pub free_index_page_list: u32,
         pub bson_expr: BsonExpression,
     }

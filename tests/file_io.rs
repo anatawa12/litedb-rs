@@ -16,14 +16,10 @@ fn run_test() {
         engine.get_collection_names()
     );
 
-    let deleted = engine
-        .delete(
-            "unityVersions",
-            &[
-                bson::ObjectId::from_bytes(*b"\x66\x33\xbc\x66\x8a\x6a\x1d\x23\x2a\xb0\x13\x71")
-                    .into(),
-            ],
-        );
+    let deleted = engine.delete(
+        "unityVersions",
+        &[bson::ObjectId::from_bytes(*b"\x66\x33\xbc\x66\x8a\x6a\x1d\x23\x2a\xb0\x13\x71").into()],
+    );
     println!("deleted: {deleted}");
 
     engine
@@ -115,14 +111,12 @@ fn run_test() {
 
     println!("get all unityVersions: ");
 
-    engine
-        .get_all("unityVersions")
-        .for_each(|doc| {
-            println!("version: {:?}", doc.get("version"));
-            println!("LoadedFromHub: {:?}", doc.get("LoadedFromHub"));
-            println!("Path: {:?}", doc.get("Path"));
-            println!();
-        });
+    engine.get_all("unityVersions").for_each(|doc| {
+        println!("version: {:?}", doc.get("version"));
+        println!("LoadedFromHub: {:?}", doc.get("LoadedFromHub"));
+        println!("Path: {:?}", doc.get("Path"));
+        println!();
+    });
 
     println!("find by version: ");
 
@@ -163,6 +157,6 @@ fn run_test() {
      */
 
     if cfg!(not(miri)) {
-        //std::fs::write("./tests/vcc.test.liteDb", &*buffer.lock().unwrap()).unwrap();
+        std::fs::write("./tests/vcc.test.liteDb", engine.serialize()).unwrap();
     }
 }

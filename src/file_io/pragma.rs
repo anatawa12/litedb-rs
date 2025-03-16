@@ -22,12 +22,12 @@ pub(crate) struct EnginePragmas {
 impl Default for EnginePragmas {
     fn default() -> Self {
         EnginePragmas {
-            user_version: 0.into(),
+            user_version: 0,
             collation: Collation::default(),
-            timeout_seconds: 60.into(),
-            limit_size: i64::MAX.into(),
-            utc_date: false.into(),
-            checkpoint: 1000.into(),
+            timeout_seconds: 60,
+            limit_size: i64::MAX,
+            utc_date: false,
+            checkpoint: 1000,
         }
     }
 }

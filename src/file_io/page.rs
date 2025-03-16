@@ -1,7 +1,7 @@
+use crate::Error;
 use crate::constants::{PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::utils::BufferSlice;
 use std::ops::{Deref, DerefMut};
-use crate::Error;
 
 // Slot for page blocks
 const SLOT_SIZE: usize = 4;
@@ -61,9 +61,32 @@ impl PageBuffer {
         unsafe { &mut *(BufferSlice::new_mut(buffer) as *mut BufferSlice as *mut Self) }
     }
 
+    pub fn initialize_page(&mut self, page_id: u32, page_type: PageType) {
+        // page information
+        self.set_page_id(page_id);
+        self.set_page_type(page_type);
+        self.set_prev_page_id(u32::MAX);
+        self.set_next_page_id(u32::MAX);
+        self.set_page_list_slot(u8::MAX);
+        // transaction information
+        self.set_col_id(u32::MAX);
+        self.set_transaction_id(u32::MAX);
+        self.set_confirmed(false);
+        // block information
+        self.set_items_count(0);
+        self.set_used_bytes(0);
+        self.set_fragmented_bytes(0);
+        self.set_next_free_position(PAGE_HEADER_SIZE);
+        self.set_highest_index(u8::MAX);
+    }
+
     // region basic page information
     pub fn page_id(&self) -> u32 {
         self.inner.read_u32(P_PAGE_ID)
+    }
+
+    fn set_page_id(&mut self, page_id: u32) {
+        self.inner.write_u32(P_PAGE_ID, page_id);
     }
 
     pub fn page_type(&self) -> Option<PageType> {
@@ -94,15 +117,16 @@ impl PageBuffer {
     }
     // endregion
 
-    pub fn initial_slot(&self) -> u8 {
+    pub fn page_list_slot(&self) -> u8 {
         self.inner.read_u8(P_INITIAL_SLOT)
     }
 
-    pub fn set_initial_slot(&mut self, initial_slot: u8) {
+    pub fn set_page_list_slot(&mut self, initial_slot: u8) {
         self.inner.write_u8(P_INITIAL_SLOT, initial_slot);
     }
 
     // transaction
+    #[allow(dead_code)]
     pub fn transaction_id(&self) -> u32 {
         self.inner.read_u32(P_TRANSACTION_ID)
     }
@@ -111,6 +135,7 @@ impl PageBuffer {
         self.inner.write_u32(P_TRANSACTION_ID, transaction_id);
     }
 
+    #[allow(dead_code)]
     pub fn is_confirmed(&self) -> bool {
         self.inner.read_bool(P_IS_CONFIRMED)
     }
@@ -119,6 +144,7 @@ impl PageBuffer {
         self.inner.write_bool(P_IS_CONFIRMED, confirmed);
     }
 
+    #[allow(dead_code)]
     pub fn col_id(&self) -> u32 {
         self.inner.read_u32(P_COL_ID)
     }
@@ -128,13 +154,12 @@ impl PageBuffer {
     }
 
     // blocks
-    fn items_count(&self) -> usize {
-        self.inner.read_u8(P_ITEMS_COUNT) as usize
+    pub fn items_count(&self) -> u8 {
+        self.inner.read_u8(P_ITEMS_COUNT)
     }
 
-    fn set_items_count(&mut self, items_count: usize) {
-        debug_assert!(items_count <= u8::MAX as usize);
-        self.inner.write_u8(P_ITEMS_COUNT, items_count as u8);
+    fn set_items_count(&mut self, items_count: u8) {
+        self.inner.write_u8(P_ITEMS_COUNT, items_count);
     }
 
     fn used_bytes(&self) -> usize {
@@ -154,6 +179,15 @@ impl PageBuffer {
         debug_assert!(fragmented_bytes <= u16::MAX as usize);
         self.inner
             .write_u16(P_FRAGMENTED_BYTES, fragmented_bytes as u16);
+    }
+
+    fn next_free_position(&self) -> usize {
+        self.inner.read_u16(P_NEXT_FREE_POSITION) as usize
+    }
+
+    fn set_next_free_position(&mut self, next_free_position: usize) {
+        self.inner
+            .write_u16(P_NEXT_FREE_POSITION, next_free_position as u16);
     }
 
     fn highest_index(&self) -> u8 {
@@ -229,6 +263,122 @@ impl PageBuffer {
         let (position, length) = self.block_addr(index);
 
         self.inner.slice(position, length)
+    }
+
+    pub fn get_block_mut(&mut self, index: u8) -> &mut BufferSlice {
+        let (position, length) = self.block_addr(index);
+
+        self.inner.slice_mut(position, length)
+    }
+
+    pub fn free_bytes(&self) -> usize {
+        if self.items_count() == u8::MAX {
+            0
+        } else {
+            PAGE_SIZE - PAGE_HEADER_SIZE - self.used_bytes() - self.footer_size()
+        }
+    }
+
+    fn get_free_index(&self) -> u8 {
+        // check for all slot area to get first empty slot [safe for byte loop]
+        for index in 0..self.highest_index() {
+            let position_addr = Self::calc_position_addr(index);
+            let position = self.inner.read_u16(position_addr);
+
+            // if position = 0 means this slot is not used
+            if position == 0 {
+                return index;
+            }
+        }
+
+        self.highest_index().wrapping_add(1)
+    }
+
+    pub fn insert_block(&mut self, bytes_length: usize) -> u8 {
+        //ENSURE(_buffer.ShareCounter == BUFFER_WRITABLE, "page must be writable to support changes");
+        debug_assert!(bytes_length > 0, "must insert more than 0 bytes");
+        assert!(
+            self.free_bytes() >= bytes_length + SLOT_SIZE,
+            "length must be always lower than current free space"
+        );
+        debug_assert!(self.items_count() < u8::MAX, "page full");
+        debug_assert!(
+            self.free_bytes() >= self.fragmented_bytes(),
+            "fragmented bytes must be at most free bytes"
+        );
+
+        // We've checked with assert.
+        //if !(self.free_bytes() >= bytes_length + SLOT_SIZE) {
+        //    throw LiteException.InvalidFreeSpacePage(self.page_id(), self.free_bytes(), bytes_length + SLOT_SIZE);
+        //}
+
+        // calculate how many continuous bytes are avaiable in this page
+        let continuous_blocks = self.free_bytes() - self.fragmented_bytes() - SLOT_SIZE;
+
+        debug_assert!(
+            continuous_blocks
+                == PAGE_SIZE - self.next_free_position() - self.footer_size() - SLOT_SIZE,
+            "continuousBlock must be same as from NextFreePosition"
+        );
+
+        assert!(
+            self.fragmented_bytes() == 0,
+            "Our implementation doesn't remove blocks so not fragmented"
+        );
+        // if continuous blocks are not enough for this data, must run page defrag
+        //if (bytes_length > continuous_blocks)
+        //{
+        //    this.Defrag();
+        //}
+
+        // if index is new insert segment, must request for new Index
+        // get new free index must run after defrag
+        let index = self.get_free_index();
+
+        if index > self.highest_index() || self.highest_index() == u8::MAX {
+            debug_assert!(
+                index == self.highest_index().wrapping_add(1),
+                "new index must be next highest index"
+            );
+
+            self.set_highest_index(index);
+        }
+
+        // get segment addresses
+        let position_addr = Self::calc_position_addr(index);
+        let length_addr = Self::calc_length_addr(index);
+
+        debug_assert!(
+            self.read_u16(position_addr) == 0,
+            "slot position must be empty before use"
+        );
+        debug_assert!(
+            self.read_u16(length_addr) == 0,
+            "slot length must be empty before use"
+        );
+
+        // get next free position in page
+        let position = self.next_free_position();
+
+        // write this page position in my position address
+        self.write_u16(position_addr, position as u16);
+
+        // write page segment length in my length address
+        self.write_u16(length_addr, bytes_length as u16);
+
+        // update next free position and counters
+        self.set_items_count(self.items_count() + 1);
+        self.set_used_bytes(self.used_bytes() + bytes_length);
+        self.set_next_free_position(self.next_free_position() + bytes_length);
+
+        debug_assert!(
+            position + bytes_length
+                <= (PAGE_SIZE - (self.highest_index() as usize + 1) * SLOT_SIZE),
+            "new buffer slice could not override footer area"
+        );
+
+        // create page segment based new inserted segment
+        index
     }
 }
 
