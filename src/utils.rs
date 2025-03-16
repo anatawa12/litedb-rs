@@ -654,6 +654,14 @@ fn is_letter_or_digit(c: char) -> bool {
     )
 }
 
+#[allow(dead_code)]
+pub(crate) mod checker {
+    pub(crate) fn dummy<T: Send>() -> T {
+        unimplemented!()
+    }
+    pub(crate) fn check_sync_send<'a, T: Send + Sync + 'a>(_: T) {}
+}
+
 #[derive(Debug)]
 pub(crate) struct KeyArena<T>(slab::Slab<T>);
 
