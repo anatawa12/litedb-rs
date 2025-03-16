@@ -2,7 +2,7 @@ use crate::Result;
 use crate::buffer_reader::BufferReader;
 use crate::buffer_writer::BufferWriter;
 use crate::expression::BsonExpression;
-use crate::utils::PageAddress;
+use crate::utils::{BufferSlice, PageAddress};
 
 pub(crate) struct CollectionIndex {
     slot: u8,
@@ -70,7 +70,10 @@ impl CollectionIndex {
         })
     }
 
-    pub fn update_buffer(&self, writer: &mut BufferWriter) {
+    pub fn update_buffer<'a>(
+        &self,
+        writer: &mut BufferWriter<'a, impl Iterator<Item = &'a mut BufferSlice>>,
+    ) {
         writer.write_u8(self.slot);
         writer.write_u8(self.index_type);
         writer.write_cstring(&self.name);

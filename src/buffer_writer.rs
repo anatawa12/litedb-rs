@@ -1,23 +1,28 @@
 use crate::bson;
 use crate::utils::{BufferSlice, IntoOk, PageAddress};
 use std::convert::Infallible;
+use std::iter::Once;
 
-pub struct BufferWriter<'a> {
-    slices: Box<[&'a mut BufferSlice]>,
-    slice_index: usize,
+pub struct BufferWriter<'a, I> {
+    slices: I,
+    current: Option<&'a mut BufferSlice>,
     position_in_slice: usize,
     global_position: usize,
 }
 
-impl<'a> BufferWriter<'a> {
+impl<'a> BufferWriter<'a, Once<&'a mut BufferSlice>> {
     pub fn single(slice: &'a mut BufferSlice) -> Self {
-        Self::fragmented([slice])
+        Self::fragmented(std::iter::once(slice))
     }
+}
 
-    pub fn fragmented(slices: impl Into<Box<[&'a mut BufferSlice]>>) -> Self {
+impl<'a, I: Iterator<Item = &'a mut BufferSlice>> BufferWriter<'a, I> {
+    pub fn fragmented(slices: impl IntoIterator<IntoIter = I>) -> Self {
+        let mut slices = slices.into_iter();
+        let current = slices.next();
         Self {
-            slices: slices.into(),
-            slice_index: 0,
+            slices,
+            current,
             position_in_slice: 0,
             global_position: 0,
         }
@@ -30,26 +35,78 @@ impl<'a> BufferWriter<'a> {
     pub(crate) fn write_array(&mut self, array: &bson::Array) {
         array.write_value(self).into_ok1();
     }
+}
 
-    pub fn skip(&mut self, mut bytes: usize) {
-        while bytes > 0 {
-            assert!(self.slice_index < self.slices.len(), "End of Stream");
-            let current = &mut self.slices[self.slice_index];
+trait BufferOrSize: Copy {
+    fn len(self) -> usize;
+    fn is_empty(self) -> bool {
+        self.len() == 0
+    }
+    fn split_at(self, mid: usize) -> (Self, Self);
+    fn data(&self) -> Option<&[u8]>;
+}
+
+impl BufferOrSize for usize {
+    fn len(self) -> usize {
+        self
+    }
+
+    fn split_at(self, mid: usize) -> (Self, Self) {
+        (mid, self - mid)
+    }
+
+    fn data(&self) -> Option<&[u8]> {
+        None
+    }
+}
+
+impl BufferOrSize for &[u8] {
+    fn len(self) -> usize {
+        self.len()
+    }
+
+    fn split_at(self, mid: usize) -> (Self, Self) {
+        self.split_at(mid)
+    }
+
+    fn data(&self) -> Option<&[u8]> {
+        Some(self)
+    }
+}
+
+impl<'a, I: Iterator<Item = &'a mut BufferSlice>> BufferWriter<'a, I> {
+    fn write_skip(&mut self, mut data: impl BufferOrSize) {
+        while !data.is_empty() {
+            let current = self.current.as_mut().expect("End of Stream");
+
             let current_remaining = current.len() - self.position_in_slice;
-            if bytes < current_remaining {
-                // we can consume bytes from current slice
-                self.position_in_slice += bytes;
-                self.global_position += bytes;
+
+            if data.len() < current_remaining {
+                // we can write data in current slice
+                if let Some(data) = data.data() {
+                    current.write_bytes(self.position_in_slice, data);
+                }
+                self.position_in_slice += data.len();
+                self.global_position += data.len();
                 assert!(self.position_in_slice > 0 && self.position_in_slice <= current.len());
-                bytes = 0;
+                return;
             } else {
-                // use current slice fully
+                // we use current slice fully
+                let (to_current, next) = data.split_at(current_remaining);
+                if let Some(to_current) = to_current.data() {
+                    current.write_bytes(self.position_in_slice, to_current);
+                }
                 self.global_position += current_remaining;
-                bytes -= current_remaining;
-                self.slice_index += 1;
+                data = next;
+
+                self.current = self.slices.next();
                 self.position_in_slice = 0;
             }
         }
+    }
+
+    pub fn skip(&mut self, bytes: usize) {
+        self.write_skip(bytes);
     }
 
     pub fn position(&self) -> usize {
@@ -58,29 +115,9 @@ impl<'a> BufferWriter<'a> {
 }
 
 #[allow(dead_code)]
-impl BufferWriter<'_> {
-    fn write(&mut self, mut data: &[u8]) {
-        while !data.is_empty() {
-            assert!(self.slice_index < self.slices.len(), "End of Stream");
-            let current = &mut self.slices[self.slice_index];
-            let current_remaining = current.len() - self.position_in_slice;
-            if data.len() < current_remaining {
-                // we can write data in current slice
-                current.write_bytes(self.position_in_slice, data);
-                self.position_in_slice += data.len();
-                self.global_position += data.len();
-                assert!(self.position_in_slice > 0 && self.position_in_slice <= current.len());
-                data = &[];
-            } else {
-                // we use current slice fully
-                let (to_current, next) = data.split_at(current_remaining);
-                current.write_bytes(self.position_in_slice, to_current);
-                self.global_position += current_remaining;
-                data = next;
-                self.slice_index += 1;
-                self.position_in_slice = 0;
-            }
-        }
+impl<'a, I: Iterator<Item = &'a mut BufferSlice>> BufferWriter<'a, I> {
+    fn write(&mut self, data: &[u8]) {
+        self.write_skip(data);
     }
 
     pub fn write_i32(&mut self, value: i32) {
@@ -135,7 +172,7 @@ impl BufferWriter<'_> {
     }
 }
 
-impl bson::BsonWriter for BufferWriter<'_> {
+impl<'a, I: Iterator<Item = &'a mut BufferSlice>> bson::BsonWriter for BufferWriter<'a, I> {
     type Error = Infallible;
 
     fn when_too_large(size: usize) -> Self::Error {
