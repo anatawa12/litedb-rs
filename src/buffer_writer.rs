@@ -334,6 +334,8 @@ mod tests {
         let mut writer = BufferWriter::fragmented([arr0, arr1, arr2, arr3]);
         writer.write_document(&doc);
 
+        drop(writer);
+
         let arr0 = BufferSlice::new(&buf0);
         let arr1 = BufferSlice::new(&buf1);
         let arr2 = BufferSlice::new(&buf2);
@@ -361,6 +363,8 @@ mod tests {
         let mut writer = BufferWriter::fragmented([slice0, slice1, slice2, slice3, slice4]);
         writer.write_cstring("123456789*ABCEFGHIJ");
         writer.write_cstring("abc");
+
+        drop(writer);
 
         let slice0 = BufferSlice::new(&mut arr0);
         let slice1 = BufferSlice::new(&mut arr1);
@@ -402,6 +406,8 @@ mod tests {
         writer.write_u32(1990); // uint
         writer.write_i64(1990); // long
         writer.write_f64(1990.0); // double
+
+        drop(writer);
 
         let slice = BufferSlice::new(&array);
 
