@@ -3,11 +3,10 @@ use crate::bson::TotalOrd;
 use crate::file_io::LiteDBFile;
 use crate::file_io::index_helper::IndexHelper;
 use crate::utils::{CaseInsensitiveStr, Order as InternalOrder};
-use std::cell::Cell;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::pin::Pin;
-use std::rc::Rc;
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
 #[derive(Copy, Clone)]
 #[repr(i8)]
@@ -25,38 +24,48 @@ impl Order {
     }
 }
 
+static ITERATOR_WAKER_V_TABLE: RawWakerVTable = RawWakerVTable::new(
+    |_| RawWaker::new(std::ptr::null(), &ITERATOR_WAKER_V_TABLE),
+    |_| (),
+    |_| (),
+    |_| (),
+);
+
 struct IteratorContext<T> {
-    data: Rc<Cell<Option<T>>>,
+    phantom: PhantomData<T>,
 }
 
-impl<T> IteratorContext<T> {
+impl<T: Unpin> IteratorContext<T> {
     async fn yields(&self, value: T) {
-        let old = self.data.replace(Some(value));
-
-        assert!(old.is_none());
-
-        struct SuspendOnce {
-            suspend: bool,
+        struct SuspendOnce<T> {
+            value: Option<T>,
         }
-        impl SuspendOnce {
-            fn new() -> Self {
-                Self { suspend: false }
+        impl<T> SuspendOnce<T> {
+            fn new(value: T) -> Self {
+                Self { value: Some(value) }
             }
         }
 
-        impl Future for SuspendOnce {
+        impl<T: Unpin> Future for SuspendOnce<T> {
             type Output = ();
-            fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
-                if self.suspend {
-                    Poll::Ready(())
-                } else {
-                    self.suspend = true;
+            fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
+                let waker = ctx.waker();
+                assert!(
+                    waker.vtable() == &ITERATOR_WAKER_V_TABLE && !waker.data().is_null(),
+                    "yields is called from invalid position"
+                );
+                if let Some(value) = self.get_mut().value.take() {
+                    let data = waker.data() as *mut Option<T>;
+                    let data = unsafe { &mut *data };
+                    assert!(data.replace(value).is_none());
                     Poll::Pending
+                } else {
+                    Poll::Ready(())
                 }
             }
         }
 
-        SuspendOnce::new().await
+        SuspendOnce::new(value).await
     }
 }
 
@@ -65,13 +74,14 @@ where
     F: FnOnce(IteratorContext<T>) -> Fut,
     Fut: Future<Output = ()>,
 {
-    let data: Rc<Cell<Option<T>>> = Rc::new(Cell::new(None));
-    let ctx = IteratorContext { data: data.clone() };
+    let ctx = IteratorContext::<T> {
+        phantom: PhantomData,
+    };
     let future = Box::pin(closure(ctx));
 
     struct IteratorImpl<T, Fut> {
-        data: Rc<Cell<Option<T>>>,
         future: Pin<Box<Fut>>,
+        phantom: PhantomData<T>,
     }
 
     impl<T, Fut> Iterator for IteratorImpl<T, Fut>
@@ -81,20 +91,24 @@ where
         type Item = T;
 
         fn next(&mut self) -> Option<Self::Item> {
-            assert!(self.data.take().is_none());
+            // TODO: replace with ext or local_waker when they become stable
+            let mut slot: Option<T> = None;
 
-            match self
-                .future
-                .as_mut()
-                .poll(&mut Context::from_waker(std::task::Waker::noop()))
-            {
-                Poll::Pending => Some(self.data.take().expect("iterator returns")),
+            let raw_waker = RawWaker::new(&mut slot as *mut _ as *mut (), &ITERATOR_WAKER_V_TABLE);
+            let waker = unsafe { Waker::from_raw(raw_waker) };
+
+            match self.future.as_mut().poll(&mut Context::from_waker(&waker)) {
+                Poll::Pending => Some(slot.take().expect("iterator returns")),
                 Poll::Ready(()) => None,
             }
         }
     }
 
-    IteratorImpl { data, future }.fuse()
+    IteratorImpl {
+        future,
+        phantom: PhantomData,
+    }
+    .fuse()
 }
 
 impl LiteDBFile {
