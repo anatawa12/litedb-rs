@@ -21,8 +21,6 @@ mod constants;
 pub mod file_io;
 #[cfg(all(feature = "shared-mutex", windows))]
 pub mod shared_mutex;
-#[cfg(feature = "tokio-fs")]
-pub mod tokio_fs;
 
 pub type Result<T> = std::result::Result<T, Error>;
 type ParseResult<T> = std::result::Result<T, ParseError>;
