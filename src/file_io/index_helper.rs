@@ -33,7 +33,7 @@ impl IndexHelper {
         let tail = arena.alloc(IndexNode::new(
             slot,
             MAX_LEVEL_LENGTH,
-            bson::Value::MinValue,
+            bson::Value::MaxValue,
         ));
 
         arena[head].next[0] = Some(tail);
