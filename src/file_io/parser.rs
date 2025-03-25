@@ -308,11 +308,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
             indexes.insert(
                 name.clone(),
                 index_builder.build(index, |_, data_block| {
-                    data_keys
-                        .get(&data_block)
-                        .copied()
-                        .ok_or_else(ParseError::bad_reference)
-                        .map(Some)
+                    Ok(data_keys.get(&data_block).cloned())
                 })?,
             );
         }
