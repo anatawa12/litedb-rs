@@ -11,6 +11,7 @@ use crate::file_io::page::{PageBuffer, PageType};
 use crate::utils::{BufferSlice, PageAddress};
 use itertools::Itertools;
 use std::cmp::min;
+use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 
 impl LiteDBFile {

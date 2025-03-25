@@ -230,7 +230,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
     let mut data_builder = DataBuilder::new(data_blocks);
     let mut index_builder = IndexBuilder::new(index_nodes, &mut data_builder);
 
-    let mut collections = HashMap::new();
+    let mut collections = IndexMap::new();
 
     // parse collection pages
     for (key, page) in header.collections.iter() {
@@ -240,7 +240,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
             .ok_or_else(ParseError::invalid_database)?;
         let mut collection = RawCollectionPage::parse(page_buffer)?;
 
-        let mut indexes = HashMap::new();
+        let mut indexes = IndexMap::new();
 
         {
             let index = collection

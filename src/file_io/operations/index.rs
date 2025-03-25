@@ -95,7 +95,7 @@ impl LiteDBFile {
             return false;
         };
 
-        let Some(index) = collection.indexes.remove(name) else {
+        let Some(index) = collection.indexes.shift_remove(name) else {
             return false;
         };
 

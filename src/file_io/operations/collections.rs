@@ -15,7 +15,7 @@ impl LiteDBFile {
     }
 
     pub fn drop_collection(&mut self, name: &str) -> bool {
-        let Some(collection) = self.collections.remove(CaseInsensitiveStr::new(name)) else {
+        let Some(collection) = self.collections.shift_remove(CaseInsensitiveStr::new(name)) else {
             return false;
         };
 
@@ -57,7 +57,10 @@ impl LiteDBFile {
             return RenameCollectionResult::NewNameAlreadyExists;
         }
 
-        let Some(collection) = self.collections.remove(CaseInsensitiveStr::new(old_name)) else {
+        let Some(collection) = self
+            .collections
+            .shift_remove(CaseInsensitiveStr::new(old_name))
+        else {
             return RenameCollectionResult::OldNotExists;
         };
 

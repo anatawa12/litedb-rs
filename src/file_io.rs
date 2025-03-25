@@ -9,8 +9,7 @@ mod writer;
 use crate::bson;
 use crate::expression::BsonExpression;
 use crate::utils::{ArenaKey, CaseInsensitiveString, KeyArena, Order as InternalOrder};
-use std::collections::HashMap;
-
+use indexmap::IndexMap;
 pub use operations::Order;
 use pragma::EnginePragmas;
 
@@ -18,7 +17,7 @@ pub(crate) use writer::get_key_length;
 
 #[derive(Debug)]
 pub struct LiteDBFile {
-    collections: HashMap<CaseInsensitiveString, Collection>,
+    collections: IndexMap<CaseInsensitiveString, Collection>,
     creation_time: bson::DateTime,
     pragmas: EnginePragmas,
     index_arena: KeyArena<IndexNode>,
@@ -37,7 +36,7 @@ pub enum BsonAutoId {
 
 #[derive(Debug, Default)]
 struct Collection {
-    indexes: HashMap<String, CollectionIndex>,
+    indexes: IndexMap<String, CollectionIndex>,
     #[cfg(feature = "sequential-index")]
     last_id: Option<i64>,
 }
