@@ -244,11 +244,35 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
         let page_buffer = *pages
             .get(page as usize)
             .ok_or_else(ParseError::invalid_database)?;
-        let collection = RawCollectionPage::parse(page_buffer)?;
+        let mut collection = RawCollectionPage::parse(page_buffer)?;
 
         let mut indexes = HashMap::new();
 
+        {
+            let index = collection
+                .indexes
+                .remove("_id")
+                .ok_or_else(ParseError::no_id_index)?;
+            let index_parsed = CollectionIndex {
+                slot: index.slot,
+                index_type: index.index_type,
+                name: index.name,
+                expression: index.expression,
+                unique: index.unique,
+                reserved: index.reserved,
+                bson_expr: index.bson_expr,
+                head: index_builder.get(index.head)?,
+                tail: index_builder.get(index.tail)?,
+            };
+            index_builder.arena[index_parsed.head].key = bson::Value::MinValue;
+            index_builder.arena[index_parsed.tail].key = bson::Value::MaxValue;
+            indexes.insert("_id".to_string(), index_parsed);
+        }
+
         for (name, index) in collection.indexes {
+            if name.as_str() == "_id" {
+                continue;
+            }
             indexes.insert(
                 name.clone(),
                 CollectionIndex {

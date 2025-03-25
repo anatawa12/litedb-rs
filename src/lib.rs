@@ -49,6 +49,7 @@ mod err_impl {
         InvalidPage(u32),
         InvalidBson,
         BadReference,
+        NoIdIndex,
         Expression(expression::ParseError),
     }
 }
@@ -133,6 +134,10 @@ impl ParseError {
         Self::new(ParseErrorImpl::BadReference)
     }
 
+    fn no_id_index() -> Self {
+        Self::new(ParseErrorImpl::NoIdIndex)
+    }
+
     fn invalid_bson() -> Self {
         Self::new(ParseErrorImpl::InvalidBson)
     }
@@ -175,6 +180,7 @@ impl Display for ParseError {
             ParseErrorImpl::InvalidPage(id) => write!(f, "Invalid page at {id}"),
             ParseErrorImpl::InvalidBson => write!(f, "Invalid BSON"),
             ParseErrorImpl::BadReference => write!(f, "Bad reference"),
+            ParseErrorImpl::NoIdIndex => write!(f, "No _id index found for collection"),
             ParseErrorImpl::Expression(inner) => Display::fmt(inner, f),
         }
     }
