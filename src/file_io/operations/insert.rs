@@ -1,7 +1,7 @@
 use crate::bson;
 use crate::expression::ExecutionScope;
 use crate::file_io::index_helper::IndexHelper;
-use crate::file_io::{BsonAutoId, Collection, IndexNode, LiteDBFile};
+use crate::file_io::{BsonAutoId, Collection, DbDocument, IndexNode, LiteDBFile};
 use crate::utils::{ArenaKey, CaseInsensitiveString, Collation, KeyArena};
 
 impl LiteDBFile {
@@ -36,7 +36,7 @@ impl LiteDBFile {
 
     pub(super) fn insert_document(
         index_arena: &mut KeyArena<IndexNode>,
-        data_arena: &mut KeyArena<bson::Document>,
+        data_arena: &mut KeyArena<DbDocument>,
         collation: Collation,
         collection: &mut Collection,
         mut doc: bson::Document,
@@ -69,7 +69,7 @@ impl LiteDBFile {
             "_id is not indexable type"
         );
 
-        let data_key = data_arena.alloc(doc.clone());
+        let data_key = data_arena.alloc(DbDocument::new(doc.clone()));
         let doc_value = bson::Value::Document(doc);
 
         let scope = ExecutionScope::new(collation);

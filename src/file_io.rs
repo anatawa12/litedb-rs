@@ -22,7 +22,7 @@ pub struct LiteDBFile {
     creation_time: bson::DateTime,
     pragmas: EnginePragmas,
     index_arena: KeyArena<IndexNode>,
-    data: KeyArena<bson::Document>,
+    data: KeyArena<DbDocument>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -65,11 +65,22 @@ struct CollectionIndex {
 }
 
 #[derive(Debug)]
+struct DbDocument {
+    data: bson::Document,
+}
+
+impl DbDocument {
+    fn new(data: bson::Document) -> DbDocument {
+        Self { data }
+    }
+}
+
+#[derive(Debug)]
 struct IndexNode {
     slot: u8,
     levels: u8,
     key: bson::Value,
-    data: Option<ArenaKey<bson::Document>>,
+    data: Option<ArenaKey<DbDocument>>,
     next_node: Option<ArenaKey<IndexNode>>, // next index targeting same data
     prev: Vec<Option<ArenaKey<IndexNode>>>, // prev key in index skip list
     next: Vec<Option<ArenaKey<IndexNode>>>, // prev key in index skip list

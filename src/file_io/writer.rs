@@ -99,7 +99,7 @@ fn remove_free_list(pages: &mut PageCollection, page_id: PageId, start_page_id: 
 fn write_collection(
     pages: &mut PageCollection,
     indexes: &KeyArena<IndexNode>,
-    data_arena: &KeyArena<bson::Document>,
+    data_arena: &KeyArena<DbDocument>,
     collection: &Collection,
 ) -> PageId {
     let collection_page = pages.new(PageType::Collection);
@@ -243,11 +243,11 @@ impl DataPageManager {
 fn write_collection_data(
     pages: &mut PageCollection,
     indexes: &KeyArena<IndexNode>,
-    data_arena: &KeyArena<bson::Document>,
+    data_arena: &KeyArena<DbDocument>,
     collection_page: PageId,
     collection: &Collection,
 ) -> (
-    HashMap<ArenaKey<bson::Document>, PageAddress>,
+    HashMap<ArenaKey<DbDocument>, PageAddress>,
     [u32; PAGE_FREE_LIST_SLOTS],
 ) {
     let mut data_slots = HashMap::new();
@@ -256,7 +256,7 @@ fn write_collection_data(
     for index_key in IndexHelper::find_all(indexes, collection.pk_index(), InternalOrder::Ascending)
     {
         let data_key = indexes[index_key].data.unwrap();
-        let data = &data_arena[data_key];
+        let data = &data_arena[data_key].data;
         let length = data.get_serialized_value_len();
         assert!(length <= MAX_DOCUMENT_SIZE);
 
@@ -421,7 +421,7 @@ fn write_indexes<'a>(
     indexes: &KeyArena<IndexNode>,
     collection: &'a Collection,
     collection_page: PageId,
-    data_blocks: &HashMap<ArenaKey<bson::Document>, PageAddress>,
+    data_blocks: &HashMap<ArenaKey<DbDocument>, PageAddress>,
 ) -> (
     HashMap<ArenaKey<IndexNode>, PageAddress>,
     HashMap<&'a str, u32>,
@@ -436,7 +436,7 @@ fn write_indexes<'a>(
         fn add_index_node(
             pages: &mut PageCollection,
             indexes: &KeyArena<IndexNode>,
-            data_blocks: &HashMap<ArenaKey<bson::Document>, PageAddress>,
+            data_blocks: &HashMap<ArenaKey<DbDocument>, PageAddress>,
             index_manager: &mut IndexPageManager,
             index_key: ArenaKey<IndexNode>,
         ) -> PageAddress {

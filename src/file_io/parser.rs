@@ -78,9 +78,9 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
     };
 
     struct DataBuilder<'buf> {
-        arena: KeyArena<bson::Document>,
+        arena: KeyArena<DbDocument>,
         raw_node: HashMap<PageAddress, RawDataBlock<'buf>>,
-        keys: HashMap<PageAddress, ArenaKey<bson::Document>>,
+        keys: HashMap<PageAddress, ArenaKey<DbDocument>>,
     }
 
     impl<'buf> DataBuilder<'buf> {
@@ -92,10 +92,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
             }
         }
 
-        fn get_opt(
-            &mut self,
-            position: PageAddress,
-        ) -> ParseResult<Option<ArenaKey<bson::Document>>> {
+        fn get_opt(&mut self, position: PageAddress) -> ParseResult<Option<ArenaKey<DbDocument>>> {
             if position.is_empty() {
                 Ok(None)
             } else {
@@ -103,7 +100,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
             }
         }
 
-        fn get(&mut self, position: PageAddress) -> ParseResult<ArenaKey<bson::Document>> {
+        fn get(&mut self, position: PageAddress) -> ParseResult<ArenaKey<DbDocument>> {
             match self.keys.entry(position) {
                 Entry::Occupied(e) => Ok(*e.get()),
                 Entry::Vacant(e) => {
@@ -125,7 +122,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
                     let mut reader = BufferReader::fragmented(buffers);
                     let document = reader.read_document()?;
 
-                    Ok(*e.insert(self.arena.alloc(document)))
+                    Ok(*e.insert(self.arena.alloc(DbDocument::new(document))))
                 }
             }
         }

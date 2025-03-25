@@ -64,7 +64,7 @@ impl LiteDBFile {
             let pk_index = collection.pk_index();
             for pk_key in IndexHelper::find_all(&self.index_arena, pk_index, Order::Ascending) {
                 let data_key = self.index_arena[pk_key].data.unwrap();
-                let doc = self.data[data_key].clone().into();
+                let doc = self.data[data_key].data.clone().into();
 
                 let mut first: Option<ArenaKey<IndexNode>> = None;
                 let mut last: Option<ArenaKey<IndexNode>> = None;

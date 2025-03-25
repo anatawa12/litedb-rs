@@ -1,6 +1,6 @@
 use crate::constants::{MAX_INDEX_KEY_LENGTH, MAX_LEVEL_LENGTH};
 use crate::expression::BsonExpression;
-use crate::file_io::{Collection, CollectionIndex, IndexNode, get_key_length};
+use crate::file_io::{Collection, CollectionIndex, DbDocument, IndexNode, get_key_length};
 use crate::utils::{ArenaKey, Collation, KeyArena, Order};
 use crate::{Error, bson};
 use std::collections::HashSet;
@@ -61,7 +61,7 @@ impl IndexHelper {
         collation: &Collation,
         index: &CollectionIndex,
         key: bson::Value,
-        data_block: ArenaKey<bson::Document>,
+        data_block: ArenaKey<DbDocument>,
         last: Option<ArenaKey<IndexNode>>,
     ) -> Result<ArenaKey<IndexNode>, Error> {
         // RustChange: Document is valid since its order is not determinable
@@ -82,7 +82,7 @@ impl IndexHelper {
         collation: &Collation,
         index: &CollectionIndex,
         key: bson::Value,
-        data_block: ArenaKey<bson::Document>,
+        data_block: ArenaKey<DbDocument>,
         insert_levels: u8,
         last: Option<ArenaKey<IndexNode>>,
     ) -> Result<ArenaKey<IndexNode>, Error> {

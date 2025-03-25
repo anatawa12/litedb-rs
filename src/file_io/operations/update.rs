@@ -1,6 +1,6 @@
 use crate::expression::ExecutionScope;
 use crate::file_io::index_helper::IndexHelper;
-use crate::file_io::{Collection, IndexNode, LiteDBFile};
+use crate::file_io::{Collection, DbDocument, IndexNode, LiteDBFile};
 use crate::utils::{CaseInsensitiveStr, Collation, KeyArena, Order};
 use crate::{Error, bson};
 use std::collections::HashSet;
@@ -35,7 +35,7 @@ impl LiteDBFile {
 
     pub(super) fn update_document(
         index_arena: &mut KeyArena<IndexNode>,
-        data_arena: &mut KeyArena<bson::Document>,
+        data_arena: &mut KeyArena<DbDocument>,
         collection: &Collection,
 
         collation: Collation,
@@ -65,7 +65,7 @@ impl LiteDBFile {
         };
 
         // update data storage
-        data_arena[pk_node.data.unwrap()] = doc.clone();
+        data_arena[pk_node.data.unwrap()].data = doc.clone();
 
         // get all current non-pk index nodes from this data block (slot, key, nodePosition)
         let old_keys = IndexHelper::get_node_list(index_arena, pk_node.next_node)
