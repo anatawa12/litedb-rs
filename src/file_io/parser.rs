@@ -155,7 +155,6 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
 
             struct RawIndexAddress {
                 data_block: PageAddress,
-                next_node: PageAddress,
                 prev: Vec<PageAddress>,
                 next: Vec<PageAddress>,
                 key: ArenaKey<IndexNode>,
@@ -174,23 +173,20 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
                     .remove(&current)
                     .ok_or_else(ParseError::bad_reference)?;
 
-                let key = *self
-                    .keys
-                    .entry(current)
-                    .insert_entry(self.arena.alloc(IndexNode {
-                        slot: raw.slot,
-                        levels: raw.levels,
-                        key: raw.key,
-                        data: self.data_builder.get_opt(raw.data_block)?,
-                        next_node: None,
-                        prev: vec![None; raw.levels as usize],
-                        next: vec![None; raw.levels as usize],
-                    }))
-                    .get();
+                let data = self.data_builder.get_opt(raw.data_block)?;
+
+                let mut index_node = IndexNode::new(raw.slot, raw.levels, raw.key);
+                index_node.data = self.data_builder.get_opt(raw.data_block)?;
+                let key = self.arena.alloc(index_node);
+
+                self.keys.insert(current, key);
+
+                if let Some(data) = data {
+                    self.data_builder.arena[data].index_nodes.push(key);
+                }
 
                 for &addr in (raw.next.iter())
                     .chain(raw.prev.iter())
-                    .chain([&raw.next_node])
                     .filter(|x| !x.is_empty())
                 {
                     if processing.insert(addr) && !self.keys.contains_key(&addr) {
@@ -201,7 +197,6 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
                 address_map.push(RawIndexAddress {
                     key,
                     data_block: raw.data_block,
-                    next_node: raw.next_node,
                     prev: raw.prev,
                     next: raw.next,
                 });
@@ -220,7 +215,6 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
 
             for addresses in address_map {
                 let node = &mut self.arena[addresses.key];
-                node.next_node = get(&mut self.keys, addresses.next_node);
                 for (node, &addr) in node.prev.iter_mut().zip(addresses.prev.iter()) {
                     *node = get(&mut self.keys, addr);
                 }
@@ -319,7 +313,7 @@ mod raw_index_node {
         pub levels: u8,
         pub key: bson::Value,
         pub data_block: PageAddress,
-        pub next_node: PageAddress,
+        //pub next_node: PageAddress,
         pub prev: Vec<PageAddress>,
         pub next: Vec<PageAddress>,
     }
@@ -329,7 +323,7 @@ mod raw_index_node {
             let slot = block.read_u8(P_SLOT);
             let levels = block.read_u8(P_LEVELS);
             let data_block = block.read_page_address(P_DATA_BLOCK);
-            let next_node = block.read_page_address(P_NEXT_NODE);
+            //let next_node = block.read_page_address(P_NEXT_NODE);
 
             let mut next = Vec::with_capacity(levels as usize);
             let mut prev = Vec::with_capacity(levels as usize);
@@ -354,7 +348,7 @@ mod raw_index_node {
                 levels,
                 key,
                 data_block,
-                next_node,
+                //next_node,
                 prev,
                 next,
             })

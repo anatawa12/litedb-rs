@@ -148,8 +148,7 @@ impl LiteDBFile {
             let first = match start {
                 bson::Value::MinValue => Some(&indexes[index.head]),
                 bson::Value::MaxValue => Some(&indexes[index.tail]),
-                start => IndexHelper::find(indexes, &collation, index, start, true, order)
-                    .map(|(node, _)| node),
+                start => IndexHelper::find(indexes, &collation, index, start, true, order),
             };
 
             let mut node = first;

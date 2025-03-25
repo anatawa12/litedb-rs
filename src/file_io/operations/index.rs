@@ -1,9 +1,9 @@
 use crate::Error;
 use crate::constants::INDEX_NAME_MAX_LENGTH;
 use crate::expression::{BsonExpression, ExecutionScope};
+use crate::file_io::LiteDBFile;
 use crate::file_io::index_helper::IndexHelper;
-use crate::file_io::{IndexNode, LiteDBFile};
-use crate::utils::{ArenaKey, CaseInsensitiveStr, CaseInsensitiveString, Order, StrExtension};
+use crate::utils::{CaseInsensitiveStr, CaseInsensitiveString, Order, StrExtension};
 
 impl LiteDBFile {
     /// # Panics
@@ -66,27 +66,16 @@ impl LiteDBFile {
                 let data_key = self.index_arena[pk_key].data.unwrap();
                 let doc = self.data[data_key].data.clone().into();
 
-                let mut first: Option<ArenaKey<IndexNode>> = None;
-                let mut last: Option<ArenaKey<IndexNode>> = None;
-
                 for key in exec_context.get_index_keys(&expression, &doc) {
                     let key = key?;
-                    let node_key = IndexHelper::add_node(
+                    IndexHelper::add_node(
                         &mut self.index_arena,
+                        &mut self.data,
                         &self.pragmas.collation,
                         index,
                         key.clone(),
                         data_key,
-                        last,
                     )?;
-                    first.get_or_insert(node_key);
-                    last = Some(node_key);
-                }
-
-                if let Some(first) = first {
-                    let last = last.unwrap();
-                    self.index_arena[last].next_node = self.index_arena[pk_key].next_node;
-                    self.index_arena[pk_key].next_node = Some(first);
                 }
             }
 
@@ -110,7 +99,12 @@ impl LiteDBFile {
             return false;
         };
 
-        IndexHelper::drop_index(&mut self.index_arena, collection.pk_index(), index);
+        IndexHelper::drop_index(
+            &mut self.index_arena,
+            &mut self.data,
+            collection.pk_index(),
+            index,
+        );
 
         true
     }

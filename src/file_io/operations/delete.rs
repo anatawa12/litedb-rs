@@ -18,7 +18,7 @@ impl LiteDBFile {
         //let pk = parts.collection_page.pk_index();
 
         for id in ids {
-            let Some((pk_node, pk_key)) = IndexHelper::find(
+            let Some(pk_node) = IndexHelper::find(
                 &self.index_arena,
                 &self.pragmas.collation,
                 pk,
@@ -29,9 +29,9 @@ impl LiteDBFile {
                 continue;
             };
 
-            self.data.free(pk_node.data.unwrap());
+            let data = self.data.free(pk_node.data.unwrap());
 
-            IndexHelper::delete_all(&mut self.index_arena, pk_key);
+            IndexHelper::delete_all(&mut self.index_arena, &data.index_nodes);
 
             count += 1;
         }

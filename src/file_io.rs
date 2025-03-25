@@ -67,11 +67,16 @@ struct CollectionIndex {
 #[derive(Debug)]
 struct DbDocument {
     data: bson::Document,
+    // First node in this list must be _id PK index
+    index_nodes: Vec<ArenaKey<IndexNode>>,
 }
 
 impl DbDocument {
     fn new(data: bson::Document) -> DbDocument {
-        Self { data }
+        Self {
+            data,
+            index_nodes: Vec::new(),
+        }
     }
 }
 
@@ -81,7 +86,6 @@ struct IndexNode {
     levels: u8,
     key: bson::Value,
     data: Option<ArenaKey<DbDocument>>,
-    next_node: Option<ArenaKey<IndexNode>>, // next index targeting same data
     prev: Vec<Option<ArenaKey<IndexNode>>>, // prev key in index skip list
     next: Vec<Option<ArenaKey<IndexNode>>>, // prev key in index skip list
 }
@@ -93,7 +97,6 @@ impl IndexNode {
             levels,
             key,
             data: None,
-            next_node: None,
             prev: vec![None; levels as usize],
             next: vec![None; levels as usize],
         }

@@ -58,11 +58,11 @@ impl IndexHelper {
 
     pub fn add_node(
         arena: &mut KeyArena<IndexNode>,
+        data_arena: &mut KeyArena<DbDocument>,
         collation: &Collation,
         index: &CollectionIndex,
         key: bson::Value,
         data_block: ArenaKey<DbDocument>,
-        last: Option<ArenaKey<IndexNode>>,
     ) -> Result<ArenaKey<IndexNode>, Error> {
         // RustChange: Document is valid since its order is not determinable
         if key == bson::Value::MinValue
@@ -74,17 +74,17 @@ impl IndexHelper {
 
         let levels = Self::flip();
 
-        Self::add_node_with_levels(arena, collation, index, key, data_block, levels, last)
+        Self::add_node_with_levels(arena, data_arena, collation, index, key, data_block, levels)
     }
 
     pub fn add_node_with_levels(
         arena: &mut KeyArena<IndexNode>,
+        data_arena: &mut KeyArena<DbDocument>,
         collation: &Collation,
         index: &CollectionIndex,
         key: bson::Value,
         data_block: ArenaKey<DbDocument>,
         insert_levels: u8,
-        last: Option<ArenaKey<IndexNode>>,
     ) -> Result<ArenaKey<IndexNode>, Error> {
         let key_length = get_key_length(&key);
 
@@ -149,12 +149,7 @@ impl IndexHelper {
             }
         }
 
-        if let Some(last) = last {
-            let last = &mut arena[last];
-            assert_eq!(last.next_node, None, "last index node must point to null");
-
-            last.next_node = Some(node_key);
-        }
+        data_arena[data_block].index_nodes.push(node_key);
 
         Ok(node_key)
     }
@@ -176,56 +171,34 @@ impl IndexHelper {
     }
 
     pub fn get_node_list(
-        arena: &KeyArena<IndexNode>,
-        first: Option<ArenaKey<IndexNode>>,
-    ) -> Vec<ArenaKey<IndexNode>> {
-        let mut result = Vec::new();
-
-        let mut current = first;
-        while let Some(node_key) = current {
-            let node = &arena[node_key];
-            current = node.next_node;
-            result.push(node_key)
-        }
-
-        result
+        index_nodes: &[ArenaKey<IndexNode>],
+    ) -> impl Iterator<Item = ArenaKey<IndexNode>> {
+        index_nodes
+            .iter()
+            .skip(1) // skip pk node
+            .copied()
     }
 
-    pub fn delete_all(arena: &mut KeyArena<IndexNode>, first: ArenaKey<IndexNode>) {
-        // TODO? check for recursion
-        let mut current = Some(first);
-        while let Some(current_key) = current {
+    pub fn delete_all(arena: &mut KeyArena<IndexNode>, index_nodes: &[ArenaKey<IndexNode>]) {
+        for &current_key in index_nodes {
             let node = arena.free(current_key);
-            current = node.next_node;
-
-            Self::delete_single_node(arena, node)
+            Self::delete_single_node(arena, node);
         }
     }
 
     pub fn delete_list(
         arena: &mut KeyArena<IndexNode>,
-        first_address: ArenaKey<IndexNode>,
+        index_nodes: &mut Vec<ArenaKey<IndexNode>>,
         to_delete: HashSet<ArenaKey<IndexNode>>,
-    ) -> ArenaKey<IndexNode> {
-        let mut last = first_address;
-        // TODO? recursion check?
-
-        let mut current = arena[last].next_node; // starts in first node after PK
-
-        while let Some(current_key) = current {
-            let node = arena.free(current_key);
-            current = node.next_node;
-
-            if to_delete.contains(&current_key) {
-                let position = node.next_node;
+    ) {
+        index_nodes.retain(|&current_key| {
+            let retain = !to_delete.contains(&current_key);
+            if !retain {
+                let node = arena.free(current_key);
                 Self::delete_single_node(arena, node);
-                arena[last].next_node = position;
-            } else {
-                last = current_key;
             }
-        }
-
-        last
+            retain
+        });
     }
 
     fn delete_single_node(arena: &mut KeyArena<IndexNode>, node: IndexNode) {
@@ -246,29 +219,23 @@ impl IndexHelper {
 
     pub fn drop_index(
         arena: &mut KeyArena<IndexNode>,
+        data: &mut KeyArena<DbDocument>,
         pk_index: &CollectionIndex,
         index: CollectionIndex,
     ) {
         let slot = index.slot;
 
         for pk_node in Self::find_all(arena, pk_index, Order::Ascending) {
-            let mut next = arena[pk_node].next_node;
-            let mut last = pk_node;
-
-            while let Some(next_key) = next {
-                let node = &arena[next_key];
-                next = node.next_node;
-
-                if node.slot == slot {
-                    // remove the key
-                    arena[last].next_node = node.next_node;
-
-                    // delete node from page (mark as dirty)
-                    arena.free(next_key);
-                } else {
-                    last = next_key;
-                }
-            }
+            data[arena[pk_node].data.unwrap()]
+                .index_nodes
+                .retain(|&index_key| {
+                    let retain = arena[index_key].slot != slot;
+                    if !retain {
+                        // remove node
+                        arena.free(index_key);
+                    }
+                    retain
+                });
         }
 
         // removing head/tail index nodes
@@ -315,7 +282,7 @@ impl IndexHelper {
         value: &bson::Value,
         sibling: bool,
         order: Order,
-    ) -> Option<(&'a IndexNode, ArenaKey<IndexNode>)> {
+    ) -> Option<&'a IndexNode> {
         let mut left_node = if order == Order::Ascending {
             &arena[index.head]
         } else {
@@ -352,13 +319,13 @@ impl IndexHelper {
                     ) {
                         return None;
                     } else {
-                        return Some((right_node, right_key));
+                        return Some(right_node);
                     };
                 }
 
                 // if equals, return index node
                 if diff.is_eq() {
-                    return Some((right_node, right_key));
+                    return Some(right_node);
                 }
 
                 right = right_node.get_next_prev(level, order);
