@@ -159,4 +159,6 @@ fn run_test() {
     if cfg!(not(miri)) {
         std::fs::write("./tests/vcc.test.liteDb", engine.serialize()).unwrap();
     }
+
+    LiteDBFile::parse(&engine.serialize()).unwrap();
 }
