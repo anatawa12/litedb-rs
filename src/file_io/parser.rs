@@ -187,6 +187,7 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
                 head_key.get_or_insert(index_key);
                 tail_key = Some(index_key);
 
+                #[allow(clippy::collapsible_if)]
                 if current == index.head {
                     if !raw.prev.iter().all(PageAddress::is_empty) {
                         return Err(ParseError::bad_reference());
