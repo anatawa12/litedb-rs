@@ -24,6 +24,24 @@ pub struct LiteDBFile {
     data: KeyArena<DbDocument>,
 }
 
+impl Default for LiteDBFile {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LiteDBFile {
+    pub fn new() -> Self {
+        Self {
+            collections: IndexMap::new(),
+            creation_time: bson::DateTime::now(),
+            pragmas: EnginePragmas::default(),
+            index_arena: KeyArena::new(),
+            data: KeyArena::new(),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum BsonAutoId {
     #[cfg(feature = "sequential-index")]

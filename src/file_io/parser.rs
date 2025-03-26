@@ -29,6 +29,10 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
         .map(PageBuffer::new)
         .collect::<Vec<_>>();
 
+    if pages.is_empty() {
+        return Ok(LiteDBFile::new());
+    }
+
     for (index, &page) in pages.iter().enumerate() {
         if index as u32 != page.page_id() {
             return Err(ParseError::invalid_page(index as u32));
