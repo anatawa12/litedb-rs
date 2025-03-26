@@ -9,8 +9,7 @@ mod writer;
 use crate::bson;
 use crate::expression::BsonExpression;
 use crate::utils::{ArenaKey, CaseInsensitiveString, KeyArena, Order as InternalOrder};
-use std::collections::HashMap;
-
+use indexmap::IndexMap;
 pub use operations::Order;
 use pragma::EnginePragmas;
 
@@ -18,11 +17,11 @@ pub(crate) use writer::get_key_length;
 
 #[derive(Debug)]
 pub struct LiteDBFile {
-    collections: HashMap<CaseInsensitiveString, Collection>,
+    collections: IndexMap<CaseInsensitiveString, Collection>,
     creation_time: bson::DateTime,
     pragmas: EnginePragmas,
     index_arena: KeyArena<IndexNode>,
-    data: KeyArena<bson::Document>,
+    data: KeyArena<DbDocument>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -37,7 +36,7 @@ pub enum BsonAutoId {
 
 #[derive(Debug, Default)]
 struct Collection {
-    indexes: HashMap<String, CollectionIndex>,
+    indexes: IndexMap<String, CollectionIndex>,
     #[cfg(feature = "sequential-index")]
     last_id: Option<i64>,
 }
@@ -65,12 +64,27 @@ struct CollectionIndex {
 }
 
 #[derive(Debug)]
+struct DbDocument {
+    data: bson::Document,
+    // First node in this list must be _id PK index
+    index_nodes: Vec<ArenaKey<IndexNode>>,
+}
+
+impl DbDocument {
+    fn new(data: bson::Document) -> DbDocument {
+        Self {
+            data,
+            index_nodes: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct IndexNode {
     slot: u8,
     levels: u8,
     key: bson::Value,
-    data: Option<ArenaKey<bson::Document>>,
-    next_node: Option<ArenaKey<IndexNode>>, // next index targeting same data
+    data: Option<ArenaKey<DbDocument>>,
     prev: Vec<Option<ArenaKey<IndexNode>>>, // prev key in index skip list
     next: Vec<Option<ArenaKey<IndexNode>>>, // prev key in index skip list
 }
@@ -82,7 +96,6 @@ impl IndexNode {
             levels,
             key,
             data: None,
-            next_node: None,
             prev: vec![None; levels as usize],
             next: vec![None; levels as usize],
         }

@@ -148,8 +148,7 @@ impl LiteDBFile {
             let first = match start {
                 bson::Value::MinValue => Some(&indexes[index.head]),
                 bson::Value::MaxValue => Some(&indexes[index.tail]),
-                start => IndexHelper::find(indexes, &collation, index, start, true, order)
-                    .map(|(node, _)| node),
+                start => IndexHelper::find(indexes, &collation, index, start, true, order),
             };
 
             let mut node = first;
@@ -162,7 +161,7 @@ impl LiteDBFile {
                     if is_edge(&new_node.key) || collation.compare(&new_node.key, start).is_ne() {
                         break;
                     }
-                    ctx.yields(&self.data[new_node.data.unwrap()]).await;
+                    ctx.yields(&self.data[new_node.data.unwrap()].data).await;
                     node = &new_node;
                 }
             }
@@ -177,7 +176,7 @@ impl LiteDBFile {
                 }
 
                 if !is_edge(&cur_node.key) {
-                    ctx.yields(&self.data[cur_node.data.unwrap()]).await;
+                    ctx.yields(&self.data[cur_node.data.unwrap()].data).await;
                 }
 
                 node = cur_node.get_next_prev(0, order).map(|key| &indexes[key]);
@@ -190,7 +189,7 @@ impl LiteDBFile {
                 if is_edge(&cur_node.key) || order == diff {
                     break;
                 } else {
-                    ctx.yields(&self.data[cur_node.data.unwrap()]).await;
+                    ctx.yields(&self.data[cur_node.data.unwrap()].data).await;
                 }
 
                 node = cur_node.get_next_prev(0, order).map(|key| &indexes[key]);

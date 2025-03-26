@@ -2,13 +2,12 @@ use crate::buffer_reader::BufferReader;
 use crate::constants::{PAGE_FREE_LIST_SLOTS, PAGE_HEADER_SIZE, PAGE_SIZE};
 use crate::utils::{ArenaKey, BufferSlice, CaseInsensitiveString, KeyArena, PageAddress};
 use crate::{ParseError, ParseResult, bson};
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 
 use super::*;
 use crate::file_io::page::PageBuffer;
 use crate::file_io::page::PageType;
-use crate::file_io::parser::collection_page::RawCollectionPage;
+use crate::file_io::parser::collection_page::{RawCollectionIndex, RawCollectionPage};
 use crate::file_io::parser::header_page::HeaderPage;
 use crate::file_io::parser::raw_data_block::RawDataBlock;
 
@@ -78,63 +77,44 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
     };
 
     struct DataBuilder<'buf> {
-        arena: KeyArena<bson::Document>,
+        arena: KeyArena<DbDocument>,
         raw_node: HashMap<PageAddress, RawDataBlock<'buf>>,
-        keys: HashMap<PageAddress, ArenaKey<bson::Document>>,
     }
 
     impl<'buf> DataBuilder<'buf> {
         pub fn new(raw_node: HashMap<PageAddress, RawDataBlock<'buf>>) -> Self {
             Self {
                 arena: KeyArena::new(),
-                keys: HashMap::new(),
                 raw_node,
             }
         }
 
-        fn get_opt(
-            &mut self,
-            position: PageAddress,
-        ) -> ParseResult<Option<ArenaKey<bson::Document>>> {
-            if position.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(self.get(position)?))
-            }
-        }
+        fn parse(&mut self, position: PageAddress) -> ParseResult<ArenaKey<DbDocument>> {
+            let mut buffers = vec![];
 
-        fn get(&mut self, position: PageAddress) -> ParseResult<ArenaKey<bson::Document>> {
-            match self.keys.entry(position) {
-                Entry::Occupied(e) => Ok(*e.get()),
-                Entry::Vacant(e) => {
-                    let mut buffers = vec![];
+            {
+                let mut cur = position;
 
-                    {
-                        let mut cur = position;
-
-                        while !cur.is_empty() {
-                            let raw = self
-                                .raw_node
-                                .remove(&cur)
-                                .ok_or_else(ParseError::bad_reference)?;
-                            buffers.push(raw.buffer());
-                            cur = raw.next_block();
-                        }
-                    }
-
-                    let mut reader = BufferReader::fragmented(buffers);
-                    let document = reader.read_document()?;
-
-                    Ok(*e.insert(self.arena.alloc(document)))
+                while !cur.is_empty() {
+                    let raw = self
+                        .raw_node
+                        .remove(&cur)
+                        .ok_or_else(ParseError::bad_reference)?;
+                    buffers.push(raw.buffer());
+                    cur = raw.next_block();
                 }
             }
+
+            let mut reader = BufferReader::fragmented(buffers);
+            let document = reader.read_document()?;
+
+            Ok(self.arena.alloc(DbDocument::new(document)))
         }
     }
 
     struct IndexBuilder<'buf, 'a> {
         arena: KeyArena<IndexNode>,
         raw_node: HashMap<PageAddress, RawIndexNode>,
-        keys: HashMap<PageAddress, ArenaKey<IndexNode>>,
         data_builder: &'a mut DataBuilder<'buf>,
     }
 
@@ -145,101 +125,154 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
         ) -> Self {
             Self {
                 arena: KeyArena::new(),
-                keys: HashMap::new(),
                 raw_node,
                 data_builder,
             }
         }
 
-        fn get(&mut self, position: PageAddress) -> ParseResult<ArenaKey<IndexNode>> {
-            if let Some(key) = self.keys.get(&position) {
-                return Ok(*key);
-            }
+        pub fn build(
+            &mut self,
+            index: RawCollectionIndex,
+            mut get_data_builder: impl FnMut(
+                &mut DataBuilder<'buf>,
+                PageAddress,
+            ) -> ParseResult<Option<ArenaKey<DbDocument>>>,
+        ) -> ParseResult<CollectionIndex> {
+            // result structure
+            let mut index_keys = HashMap::<PageAddress, ArenaKey<IndexNode>>::new();
+            let mut head_key = None;
+            let mut tail_key = None;
 
             struct RawIndexAddress {
                 data_block: PageAddress,
-                next_node: PageAddress,
                 prev: Vec<PageAddress>,
                 next: Vec<PageAddress>,
                 key: ArenaKey<IndexNode>,
+                valid: bool,
             }
 
             let mut address_map = Vec::<RawIndexAddress>::new();
 
-            let mut processing = HashSet::<PageAddress>::new();
-            let mut process_queue = VecDeque::new();
-            process_queue.push_back(position);
-            processing.insert(position);
-
-            while let Some(current) = process_queue.pop_front() {
+            // 1st pass: parse nodes
+            let mut current_addr = Some(index.head);
+            while let Some(current) = current_addr {
                 let raw = self
                     .raw_node
                     .remove(&current)
                     .ok_or_else(ParseError::bad_reference)?;
 
-                let key = *self
-                    .keys
-                    .entry(current)
-                    .insert_entry(self.arena.alloc(IndexNode {
-                        slot: raw.slot,
-                        levels: raw.levels,
-                        key: raw.key,
-                        data: self.data_builder.get_opt(raw.data_block)?,
-                        next_node: None,
-                        prev: vec![None; raw.levels as usize],
-                        next: vec![None; raw.levels as usize],
-                    }))
-                    .get();
+                let index_key;
+                let valid;
 
-                for &addr in (raw.next.iter())
-                    .chain(raw.prev.iter())
-                    .chain([&raw.next_node])
-                    .filter(|x| !x.is_empty())
-                {
-                    if processing.insert(addr) && !self.keys.contains_key(&addr) {
-                        process_queue.push_back(addr);
+                if current == index.head || current == index.tail {
+                    // head / tail node
+                    let index_node = IndexNode::new(raw.slot, raw.levels, raw.key);
+                    index_key = self.arena.alloc(index_node);
+                    valid = true;
+                } else {
+                    // data node
+                    if let Some(data) = get_data_builder(self.data_builder, raw.data_block)? {
+                        let mut index_node = IndexNode::new(raw.slot, raw.levels, raw.key);
+                        index_node.data = Some(data);
+                        index_key = self.arena.alloc(index_node);
+                        self.data_builder.arena[data].index_nodes.push(index_key);
+                        valid = true;
+                    } else {
+                        let index_node = IndexNode::new(raw.slot, raw.levels, raw.key);
+                        index_key = self.arena.alloc(index_node);
+                        valid = false;
+                    }
+                }
+                index_keys.insert(current, index_key);
+                head_key.get_or_insert(index_key);
+                tail_key = Some(index_key);
+
+                #[allow(clippy::collapsible_if)]
+                if current == index.head {
+                    if !raw.prev.iter().all(PageAddress::is_empty) {
+                        return Err(ParseError::bad_reference());
+                    }
+                } else if current == index.tail {
+                    if !raw.next.iter().all(PageAddress::is_empty) {
+                        return Err(ParseError::bad_reference());
                     }
                 }
 
+                current_addr = Some(raw.next[0]).filter(|x| !x.is_empty());
+
+                // if new current_addr is none, current node must be tail node
+                assert!(current_addr.is_some() || current == index.tail);
+
                 address_map.push(RawIndexAddress {
-                    key,
+                    key: index_key,
                     data_block: raw.data_block,
-                    next_node: raw.next_node,
                     prev: raw.prev,
                     next: raw.next,
+                    valid,
                 });
             }
 
+            // 2nd pass: parse
             fn get(
                 keys: &mut HashMap<PageAddress, ArenaKey<IndexNode>>,
                 addr: PageAddress,
-            ) -> Option<ArenaKey<IndexNode>> {
+            ) -> ParseResult<Option<ArenaKey<IndexNode>>> {
                 if addr.is_empty() {
-                    None
+                    Ok(None)
                 } else {
-                    Some(keys[&addr])
+                    Ok(Some(
+                        *keys.get(&addr).ok_or_else(ParseError::bad_reference)?,
+                    ))
                 }
             }
 
-            for addresses in address_map {
+            for addresses in &address_map {
                 let node = &mut self.arena[addresses.key];
-                node.next_node = get(&mut self.keys, addresses.next_node);
                 for (node, &addr) in node.prev.iter_mut().zip(addresses.prev.iter()) {
-                    *node = get(&mut self.keys, addr);
+                    *node = get(&mut index_keys, addr)?;
                 }
                 for (node, &addr) in node.next.iter_mut().zip(addresses.next.iter()) {
-                    *node = get(&mut self.keys, addr);
+                    *node = get(&mut index_keys, addr)?;
                 }
             }
 
-            Ok(*self.keys.get(&position).unwrap())
+            // 3rd pass: remove invalid nodes
+            for addresses in &address_map {
+                if !addresses.valid {
+                    let node = self.arena.free(addresses.key);
+                    for level in 0..(node.levels as usize) {
+                        if let Some(prev) = node.prev[level] {
+                            self.arena[prev].next[level] = node.next[level]
+                        };
+                        if let Some(next) = node.next[level] {
+                            self.arena[next].prev[level] = node.prev[level]
+                        };
+                    }
+                }
+            }
+
+            let index_parsed = CollectionIndex {
+                slot: index.slot,
+                index_type: index.index_type,
+                name: index.name,
+                expression: index.expression,
+                unique: index.unique,
+                reserved: index.reserved,
+                bson_expr: index.bson_expr,
+                head: head_key.unwrap(),
+                tail: tail_key.unwrap(),
+            };
+            self.arena[index_parsed.head].key = bson::Value::MinValue;
+            self.arena[index_parsed.tail].key = bson::Value::MaxValue;
+
+            Ok(index_parsed)
         }
     }
 
     let mut data_builder = DataBuilder::new(data_blocks);
     let mut index_builder = IndexBuilder::new(index_nodes, &mut data_builder);
 
-    let mut collections = HashMap::new();
+    let mut collections = IndexMap::new();
 
     // parse collection pages
     for (key, page) in header.collections.iter() {
@@ -247,24 +280,37 @@ pub(super) fn parse(data: &[u8]) -> ParseResult<LiteDBFile> {
         let page_buffer = *pages
             .get(page as usize)
             .ok_or_else(ParseError::invalid_database)?;
-        let collection = RawCollectionPage::parse(page_buffer)?;
+        let mut collection = RawCollectionPage::parse(page_buffer)?;
 
-        let mut indexes = HashMap::new();
+        let mut indexes = IndexMap::new();
+
+        let mut data_keys = HashMap::<PageAddress, ArenaKey<DbDocument>>::new();
+
+        {
+            let index = collection
+                .indexes
+                .remove("_id")
+                .ok_or_else(ParseError::no_id_index)?;
+            indexes.insert(
+                "_id".to_string(),
+                index_builder.build(index, |data_builder, data_block| {
+                    let data = data_builder.parse(data_block)?;
+                    data_keys.insert(data_block, data);
+                    Ok(Some(data))
+                })?,
+            );
+        }
 
         for (name, index) in collection.indexes {
+            if name.as_str() == "_id" {
+                continue;
+            }
+
             indexes.insert(
                 name.clone(),
-                CollectionIndex {
-                    slot: index.slot,
-                    index_type: index.index_type,
-                    name: index.name,
-                    expression: index.expression,
-                    unique: index.unique,
-                    reserved: index.reserved,
-                    bson_expr: index.bson_expr,
-                    head: index_builder.get(index.head)?,
-                    tail: index_builder.get(index.tail)?,
-                },
+                index_builder.build(index, |_, data_block| {
+                    Ok(data_keys.get(&data_block).cloned())
+                })?,
             );
         }
 
@@ -298,7 +344,7 @@ mod raw_index_node {
         pub levels: u8,
         pub key: bson::Value,
         pub data_block: PageAddress,
-        pub next_node: PageAddress,
+        //pub next_node: PageAddress,
         pub prev: Vec<PageAddress>,
         pub next: Vec<PageAddress>,
     }
@@ -308,7 +354,7 @@ mod raw_index_node {
             let slot = block.read_u8(P_SLOT);
             let levels = block.read_u8(P_LEVELS);
             let data_block = block.read_page_address(P_DATA_BLOCK);
-            let next_node = block.read_page_address(P_NEXT_NODE);
+            //let next_node = block.read_page_address(P_NEXT_NODE);
 
             let mut next = Vec::with_capacity(levels as usize);
             let mut prev = Vec::with_capacity(levels as usize);
@@ -333,7 +379,7 @@ mod raw_index_node {
                 levels,
                 key,
                 data_block,
-                next_node,
+                //next_node,
                 prev,
                 next,
             })

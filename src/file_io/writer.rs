@@ -9,7 +9,9 @@ use crate::file_io::index_helper::IndexHelper;
 use crate::file_io::offsets::collection_page::P_INDEXES;
 use crate::file_io::page::{PageBuffer, PageType};
 use crate::utils::{BufferSlice, PageAddress};
+use itertools::Itertools;
 use std::cmp::min;
+use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 
 impl LiteDBFile {
@@ -99,7 +101,7 @@ fn remove_free_list(pages: &mut PageCollection, page_id: PageId, start_page_id: 
 fn write_collection(
     pages: &mut PageCollection,
     indexes: &KeyArena<IndexNode>,
-    data_arena: &KeyArena<bson::Document>,
+    data_arena: &KeyArena<DbDocument>,
     collection: &Collection,
 ) -> PageId {
     let collection_page = pages.new(PageType::Collection);
@@ -110,8 +112,14 @@ fn write_collection(
         write_collection_data(pages, indexes, data_arena, collection_page, collection);
 
     // then insert index nodes
-    let (index_nodes, free_index_pages) =
-        write_indexes(pages, indexes, collection, collection_page, &data_blocks);
+    let (index_nodes, free_index_pages) = write_indexes(
+        pages,
+        indexes,
+        data_arena,
+        collection,
+        collection_page,
+        &data_blocks,
+    );
 
     // finally serialize collection page
     let page = &mut pages[collection_page];
@@ -243,11 +251,11 @@ impl DataPageManager {
 fn write_collection_data(
     pages: &mut PageCollection,
     indexes: &KeyArena<IndexNode>,
-    data_arena: &KeyArena<bson::Document>,
+    data_arena: &KeyArena<DbDocument>,
     collection_page: PageId,
     collection: &Collection,
 ) -> (
-    HashMap<ArenaKey<bson::Document>, PageAddress>,
+    HashMap<ArenaKey<DbDocument>, PageAddress>,
     [u32; PAGE_FREE_LIST_SLOTS],
 ) {
     let mut data_slots = HashMap::new();
@@ -256,7 +264,7 @@ fn write_collection_data(
     for index_key in IndexHelper::find_all(indexes, collection.pk_index(), InternalOrder::Ascending)
     {
         let data_key = indexes[index_key].data.unwrap();
-        let data = &data_arena[data_key];
+        let data = &data_arena[data_key].data;
         let length = data.get_serialized_value_len();
         assert!(length <= MAX_DOCUMENT_SIZE);
 
@@ -419,9 +427,10 @@ impl IndexPageManager {
 fn write_indexes<'a>(
     pages: &mut PageCollection,
     indexes: &KeyArena<IndexNode>,
+    data_arena: &KeyArena<DbDocument>,
     collection: &'a Collection,
     collection_page: PageId,
-    data_blocks: &HashMap<ArenaKey<bson::Document>, PageAddress>,
+    data_blocks: &HashMap<ArenaKey<DbDocument>, PageAddress>,
 ) -> (
     HashMap<ArenaKey<IndexNode>, PageAddress>,
     HashMap<&'a str, u32>,
@@ -436,7 +445,7 @@ fn write_indexes<'a>(
         fn add_index_node(
             pages: &mut PageCollection,
             indexes: &KeyArena<IndexNode>,
-            data_blocks: &HashMap<ArenaKey<bson::Document>, PageAddress>,
+            data_blocks: &HashMap<ArenaKey<DbDocument>, PageAddress>,
             index_manager: &mut IndexPageManager,
             index_key: ArenaKey<IndexNode>,
         ) -> PageAddress {
@@ -488,20 +497,20 @@ fn write_indexes<'a>(
         free_page.insert(index.name.as_str(), index_manager.free_page);
     }
 
+    fn link(
+        block: &mut BufferSlice,
+        offset: usize,
+        node: Option<ArenaKey<IndexNode>>,
+        index_nodes: &HashMap<ArenaKey<IndexNode>, PageAddress>,
+    ) {
+        block.write_page_address(
+            offset,
+            node.map(|x| index_nodes[&x]).unwrap_or(PageAddress::EMPTY),
+        )
+    }
+
     // second pass: link nodes
     for index in collection.indexes.values() {
-        fn link(
-            block: &mut BufferSlice,
-            offset: usize,
-            node: Option<ArenaKey<IndexNode>>,
-            index_nodes: &HashMap<ArenaKey<IndexNode>, PageAddress>,
-        ) {
-            block.write_page_address(
-                offset,
-                node.map(|x| index_nodes[&x]).unwrap_or(PageAddress::EMPTY),
-            )
-        }
-
         fn link_node(
             pages: &mut PageCollection,
             indexes: &KeyArena<IndexNode>,
@@ -512,12 +521,6 @@ fn write_indexes<'a>(
             let block = pages[address.page_id()].get_block_mut(address.index());
             let node = &indexes[index_key];
 
-            link(
-                block,
-                offsets::index_node::P_NEXT_NODE,
-                node.next_node,
-                index_nodes,
-            );
             for i in 0..node.levels as usize {
                 link(
                     block,
@@ -540,6 +543,21 @@ fn write_indexes<'a>(
         link_node(pages, indexes, &index_nodes, index.tail);
         for index_key in IndexHelper::find_all(indexes, index, InternalOrder::Ascending) {
             link_node(pages, indexes, &index_nodes, index_key);
+        }
+    }
+
+    // third pass: link next node by index_nodes array
+    {
+        let index = collection.pk_index();
+        for index_key in IndexHelper::find_all(indexes, index, InternalOrder::Ascending) {
+            let data = &data_arena[indexes[index_key].data.unwrap()];
+            for (&lead, &trail) in data.index_nodes.iter().tuple_windows::<(_, _)>() {
+                let lead = index_nodes[&lead];
+                let trail = index_nodes[&trail];
+
+                let block = pages[lead.page_id()].get_block_mut(lead.index());
+                block.write_page_address(offsets::index_node::P_NEXT_NODE, trail);
+            }
         }
     }
 

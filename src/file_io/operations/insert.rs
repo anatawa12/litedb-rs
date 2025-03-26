@@ -1,8 +1,8 @@
 use crate::bson;
 use crate::expression::ExecutionScope;
 use crate::file_io::index_helper::IndexHelper;
-use crate::file_io::{BsonAutoId, Collection, IndexNode, LiteDBFile};
-use crate::utils::{ArenaKey, CaseInsensitiveString, Collation, KeyArena};
+use crate::file_io::{BsonAutoId, Collection, DbDocument, IndexNode, LiteDBFile};
+use crate::utils::{CaseInsensitiveString, Collation, KeyArena};
 
 impl LiteDBFile {
     pub fn insert(
@@ -36,12 +36,13 @@ impl LiteDBFile {
 
     pub(super) fn insert_document(
         index_arena: &mut KeyArena<IndexNode>,
-        data_arena: &mut KeyArena<bson::Document>,
+        data_arena: &mut KeyArena<DbDocument>,
         collation: Collation,
         collection: &mut Collection,
         mut doc: bson::Document,
         auto_id: BsonAutoId,
     ) -> crate::Result<()> {
+        println!("insert_document: {doc:?}");
         // if no _id, use AutoId
         let id = if let Some(id) = doc.try_get("_id") {
             #[cfg(feature = "sequential-index")]
@@ -69,20 +70,29 @@ impl LiteDBFile {
             "_id is not indexable type"
         );
 
-        let data_key = data_arena.alloc(doc.clone());
+        let data_key = data_arena.alloc(DbDocument::new(doc.clone()));
         let doc_value = bson::Value::Document(doc);
 
         let scope = ExecutionScope::new(collation);
 
-        let mut last: Option<ArenaKey<IndexNode>> = None;
-
-        for index in collection.indexes.values() {
+        // add _id PK index first
+        {
+            let index = collection.pk_index();
             for key in scope.get_index_keys(&index.bson_expr.clone(), &doc_value) {
                 let key = key?.clone();
 
-                let node =
-                    IndexHelper::add_node(index_arena, &collation, index, key, data_key, last)?;
-                last = Some(node);
+                IndexHelper::add_node(index_arena, data_arena, &collation, index, key, data_key)?;
+            }
+        }
+
+        for index in collection.indexes.values() {
+            if index.name == "_id" {
+                continue;
+            }
+            for key in scope.get_index_keys(&index.bson_expr.clone(), &doc_value) {
+                let key = key?.clone();
+
+                IndexHelper::add_node(index_arena, data_arena, &collation, index, key, data_key)?;
             }
         }
 
