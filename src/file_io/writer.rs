@@ -558,6 +558,11 @@ fn write_indexes<'a>(
                 let block = pages[lead.page_id()].get_block_mut(lead.index());
                 block.write_page_address(offsets::index_node::P_NEXT_NODE, trail);
             }
+            {
+                let lead = index_nodes[data.index_nodes.last().unwrap()];
+                let block = pages[lead.page_id()].get_block_mut(lead.index());
+                block.write_page_address(offsets::index_node::P_NEXT_NODE, PageAddress::EMPTY);
+            }
         }
     }
 
