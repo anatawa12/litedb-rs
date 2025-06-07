@@ -1,9 +1,10 @@
+use indexmap::IndexMap;
 use crate::Error;
 use crate::constants::INDEX_NAME_MAX_LENGTH;
 use crate::expression::{BsonExpression, ExecutionScope};
 use crate::file_io::LiteDBFile;
 use crate::file_io::index_helper::IndexHelper;
-use crate::utils::{CaseInsensitiveStr, CaseInsensitiveString, Order, StrExtension};
+use crate::utils::{CaseInsensitiveStr, CaseInsensitiveString, Collation, Order, StrExtension};
 
 impl LiteDBFile {
     /// # Panics
@@ -107,5 +108,32 @@ impl LiteDBFile {
         );
 
         true
+    }
+
+    pub fn drop_indexes_and_update_collation_if_collation_not_supported(&mut self) -> bool {
+        if self.pragmas.collation == Collation::default() {
+            // the collation is supported so no need to drop
+            return false
+        }
+
+        self.pragmas.collation = Collation::default();
+        for collection in self.collections.values_mut() {
+            let index = collection.indexes.swap_remove("_id").unwrap();
+            let removing_indexes = std::mem::replace(&mut collection.indexes, {
+                let mut indexes = IndexMap::new();
+                indexes.insert("_id".to_string(), index);
+                indexes
+            });
+            for index in removing_indexes.into_values() {
+                IndexHelper::drop_index(
+                    &mut self.index_arena,
+                    &mut self.data,
+                    collection.pk_index(),
+                    index,
+                );
+            }
+        }
+
+        false
     }
 }
