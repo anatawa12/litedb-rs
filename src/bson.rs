@@ -35,6 +35,7 @@ pub(crate) use json::to_json;
 pub use object_id::ObjectId;
 use std::cmp::Ordering;
 use std::ops::{Add, Div, Mul, Sub};
+use crate::utils::CSharpStringUtils;
 
 /// The type of bson [`Value`]
 ///
@@ -637,7 +638,7 @@ impl TotalOrd for Value {
             },
             (Decimal(l), Decimal(r)) => l.cmp(r),
 
-            (String(l), String(r)) => l.cmp(r),
+            (String(l), String(r)) => l.cmp_cs_ordinal(r),
 
             (Document(_), Document(_)) => panic!(
                 "Comparing two documents is unsupported since upstream implementation is completely broken"

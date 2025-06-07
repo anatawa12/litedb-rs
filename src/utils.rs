@@ -57,7 +57,7 @@ impl Collation {
     pub(crate) fn compare(&self, left: &bson::Value, right: &bson::Value) -> Ordering {
         use bson::Value::*;
         match (left, right) {
-            (String(l), String(r)) => l.cmp(r), // TODO: compare with collation settings
+            (String(l), String(r)) => l.cmp_cs_ordinal(r), // TODO: compare with collation settings
             (l, r) => l.total_cmp(r),
         }
     }
@@ -591,6 +591,27 @@ pub(crate) trait CSharpStringUtils {
             .flat_map(char::to_upper_invariant)
             .collect()
     }
+
+    /// Compares two string in UTF-16 space to match behavior with C#
+    fn cmp_cs_ordinal(&self, other: &Self) -> Ordering {
+        self.internal_as_str()
+            .encode_utf16()
+            .cmp(other.internal_as_str().encode_utf16())
+    }
+}
+
+#[test]
+fn cmp_cs_ordinal_test() {
+    // very basic cases
+    assert_eq!(Ordering::Equal, "hello".cmp_cs_ordinal("hello"));
+    assert_eq!(Ordering::Less, "hello".cmp_cs_ordinal("world"));
+    assert_eq!(Ordering::Greater, "world".cmp_cs_ordinal("hello"));
+
+    // surrogate case
+    // 0x10000 > 0xE000, therefore "\u{10000}" > "\u{E000}" in Rust world
+    // However, 0x10000 become [0xD800, 0xDC00] in C# and 0xD800 < 0xE000 so
+    // "\u{10000}" < "\u{E000}" in C#
+    assert_eq!(Ordering::Less, "\u{10000}".cmp_cs_ordinal("\u{E000}"));
 }
 
 impl CSharpStringUtils for str {
