@@ -175,5 +175,4 @@ fn new_file() {
             false, // why? but upstream does so
         )
         .expect("index is do");
-
 }
