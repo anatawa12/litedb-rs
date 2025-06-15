@@ -162,3 +162,18 @@ fn run_test() {
 
     LiteDBFile::parse(&engine.serialize()).unwrap();
 }
+
+#[test]
+fn new_file() {
+    let mut litedb = LiteDBFile::new();
+
+    litedb
+        .ensure_index(
+            "projects",
+            "Path",
+            BsonExpression::create("$.Path").unwrap(),
+            false, // why? but upstream does so
+        )
+        .expect("index is do");
+
+}
