@@ -24,6 +24,7 @@ mod guid;
 mod json;
 mod object_id;
 
+use crate::utils::CSharpStringUtils;
 pub use array::Array;
 pub use binary::Binary;
 pub use date_time::DateTime;
@@ -35,7 +36,6 @@ pub(crate) use json::to_json;
 pub use object_id::ObjectId;
 use std::cmp::Ordering;
 use std::ops::{Add, Div, Mul, Sub};
-use crate::utils::CSharpStringUtils;
 
 /// The type of bson [`Value`]
 ///

@@ -38,7 +38,7 @@ pub struct Collation {
 impl Default for Collation {
     fn default() -> Self {
         Collation {
-            lcid: 127, // invariant
+            lcid: 127,                             // invariant
             sort_options: CompareOptions::ORDINAL, // we only support ordinal order
         }
     }

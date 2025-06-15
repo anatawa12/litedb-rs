@@ -6,16 +6,16 @@ mod parser;
 mod pragma;
 mod writer;
 
-use std::sync::OnceLock;
 use crate::bson;
 use crate::expression::BsonExpression;
 use crate::utils::{ArenaKey, CaseInsensitiveString, KeyArena, Order as InternalOrder};
 use indexmap::IndexMap;
 pub use operations::Order;
 use pragma::EnginePragmas;
+use std::sync::OnceLock;
 
-pub(crate) use writer::get_key_length;
 use crate::file_io::index_helper::IndexHelper;
+pub(crate) use writer::get_key_length;
 
 #[derive(Debug)]
 pub struct LiteDBFile {
@@ -62,26 +62,20 @@ struct Collection {
 }
 
 impl Collection {
-    fn new(
-        index_arena: &mut KeyArena<IndexNode>,
-    ) -> Self {
+    fn new(index_arena: &mut KeyArena<IndexNode>) -> Self {
         let mut collection = Self {
-                indexes: IndexMap::new(),
-                #[cfg(feature = "sequential-index")]
-                last_id: None,
-            };
+            indexes: IndexMap::new(),
+            #[cfg(feature = "sequential-index")]
+            last_id: None,
+        };
 
         static EXPRESSION: OnceLock<BsonExpression> = OnceLock::new();
 
-        let expression = EXPRESSION.get_or_init(|| BsonExpression::create("$._id").unwrap()).clone();
+        let expression = EXPRESSION
+            .get_or_init(|| BsonExpression::create("$._id").unwrap())
+            .clone();
 
-        IndexHelper::create_index(
-            index_arena,
-            &mut collection,
-            "_id",
-            expression,
-            true,
-        );
+        IndexHelper::create_index(index_arena, &mut collection, "_id", expression, true);
 
         collection
     }

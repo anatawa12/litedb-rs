@@ -1,10 +1,10 @@
-use indexmap::IndexMap;
 use crate::Error;
 use crate::constants::INDEX_NAME_MAX_LENGTH;
 use crate::expression::{BsonExpression, ExecutionScope};
-use crate::file_io::{Collection, LiteDBFile};
 use crate::file_io::index_helper::IndexHelper;
+use crate::file_io::{Collection, LiteDBFile};
 use crate::utils::{CaseInsensitiveStr, CaseInsensitiveString, Collation, Order, StrExtension};
+use indexmap::IndexMap;
 
 impl LiteDBFile {
     /// # Panics
@@ -113,7 +113,7 @@ impl LiteDBFile {
     pub fn drop_indexes_and_update_collation_if_collation_not_supported(&mut self) -> bool {
         if self.pragmas.collation == Collation::default() {
             // the collation is supported so no need to drop
-            return false
+            return false;
         }
 
         self.pragmas.collation = Collation::default();
