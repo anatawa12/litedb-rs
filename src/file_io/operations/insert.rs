@@ -14,7 +14,7 @@ impl LiteDBFile {
         let collection = self
             .collections
             .entry(CaseInsensitiveString(collection.into()))
-            .or_default();
+            .or_insert_with(|| Collection::new(&mut self.index_arena));
 
         let mut count = 0;
 
@@ -42,7 +42,6 @@ impl LiteDBFile {
         mut doc: bson::Document,
         auto_id: BsonAutoId,
     ) -> crate::Result<()> {
-        println!("insert_document: {doc:?}");
         // if no _id, use AutoId
         let id = if let Some(id) = doc.try_get("_id") {
             #[cfg(feature = "sequential-index")]

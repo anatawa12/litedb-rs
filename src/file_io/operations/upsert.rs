@@ -1,5 +1,5 @@
 use crate::bson;
-use crate::file_io::{BsonAutoId, LiteDBFile};
+use crate::file_io::{BsonAutoId, Collection, LiteDBFile};
 use crate::utils::CaseInsensitiveString;
 
 impl LiteDBFile {
@@ -12,7 +12,7 @@ impl LiteDBFile {
         let collection = self
             .collections
             .entry(CaseInsensitiveString(collection.into()))
-            .or_default();
+            .or_insert_with(|| Collection::new(&mut self.index_arena));
 
         let collation = self.pragmas.collation;
 

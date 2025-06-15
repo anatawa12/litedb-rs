@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 use crate::Error;
 use crate::constants::INDEX_NAME_MAX_LENGTH;
 use crate::expression::{BsonExpression, ExecutionScope};
-use crate::file_io::LiteDBFile;
+use crate::file_io::{Collection, LiteDBFile};
 use crate::file_io::index_helper::IndexHelper;
 use crate::utils::{CaseInsensitiveStr, CaseInsensitiveString, Collation, Order, StrExtension};
 
@@ -41,7 +41,7 @@ impl LiteDBFile {
         let collection = self
             .collections
             .entry(CaseInsensitiveString(collection.into()))
-            .or_default();
+            .or_insert_with(|| Collection::new(&mut self.index_arena));
 
         if let Some(current) = collection.indexes.get(name) {
             // if already exists, just exit
