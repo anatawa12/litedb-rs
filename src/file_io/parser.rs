@@ -468,7 +468,12 @@ mod header_page {
                 pragmas: EnginePragmas::parse(buffer),
                 free_empty_page_list: buffer.read_u32(P_FREE_EMPTY_PAGE_ID),
                 last_page_id: buffer.read_u32(P_LAST_PAGE_ID),
-                collections: BufferReader::single(collections_area).read_document()?,
+                // I don't understand why deeply, but someone reported broken litedb file with all-zero collections page
+                collections: if collections_area.read_u32(0) == 0 {
+                    Default::default()
+                } else {
+                    BufferReader::single(collections_area).read_document()?
+                },
             })
         }
     }
