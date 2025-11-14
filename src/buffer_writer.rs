@@ -199,7 +199,7 @@ mod tests {
           "unique_id" => "20-133-5",
           "event_log" => array![
             document! {
-              "created" => 2020-05-06,
+              "created" => 2009,
               "type" => "job_created"
             },
             document! {
@@ -366,11 +366,11 @@ mod tests {
 
         drop(writer);
 
-        let slice0 = BufferSlice::new(&mut arr0);
-        let slice1 = BufferSlice::new(&mut arr1);
-        let slice2 = BufferSlice::new(&mut arr2);
-        let slice3 = BufferSlice::new(&mut arr3);
-        let slice4 = BufferSlice::new(&mut arr4);
+        let slice0 = BufferSlice::new(&arr0);
+        let slice1 = BufferSlice::new(&arr1);
+        let slice2 = BufferSlice::new(&arr2);
+        let slice3 = BufferSlice::new(&arr3);
+        let slice4 = BufferSlice::new(&arr4);
 
         let mut reader = BufferReader::fragmented([slice0, slice1, slice2, slice3, slice4]);
         assert_eq!(reader.read_cstring().unwrap(), "123456789*ABCEFGHIJ");

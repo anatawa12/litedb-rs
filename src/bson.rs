@@ -772,7 +772,7 @@ mod tests {
           "unique_id" => "20-133-5",
           "event_log" => array![
             document! {
-              "created" => 2020-05-06,
+              "created" => 2009,
               "type" => "job_created"
             },
             document! {
