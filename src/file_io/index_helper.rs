@@ -96,11 +96,11 @@ impl IndexHelper {
         arena[node_key].data = Some(data_block);
 
         let mut left_node = index.head;
-        let mut counter = 0;
 
         for current_level in (0..=(MAX_LEVEL_LENGTH - 1)).rev() {
             let mut right = arena[left_node].next[current_level as usize];
 
+            let mut counter = 0;
             while let Some(right_key) = right.take_if(|&mut right| right != index.tail) {
                 assert!(
                     counter < arena.len(),
@@ -289,11 +289,11 @@ impl IndexHelper {
             &arena[index.tail]
         };
 
-        let mut counter = 0;
 
         for level in (0..=(MAX_LEVEL_LENGTH - 1)).rev() {
             let mut right = left_node.get_next_prev(level, order);
 
+            let mut counter = 0;
             while let Some(right_key) = right {
                 assert!(
                     counter < arena.len(),
