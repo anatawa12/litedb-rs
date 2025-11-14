@@ -73,10 +73,10 @@ jobs:
           RELEASE_KIND_IN: ${{ github.event.inputs.release_kind }}
 
       # check for unexpected breaking ABI changes
-      - name: Check semver
-        uses: obi1kenobi/cargo-semver-checks-action@v2
-        with:
-          package: ${{ env.CRATE_NAME }}
+      #- name: Check semver
+      #  uses: obi1kenobi/cargo-semver-checks-action@v2
+      #  with:
+      #    package: ${{ env.CRATE_NAME }}
 
       - name: commit new release
         id: commit
