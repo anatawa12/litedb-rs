@@ -62,7 +62,7 @@ impl SharedMutex {
         inner(name.as_ref()).await
     }
 
-    pub async fn lock(&self) -> io::Result<SharedMutexGuard> {
+    pub async fn lock(&self) -> io::Result<SharedMutexGuard<'_>> {
         Ok(SharedMutexGuard {
             _inner: self.inner.lock().await?,
             _phantom: PhantomData,
