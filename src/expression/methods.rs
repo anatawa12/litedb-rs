@@ -1211,7 +1211,7 @@ mod expression_methods {
                 if len <= width {
                     value
                 } else {
-                    let chars = std::iter::repeat(padding_char).take(width - len);
+                    let chars = std::iter::repeat_n(padding_char, width - len);
                     ctx.arena(chars.chain(str.chars()).collect::<String>().into())
                 }
             }
@@ -1240,7 +1240,7 @@ mod expression_methods {
                 if len <= width {
                     value
                 } else {
-                    let chars = std::iter::repeat(padding_char).take(width - len);
+                    let chars = std::iter::repeat_n(padding_char, width - len);
                     ctx.arena(str.chars().chain(chars).collect::<String>().into())
                 }
             }

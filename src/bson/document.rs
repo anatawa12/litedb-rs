@@ -86,7 +86,7 @@ impl Document {
         self.inner.clear();
     }
 
-    pub fn entry(&mut self, key: impl Into<String>) -> Entry {
+    pub fn entry(&mut self, key: impl Into<String>) -> Entry<'_> {
         let key = key.into();
         check_key(&key);
 

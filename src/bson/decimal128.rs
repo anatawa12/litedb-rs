@@ -853,7 +853,7 @@ impl Div for Decimal128 {
             }
 
             // remove trailing zero
-            while mantissa % 10 == 0 && scale > 0 {
+            while mantissa.is_multiple_of(10) && scale > 0 {
                 mantissa /= 10;
                 scale -= 1;
             }

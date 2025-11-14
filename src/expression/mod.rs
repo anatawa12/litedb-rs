@@ -151,7 +151,7 @@ impl Expression {
 
     pub(crate) fn execute(
         self,
-        ctx: ExecutionContext,
+        ctx: ExecutionContext<'_>,
     ) -> impl Iterator<Item = super::Result<&bson::Value>> + Clone + use<'_> {
         match self {
             Expression::Scalar(expr) => {

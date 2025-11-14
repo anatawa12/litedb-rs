@@ -289,7 +289,6 @@ impl IndexHelper {
             &arena[index.tail]
         };
 
-
         for level in (0..=(MAX_LEVEL_LENGTH - 1)).rev() {
             let mut right = left_node.get_next_prev(level, order);
 

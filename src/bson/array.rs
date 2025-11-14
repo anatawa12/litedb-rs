@@ -35,11 +35,11 @@ impl Array {
         self.data.pop()
     }
 
-    pub fn iter(&self) -> std::slice::Iter<Value> {
+    pub fn iter(&self) -> std::slice::Iter<'_, Value> {
         self.data.iter()
     }
 
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<Value> {
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, Value> {
         self.data.iter_mut()
     }
 
